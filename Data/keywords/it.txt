@@ -1,0 +1,223 @@
+i.a.
+adattivo
+analitica avanzata
+flusso di lavoro agentivo
+agile
+ia
+guidato da ia
+abilitato da ia
+ia ml
+piattaforma ia
+alimentato da ia
+guidato-da-ia
+abilitato-da-ia
+alimentato-da-ia
+ia/ml
+algoritmo
+algoritmico
+anaconda
+analitica
+cloud analitico
+rilevamento anomalie
+anthropic
+antiriciclaggio
+intelligenza artificiale
+analitica audio
+generazione audio
+auto ml
+automatizzato
+automazione
+automl
+agente autonomo
+aws sagemaker
+azure ml
+bard
+bard ia
+rilevamento bias
+big data
+blockchain
+business intelligence
+chatbot
+chatgpt
+chtgpt
+predizione abbandono clienti
+classificazione
+claud
+claude
+cloud computing
+clustering
+cognitivo
+cohere
+visione artificiale
+monitoraggio condizioni
+ia conversazionale
+punteggio creditizio
+segmentazione clienti
+cv
+dal e
+dall-e
+dashboard
+deriva dati
+guidato dai dati
+ingegnere dati
+ingegneria dati
+estrazione dati
+data mining
+scienza dei dati
+scienziato dei dati
+visualizzazione dati
+guidato-dai-dati
+apprendimento profondo
+devops
+modello diffusione
+assistente digitale
+trasformazione digitale
+digitalizzazione
+dl
+docker
+ia documentale
+intelligenza documentale
+comprensione documenti
+edge computing
+embedding
+modello embedding
+rilevamento emozioni
+predizione guasti attrezzature
+tracciamento esperimenti
+ia spiegabile
+riconoscimento facciale
+equità
+ingegneria caratteristiche
+archivio caratteristiche
+apprendimento few-shot
+criminalità finanziaria
+fine tuning
+fine-tuning
+previsione
+estrazione moduli
+rilevamento frodi
+gemini
+gemni
+genai
+generativo
+git
+github copilot
+google cloud ai
+ia grafica
+hugging face
+iper-parametro
+tuning iperparametri
+idegram
+ideogram
+generazione immagini
+prompt immagine
+riconoscimento immagini
+innovazione
+insights
+intelligente
+automazione intelligente
+internet delle cose
+estrazione fatture
+elaborazione fatture
+iot
+jupyter
+keras
+grafo conoscenza
+kubernetes
+langchain
+api modello linguaggio
+grande modello linguaggio
+llm
+m.l.
+apprendimento automatico
+midjourney
+midjurney
+ml
+basato su ml
+piattaforma ml
+basato-su-ml
+mlops
+deployment modello
+deriva modello
+governance modello
+inferenza modello
+monitoraggio modello
+registro modello
+servizio modello
+trainer modello
+addestramento modello
+elaborazione linguaggio naturale
+rete neurale
+rete-neurale
+prossima migliore azione
+nlp
+numpy
+rilevamento oggetti
+ocr
+openai
+ottimizzazione
+rilevamento valori anomali
+pandas
+perplexity
+personalizzazione
+pre-addestrato
+predittivo
+analitica predittiva
+manutenzione predittiva
+modellazione predittiva
+programmazione
+ingegneria prompt
+modellazione propensione
+python
+pytorch
+ispezione qualità
+programmazione r
+rag
+ranking
+motore raccomandazioni
+sistema raccomandazioni
+regressione
+apprendimento rinforzo
+reporting
+ia responsabile
+generazione aumentata recupero
+punteggio rischio
+rl
+automazione robotica processi
+analisi causa radice
+rpa
+scikit-learn
+scrum
+auto-apprendimento
+auto-supervisionato
+ricerca semantica
+semi-supervisionato
+analisi sentimenti
+ricerca similarità
+intelligente
+sviluppo software
+api vocale
+riconoscimento vocale
+voce a testo
+stable diffusion
+modellazione statistica
+apprendimento supervisionato
+tabnine
+stack tecnologico
+tensorflow
+generazione testo
+testo a voce
+serie temporali
+apprendimento trasferimento
+apprendimento non supervisionato
+database vettoriale
+db vettoriale
+ricerca vettoriale
+controllo versione
+generazione video
+assistente virtuale
+api visione
+ispezione visiva
+analitica vocale
+xai
+zero-shot
