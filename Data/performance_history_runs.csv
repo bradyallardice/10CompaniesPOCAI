@@ -1,0 +1,8 @@
+timestamp_utc,prompt_id,dataset,run_index,macro_precision,macro_recall,macro_f1,malformed_ground_truth,malformed_predictions,total_ground_truth_caps,total_predicted_caps,threshold,notes
+2025-08-04T10:54:48.501286+00:00,test_run_v1,test,1,0.9574074074074076,1.0,0.9765795206971678,0,0,0,0,0.75,Testing evaluation system with mock data
+2025-08-04T11:11:57.815501+00:00,train_baseline_v1,train,1,0.47500000000000003,0.46875,0.458994708994709,0,0,0,0,0.75,Initial test run on training data
+2025-08-04T14:53:04.556095+00:00,unicode_test_baseline,test,1,0.19444444444444445,0.1875,0.19047619047619047,0,0,0,0,0.82,Testing Unicode cleaning on existing predictions
+2025-08-04T14:56:28.126389+00:00,detailed_test_v1,test,1,0.19444444444444445,0.1875,0.19047619047619047,0,0,0,0,0.82,Testing detailed CSV export functionality
+2025-08-04T15:01:41.087262+00:00,dual_export_test_v1,test,1,0.19444444444444445,0.1875,0.19047619047619047,0,0,0,0,0.82,Testing both detailed matches and job summary CSV export
+2025-08-04T15:05:10.354358+00:00,enhanced_summary_test_v1,test,1,0.19444444444444445,0.1875,0.19047619047619047,0,0,0,0,0.82,Testing enhanced job summary CSV with full content
+2025-08-04T15:09:54.079881+00:00,capability_counts_test_v1,test,1,0.19444444444444445,0.1875,0.19047619047619047,0,0,20,23,0.82,Testing capability counts in performance history
