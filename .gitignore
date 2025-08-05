@@ -1,0 +1,48 @@
+# OS and IDE files
+.DS_Store
+.claude/
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary data files
+Data/*_20250*.csv
+Data/*_20250*.parquet
+Data/*_20250*.json
+Data/detailed_matches_*.csv
+Data/job_summary_*.csv
+Data/*with_predictions*.csv
+Data/*mock_predictions*.csv
+
+# Archive and backup files
+archive/
+*.numbers
+*.bak
+
+# Configuration files with credentials
+config.env
+
+# Large intermediate processing files
+Data/all_*.csv
+Data/database_subset_*.csv
+Data/ai_development_deduplicated_*.csv
+Data/ai_tasks_extracted_*.csv
+Data/*_cleaning_*.csv
+Data/*_comparison.csv
+Data/*_summary.csv
+Data/*_review_*.csv
+Data/similar_duplicates_*.csv
+Data/enhanced_*.csv
+Data/improved_*.csv
+Data/smart_*.csv
+Data/main_export_*.csv
+Data/validation_metrics_*.json
+
+# Keep only core evaluation datasets and results
+!Data/train_data_scored_*_updated.csv
+!Data/test_data_scored_*.csv
+!Data/dev_data_split.csv
+!Data/final_test_data_split.csv
+!Data/performance_history_*.csv
+!Data/top_10_matches.csv
+!Data/job_app_mapping.csv
