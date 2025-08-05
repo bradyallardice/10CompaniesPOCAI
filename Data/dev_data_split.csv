@@ -1,0 +1,980 @@
+uid,title,company_name,company_size,location_raw,detected_language,original_language,content_clean,translated_text,Final
+8f97146c-2e74-4ee8-98c8-b90e445fdc7e,Lead Data Architect,Octapharma AG,Grossunternehmen,CH-8853 Lachen SZ,en,en,"Headquartered in Lachen near Zurich, Switzerland, the Octapharma Group is a leading company in the worldwide market for therapeutic human proteins. Working at Octapharma means to have an opportunity to contribute to our common goal – developing lifesaving therapies to improve patients’ lives.
+
+We are seeking
+
+A highly motivated professional to join the corporate IT team as Lead Data Architect. In this newly created position, you will lead the implementation of the new data platform in Octapharma group. You will work together with an international team of business and IT team members on delivering high value data use cases.
+
+Your main responsibilities and opportunities
+
+Define the future data architecture, technical framework, and data governance
+
+Collaborate and coordinate with multiple departments, stakeholders, partners, and external vendors
+
+Translate business requirements into technical specifications, including data streams, integrations, transformations, databases, data lakes, ML, and data warehouses
+
+Ensure that solutions exhibit high levels of performance, security, scalability, maintainability, appropriate reusability, and reliability upon deployment
+
+Your Profile
+
+Enterprise-scale technical experience with cloud and hybrid infrastructures, architecture designs, data models and technology management
+
+Breadth of technical experience and knowledge, with deep subject matter expertise in some of the following areas:
+
+Data Platform
+
+Cloud solutions
+
+SQL, Azure SQL
+
+NoSQL data bases (Cosmos DB)
+
+Big Data and Data Warehouses including Azure Analytics,
+
+Advanced Analytics including Azure Synapse Analytics, Azure Data Bricks, visualization tools as PowerBI, Qlik
+
+Data Science
+
+Machine Learning including Azure ML, ML Server, Python
+
+Artificial Intelligence
+
+Bachelor or master’s degree in computer science, information technology, or related field
+
+Previous 5+ years’ experience in data architecture and data science.
+
+You bring a drive for excellence and a positive “can do” approach.
+
+Our offer
+
+Develop and grow a professional career in and exiting, challenging and international environment
+
+A responsible and varied job with active participation in the highly complex IT landscape
+
+And attractive salary and benefits package
+
+A skilled, motivated and committed team
+
+How to apply
+
+Please apply online in English describing your interest, expected salary, and enclosing your CV, references and/or recommendation letters.","Headquartered in Lachen near Zurich, Switzerland, the Octapharma Group is a leading company in the worldwide market for therapeutic human proteins. Working at Octapharma means to have an opportunity to contribute to our common goal – developing lifesaving therapies to improve patients’ lives.
+
+We are seeking
+
+A highly motivated professional to join the corporate IT team as Lead Data Architect. In this newly created position, you will lead the implementation of the new data platform in Octapharma group. You will work together with an international team of business and IT team members on delivering high value data use cases.
+
+Your main responsibilities and opportunities
+
+Define the future data architecture, technical framework, and data governance
+
+Collaborate and coordinate with multiple departments, stakeholders, partners, and external vendors
+
+Translate business requirements into technical specifications, including data streams, integrations, transformations, databases, data lakes, ML, and data warehouses
+
+Ensure that solutions exhibit high levels of performance, security, scalability, maintainability, appropriate reusability, and reliability upon deployment
+
+Your Profile
+
+Enterprise-scale technical experience with cloud and hybrid infrastructures, architecture designs, data models and technology management
+
+Breadth of technical experience and knowledge, with deep subject matter expertise in some of the following areas:
+
+Data Platform
+
+Cloud solutions
+
+SQL, Azure SQL
+
+NoSQL data bases (Cosmos DB)
+
+Big Data and Data Warehouses including Azure Analytics,
+
+Advanced Analytics including Azure Synapse Analytics, Azure Data Bricks, visualization tools as PowerBI, Qlik
+
+Data Science
+
+Machine Learning including Azure ML, ML Server, Python
+
+Artificial Intelligence
+
+Bachelor or master’s degree in computer science, information technology, or related field
+
+Previous 5+ years’ experience in data architecture and data science.
+
+You bring a drive for excellence and a positive “can do” approach.
+
+Our offer
+
+Develop and grow a professional career in and exiting, challenging and international environment
+
+A responsible and varied job with active participation in the highly complex IT landscape
+
+And attractive salary and benefits package
+
+A skilled, motivated and committed team
+
+How to apply
+
+Please apply online in English describing your interest, expected salary, and enclosing your CV, references and/or recommendation letters.","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""The data platform will run advanced analytics on large-scale datasets with Azure Synapse Analytics and Azure Databricks to surface actionable insights automatically."",
+      ""brief_description"": ""Advanced analytics tools (Synapse Analytics, Databricks) will mine Octapharma’s data to generate business insights."",
+      ""raw_excerpt"": ""Advanced Analytics including Azure Synapse Analytics, Azure Data Bricks, visualization tools as PowerBI, Qlik"",
+      ""explanation"": ""This line names the advanced-analytics engines the platform will employ; these engines automate large-scale data analysis, an AI/ML-enabled function that produces insights without manual inspection.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Machine-learning services (Azure ML and ML Server) will automatically train, deploy, and serve predictive models that generate data-driven outputs."",
+      ""brief_description"": ""ML workloads on Azure ML / ML Server will create and deliver predictions for high-value data use cases."",
+      ""raw_excerpt"": ""Machine Learning including Azure ML, ML Server, Python"",
+      ""explanation"": ""The advert lists Azure ML and ML Server as core components, indicating that the system will handle end-to-end model creation and inference—key automated ML tasks.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Artificial-intelligence components will apply intelligent algorithms to convert raw data into use-case-specific, high-value outputs that support business decisions."",
+      ""brief_description"": ""AI capabilities are expected to deliver \""high value data use cases\"" across the organisation."",
+      ""raw_excerpt"": ""delivering high value data use cases\nArtificial Intelligence"",
+      ""explanation"": ""By explicitly citing \""Artificial Intelligence\"" and the goal of \""delivering high value data use cases,\"" the ad implies that AI algorithms will automate complex data processing and decision-support tasks.""
+    }
+  ]
+}
+"
+a813698e-c4e0-4196-aa43-32e4e1b2418e,Data Analyst / Scientist,Burckhardt Compression AG,Mittelunternehmen,CH-8404 Winterthur,en,de,"Burckhardt Compression ist der weltweite Marktführer im Bereich von Kolbenkompressorsystemen. Als einziger Hersteller und Servicedienstleister bietet das Unternehmen eine komplette Reihe von Kolbenkompressortechnologien und Services an. Die kundenspezifisch ausgelegten Kompressorsysteme werden in den Bereichen Gasförderung und -verarbeitung, Gastransport und -lagerung, Raffinerie, Chemie und Petrochemie sowie in Industriegas und der Wasserstoffmobilität und -energie eingesetzt. Mit führender Technologie, einem breiten Portfolio an Komponenten sowie einem vollumfänglichen Serviceangebot unterstützt Burckhardt Compression seine Kunden weltweit, die auf ihre Bedürfnisse zugeschnittene Lösung für ihre Kolbenkompressorsysteme zu finden. Seit 1844 schaffen hochqualifizierte Mitarbeitende Spitzenlösungen, um in der Gasverdichtung Massstäbe zu setzen.
+
+For our newly created department we are looking for an initiative and committed personality as a
+
+Data Analyst / Scientist (M/F/D)– Let’s create the insights for smart compression together 100%
+
+At Burckhardt Compression, we are the leading experts for reciprocating compressor systems, trusted by clients across industries and the globe. Now, we are going a large step further and are creating an interdisciplinary team to create industrial compression’s digital future. This is your chance to create something entirely new and work in an agile, data-driven and fast-paced environment with the network and benefits of an industry-leading company.
+
+Who we are looking for
+
+We are building smart solutions that range from connecting and monitoring compressors all the way to optimizing operations, predicting and automating repairs. To do that, we need you, a data analyst, to be part of our newly established team. To succeed in this position, you should have a university degree in data or software engineering or a quantitative field, a proven track record and a passion to generate actionable insights for customers.
+
+Whatyoucanexpect
+
+Build the future of industrial compression solutions together with a newly established interdisciplinary and data-driven team
+
+Initiate and conduct data analyses based on machine, production and service data and recognize patterns and correlations from our data streams
+
+Use the data provided to generate descriptive, visualize and meaningful insights
+
+Integrate technical solutions into business contexts and explore internal and external needs and translate them into data requirements
+
+Work on machine learning and artificial intelligence projects (e.g., automated decision making, improvement of process quality and efficiency); supervised and unsupervised learning
+
+Work with cross-divisional teams in an agile setup
+
+You will be working in systems SAP (R3, BW), Microsoft Dynamics CRM, Microsoft BI, Siemens Teamcenter PLM, Microsoft AZURE, Amazon AWS
+
+Statistical modelling and experiment design
+
+Whatyoushould bring
+
+Degree in computer science, applied mathematics, statics or related quantitative field, or related field and/or experience in lieu of a degree
+
+Experience preferably in an industrial company
+
+Comfortable using cloud-based solutions
+
+Experience or minimum willingness to learn the Analytical problem-solving skills and ability to assimilate complex information
+
+Proven track record in data analysis, machine learning, statistical modeling, artificial intelligence and related approaches
+
+Programming experience in modern data-oriented languages (e.g., Python)
+
+Willingness to acquire additional system/technical knowledge as needed
+
+Fluent in English, German is a plus
+
+Experience in working with Microsoft Azure and/or other cloud-based environments
+
+Experience with agile and customer-centered development approaches is a plus
+
+Experience to work in an international organization and in multi-cultural teams
+
+Translate data driven insights into decisions and actions
+
+What we are offering
+
+We are offering exciting technical and business challenges and development opportunities within a diversified and international environment. You can expect a competitive salary package, attractive working conditions, such as the opportunity to work some days remotely from home. You can also expect a pragmatic, open company culture. If you already have a Swiss work permit or are a citizen of the EU, we look forward to receiving your meaningful application.
+
+Do you like what you see?
+
+Are you excited to shape the future digital offerings for one of Switzerland's largest mechanical engineering companies? Then we are looking forward to getting to know you.
+
+We look forward to receiving your complete application documents.
+
+Burckhardt Compression AG | Location Winterthur I Gabriella Stecher |
+
+Tel. +41 52 262 60 28
+
+Wir bieten Ihnen flexible Arbeitsbedingungen, vielseitige und selbstständige Tätigkeiten in einem dynamischen internationalen Umfeld sowie Entwicklungsmöglichkeiten. Unsere Mitarbeitenden schätzen das gute Betriebsklima. Zeitgemässe Entlohnung und sehr gute Sozialleistungen sind selbstverständlich.","Burckhardt Compression is the global market leader in the field of piston compressor systems. As the only manufacturer and service provider, the company offers a complete range of piston compressor technologies and services. The custom-designed compressor systems are used in gas production and processing, gas transportation and storage, refineries, chemical and petrochemical industries, as well as in industrial gases and hydrogen mobility and energy. With leading technology, a broad portfolio of components, and comprehensive service offerings, Burckhardt Compression supports its customers worldwide in finding tailored solutions for their piston compressor systems. Since 1844, highly qualified employees have been creating top solutions to set standards in gas compression.
+
+For our newly created department, we are looking for an initiative and committed personality as a
+
+Data Analyst / Scientist (M/F/D) – Let’s create the insights for smart compression together 100%
+
+At Burckhardt Compression, we are the leading experts in reciprocating compressor systems, trusted by clients across industries and around the world. Now, we are taking a big step further by creating an interdisciplinary team to shape the digital future of industrial compression. This is your chance to create something entirely new and work in an agile, data-driven, and fast-paced environment with the network and benefits of an industry-leading company.
+
+Who we are looking for
+
+We are building smart solutions that range from connecting and monitoring compressors to optimizing operations, predicting, and automating repairs. To do this, we need you, a data analyst, to be part of our newly established team. To succeed in this position, you should have a university degree in data or software engineering or a quantitative field, a proven track record, and a passion for generating actionable insights for customers.
+
+What you can expect
+
+- Build the future of industrial compression solutions together with a newly established interdisciplinary and data-driven team
+- Initiate and conduct data analyses based on machine, production, and service data, recognizing patterns and correlations from our data streams
+- Use the data provided to generate descriptive, visualized, and meaningful insights
+- Integrate technical solutions into business contexts and explore internal and external needs, translating them into data requirements
+- Work on machine learning and artificial intelligence projects (e.g., automated decision-making, improvement of process quality and efficiency); supervised and unsupervised learning
+- Collaborate with cross-divisional teams in an agile setup
+- Work with systems such as SAP (R3, BW), Microsoft Dynamics CRM, Microsoft BI, Siemens Teamcenter PLM, Microsoft AZURE, Amazon AWS
+- Conduct statistical modeling and experiment design
+
+What you should bring
+
+- Degree in computer science, applied mathematics, statistics, or a related quantitative field, or relevant experience in lieu of a degree
+- Preferably experience in an industrial company
+- Comfortable using cloud-based solutions
+- Experience or willingness to learn analytical problem-solving skills and the ability to assimilate complex information
+- Proven track record in data analysis, machine learning, statistical modeling, artificial intelligence, and related approaches
+- Programming experience in modern data-oriented languages (e.g., Python)
+- Willingness to acquire additional system/technical knowledge as needed
+- Fluent in English; German is a plus
+- Experience working with Microsoft Azure and/or other cloud environments
+- Experience with agile and customer-centered development approaches is a plus
+- Experience working in an international organization and multicultural teams
+- Ability to translate data-driven insights into decisions and actions
+
+What we are offering
+
+We offer exciting technical and business challenges and development opportunities within a diversified and international environment. You can expect a competitive salary package, attractive working conditions such as the opportunity to work remotely some days, and a pragmatic, open company culture. If you already hold a Swiss work permit or are an EU citizen, we look forward to receiving your meaningful application.
+
+Do you like what you see?
+
+Are you excited to shape the future digital offerings for one of Switzerland’s largest mechanical engineering companies? Then we look forward to getting to know you.
+
+We look forward to receiving your complete application documents.
+
+Burckhardt Compression AG | Location Winterthur | Gabriella Stecher |
+
+Tel. +41 52 262 60 28
+
+We offer flexible working conditions, diverse and independent activities in a dynamic international environment, as well as development opportunities. Our employees appreciate the good working atmosphere. Modern compensation and excellent social benefits are of course included.","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Continuously connect to and remotely monitor the health and performance of reciprocating compressors in the field."",
+      ""brief_description"": ""The smart solution streams compressor data for real-time condition monitoring."",
+      ""raw_excerpt"": ""…smart solutions that range from **connecting and monitoring compressors**…"",
+      ""explanation"": ""The excerpt explicitly states that one goal of the AI-enabled solution is to establish connectivity and monitoring, indicating automated data acquisition and surveillance of equipment.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Optimize compressor operating parameters in real time to enhance efficiency and output."",
+      ""brief_description"": ""AI adjusts operations to achieve better performance and lower energy use."",
+      ""raw_excerpt"": ""…all the way to **optimizing operations**…"",
+      ""explanation"": ""‘Optimizing operations’ implies an algorithmic routine that continuously analyzes data and tunes the compressor’s settings without human intervention.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Predict impending failures or maintenance needs of compressors before they occur."",
+      ""brief_description"": ""Machine-learning models forecast when service will be required (predictive maintenance)."",
+      ""raw_excerpt"": ""…**predicting** … repairs…"",
+      ""explanation"": ""The verb ‘predicting’ points to a predictive-maintenance capability whereby ML anticipates breakdowns from sensor patterns.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Automatically trigger or schedule repair actions based on predictive insights."",
+      ""brief_description"": ""The system initiates or automates repairs once a prediction crosses a threshold."",
+      ""raw_excerpt"": ""…predicting and **automating repairs**."",
+      ""explanation"": ""‘Automating repairs’ denotes an AI workflow that issues work orders or control actions without manual planning.""
+    },
+    {
+      ""task_id"": 5,
+      ""ai_capability"": ""Provide automated decision-making support within industrial compression processes."",
+      ""brief_description"": ""Algorithms take or recommend decisions that previously required expert operators."",
+      ""raw_excerpt"": ""…machine learning and artificial intelligence projects (e.g., **automated decision making**, improvement of process quality…)"",
+      ""explanation"": ""The parenthetical example specifies automated decision making, indicating that the AI system will act or recommend actions autonomously.""
+    },
+    {
+      ""task_id"": 6,
+      ""ai_capability"": ""Improve overall process quality and efficiency through ML-driven adjustments and recommendations."",
+      ""brief_description"": ""The AI continuously refines process parameters to raise quality and throughput."",
+      ""raw_excerpt"": ""…automated decision making, **improvement of process quality and efficiency**…"",
+      ""explanation"": ""The phrase highlights a distinct goal: leveraging analytics to enhance quality metrics and efficiency, beyond simple parameter optimization.""
+    },
+    {
+      ""task_id"": 7,
+      ""ai_capability"": ""Detect patterns and correlations across machine, production, and service data streams."",
+      ""brief_description"": ""Unsupervised or supervised models uncover hidden relationships in diverse data."",
+      ""raw_excerpt"": ""…recognize **patterns and correlations from our data streams**"",
+      ""explanation"": ""Pattern recognition is a core ML capability, used here to derive insights that humans would miss in large, multivariate datasets.""
+    },
+    {
+      ""task_id"": 8,
+      ""ai_capability"": ""Generate descriptive analytics and visualizations that translate raw data into meaningful insights for users."",
+      ""brief_description"": ""The system produces dashboards and reports directly from the collected data."",
+      ""raw_excerpt"": ""Use the data provided to **generate descriptive, visualize and meaningful insights**"",
+      ""explanation"": ""The excerpt promises automated creation of visual and descriptive outputs, indicating built-in analytics and reporting functions.""
+    }
+  ]
+}
+"
+32dfc93e-a5e4-4328-b71a-f522cd3918dc,Data Scientist,Burckhardt Compression AG,Mittelunternehmen,CH-8404 Winterthur,en,en,"Burckhardt Compression is the worldwide market leader for reciprocating compressor systems, and the only manufacturer and service provider that covers a full range of reciprocating compressor technologies and services. Its customized compressor systems are used in the gas gathering and processing, gas transport and storage, refinery, chemical, petrochemical as well as in the industrial gas and hydrogen mobility and energy sectors. Burckhardt Compression’s leading technology, broad portfolio of compressor components and the full range of services help customers around the world to find the optimized solution for their reciprocating compressor systems. Since 1844 its highly skilled workforce has crafted superior solutions and set the benchmark in the gas compression industry.
+
+For our newly created department we are looking for an initiative and committed personality as a
+
+Data Scientist (m/f/d) –
+
+Let’s create the insights for smart compression together 100%
+
+At Burckhardt Compression, we are the leading experts for reciprocating compressor systems, trusted by clients across industries and the globe. Now, we are going a large step further and are creating an interdisciplinary team to create industrial compression’s digital future. This is your chance to create something entirely new and work in an agile, data-driven and fast-paced environment with the network and benefits of an industry-leading company.
+
+Who we are looking for
+
+We are building smart solutions that range from connecting and monitoring compressors all the way to optimizing operations, predicting and automating repairs. To do that, we need you, a data scientist, to be part of our newly established team. To succeed in this position, you should have a university degree in data or software engineering or a quantitative field, a proven track record and a passion to generate actionable insights for customers.
+
+Whatyoucanexpect
+
+Build the future of industrial compression solutions together with a newly established interdisciplinary and data-driven team
+
+Initiate and conduct data analyses based on machine, production and service data and recognize patterns and correlations from our data streams
+
+Use the data provided to generate descriptive, visualize and meaningful insights
+
+Integrate technical solutions into business contexts and explore internal and external needs and translate them into data requirements
+
+Work on machine learning and artificial intelligence projects (e.g., automated decision making, improvement of process quality and efficiency); supervised and unsupervised learning
+
+Work with cross-divisional teams in an agile setup
+
+You will be working in systems SAP (R3, BW), Microsoft Dynamics CRM, Microsoft BI, Siemens Teamcenter PLM, Microsoft AZURE, Amazon AWS
+
+Statistical modelling and experiment design
+
+Whatyoushould bring
+
+Degree in computer science, applied mathematics, statics or related quantitative field, or related field and/or experience in lieu of a degree
+
+Experience preferably in an industrial company
+
+Comfortable using cloud-based solutions
+
+Experience or minimum willingness to learn the Analytical problem-solving skills and ability to assimilate complex information
+
+Proven track record in data analysis, machine learning, statistical modeling, artificial intelligence and related approaches
+
+Programming experience in modern data-oriented languages (e.g., Python)
+
+Preferable experience with NLP Natural Language Processing, Computer Vision
+
+Willingness to acquire additional system/technical knowledge as needed
+
+Fluent in English
+
+Experience in working with Microsoft Azure and/or other cloud-based environments
+
+Experience with agile and customer-centered development approaches is a plus
+
+Experience to work in an international organization and in multi-cultural teams
+
+Translate data driven insights into decisions and actions
+
+What we are offering
+
+We are offering exciting technical and business challenges and development opportunities within a diversified and international environment. You can expect a competitive salary package, attractive working conditions, such as the opportunity to work some days remotely from home. You can also expect a pragmatic, open company culture. If you already have a Swiss work permit or are a citizen of the EU, we look forward to receiving your meaningful application.
+
+Do you like what you see?
+
+Are you excited to shape the future digital offerings for one of Switzerland's largest mechanical engineering companies? Then we are looking forward to getting to know you.
+
+We look forward to receiving your complete application documents.
+
+Burckhardt Compression AG | Location Winterthur I
+
+Ursula Meierhofer | Tel. +41 52 261 53 75","Burckhardt Compression is the worldwide market leader for reciprocating compressor systems, and the only manufacturer and service provider that covers a full range of reciprocating compressor technologies and services. Its customized compressor systems are used in the gas gathering and processing, gas transport and storage, refinery, chemical, petrochemical as well as in the industrial gas and hydrogen mobility and energy sectors. Burckhardt Compression’s leading technology, broad portfolio of compressor components and the full range of services help customers around the world to find the optimized solution for their reciprocating compressor systems. Since 1844 its highly skilled workforce has crafted superior solutions and set the benchmark in the gas compression industry.
+
+For our newly created department we are looking for an initiative and committed personality as a
+
+Data Scientist (m/f/d) –
+
+Let’s create the insights for smart compression together 100%
+
+At Burckhardt Compression, we are the leading experts for reciprocating compressor systems, trusted by clients across industries and the globe. Now, we are going a large step further and are creating an interdisciplinary team to create industrial compression’s digital future. This is your chance to create something entirely new and work in an agile, data-driven and fast-paced environment with the network and benefits of an industry-leading company.
+
+Who we are looking for
+
+We are building smart solutions that range from connecting and monitoring compressors all the way to optimizing operations, predicting and automating repairs. To do that, we need you, a data scientist, to be part of our newly established team. To succeed in this position, you should have a university degree in data or software engineering or a quantitative field, a proven track record and a passion to generate actionable insights for customers.
+
+Whatyoucanexpect
+
+Build the future of industrial compression solutions together with a newly established interdisciplinary and data-driven team
+
+Initiate and conduct data analyses based on machine, production and service data and recognize patterns and correlations from our data streams
+
+Use the data provided to generate descriptive, visualize and meaningful insights
+
+Integrate technical solutions into business contexts and explore internal and external needs and translate them into data requirements
+
+Work on machine learning and artificial intelligence projects (e.g., automated decision making, improvement of process quality and efficiency); supervised and unsupervised learning
+
+Work with cross-divisional teams in an agile setup
+
+You will be working in systems SAP (R3, BW), Microsoft Dynamics CRM, Microsoft BI, Siemens Teamcenter PLM, Microsoft AZURE, Amazon AWS
+
+Statistical modelling and experiment design
+
+Whatyoushould bring
+
+Degree in computer science, applied mathematics, statics or related quantitative field, or related field and/or experience in lieu of a degree
+
+Experience preferably in an industrial company
+
+Comfortable using cloud-based solutions
+
+Experience or minimum willingness to learn the Analytical problem-solving skills and ability to assimilate complex information
+
+Proven track record in data analysis, machine learning, statistical modeling, artificial intelligence and related approaches
+
+Programming experience in modern data-oriented languages (e.g., Python)
+
+Preferable experience with NLP Natural Language Processing, Computer Vision
+
+Willingness to acquire additional system/technical knowledge as needed
+
+Fluent in English
+
+Experience in working with Microsoft Azure and/or other cloud-based environments
+
+Experience with agile and customer-centered development approaches is a plus
+
+Experience to work in an international organization and in multi-cultural teams
+
+Translate data driven insights into decisions and actions
+
+What we are offering
+
+We are offering exciting technical and business challenges and development opportunities within a diversified and international environment. You can expect a competitive salary package, attractive working conditions, such as the opportunity to work some days remotely from home. You can also expect a pragmatic, open company culture. If you already have a Swiss work permit or are a citizen of the EU, we look forward to receiving your meaningful application.
+
+Do you like what you see?
+
+Are you excited to shape the future digital offerings for one of Switzerland's largest mechanical engineering companies? Then we are looking forward to getting to know you.
+
+We look forward to receiving your complete application documents.
+
+Burckhardt Compression AG | Location Winterthur I
+
+Ursula Meierhofer | Tel. +41 52 261 53 75","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Remotely connect to reciprocating compressors and continuously monitor their operational status in real time."",
+      ""brief_description"": ""The AI-enabled platform establishes digital connectivity with each compressor and streams live performance data for health and usage tracking."",
+      ""raw_excerpt"": ""“…smart solutions that range from **connecting and monitoring compressors** all the way to optimizing operations…”"",
+      ""explanation"": ""The phrase explicitly states that the digital solution will ‘connect and monitor’ compressors, which is an automated telemetry and monitoring function carried out by the AI/IoT system rather than by human staff.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Detect patterns, correlations, and anomalies across machine, production, and service data streams."",
+      ""brief_description"": ""Algorithms scour multi-source data to spot meaningful relationships or out-of-range behaviors without manual inspection."",
+      ""raw_excerpt"": ""“Initiate and conduct data analyses based on machine, production and service data and **recognize patterns and correlations from our data streams**”"",
+      ""explanation"": ""Recognizing patterns and correlations is a core ML workload (often unsupervised/anomaly detection) that the deployed models are expected to perform automatically once trained.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Generate descriptive analytics with visualized, customer-ready insights and reports."",
+      ""brief_description"": ""The system converts raw sensor data into dashboards and visual summaries that users can easily interpret."",
+      ""raw_excerpt"": ""“Use the data provided to **generate descriptive, visualize and meaningful insights**”"",
+      ""explanation"": ""‘Generate descriptive, visualize and meaningful insights’ indicates an automated reporting capability that transforms data into human-readable graphics and KPIs.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Optimize compressor operating parameters to improve process efficiency and quality."",
+      ""brief_description"": ""Optimization algorithms adjust settings (e.g., pressure, speed) to reach the best performance–cost trade-off."",
+      ""raw_excerpt"": ""“…smart solutions that range from connecting and monitoring compressors all the way to **optimizing operations**…”"",
+      ""explanation"": ""‘Optimizing operations’ refers to an AI control or recommendation engine that continuously tweaks or advises on operating conditions, distinct from human engineering tasks.""
+    },
+    {
+      ""task_id"": 5,
+      ""ai_capability"": ""Predict forthcoming maintenance needs and potential failures before they occur (predictive maintenance)."",
+      ""brief_description"": ""Models forecast when a component is likely to fail so that service can be scheduled proactively."",
+      ""raw_excerpt"": ""“…smart solutions that range from … **predicting … repairs**.”"",
+      ""explanation"": ""The word ‘predicting’ clearly signals a forecasting function where AI estimates time-to-failure from historical and live data, enabling maintenance planning.""
+    },
+    {
+      ""task_id"": 6,
+      ""ai_capability"": ""Trigger or guide automated repair workflows based on AI predictions."",
+      ""brief_description"": ""Upon detecting imminent issues, the system initiates self-service routines or dispatches repair instructions without human initiation."",
+      ""raw_excerpt"": ""“…smart solutions that range from … predicting and **automating repairs**.”"",
+      ""explanation"": ""‘Automating repairs’ goes beyond prediction; it implies the AI system takes action (e.g., issuing work orders, running self-diagnostics) to carry out or orchestrate the repair process.""
+    },
+    {
+      ""task_id"": 7,
+      ""ai_capability"": ""Provide automated decision-making support that drives continuous process-quality and efficiency improvements."",
+      ""brief_description"": ""AI agents evaluate data and autonomously decide on adjustments that enhance overall process performance."",
+      ""raw_excerpt"": ""“Work on machine learning and artificial intelligence projects (e.g., **automated decision making, improvement of process quality and efficiency**)”"",
+      ""explanation"": ""This excerpt highlights an AI function that not only analyzes but also decides on corrective or optimizing actions, closing the loop between insight and action.""
+    }
+  ]
+}
+"
+edee95a2-b086-452b-a4e6-f3f4da5d15e1,Data Engineer,Octapharma AG,Grossunternehmen,CH-8853 Lachen SZ,en,en,"Data Engineer
+Job ID: 
+ 56701
+Location:
+Lachen, CH
+Job Level: 
+ Professionals
+Job Category: 
+ IT
+Employment Type: 
+ Permanent position
+Career Level:
+Do you want to combine the opportunities that a global company provides with the benefits of a family-owned business? Headquartered in Lachen near Zurich, Switzerland, the Octapharma Group is a leading company in the worldwide market for therapeutic human proteins. Working at Octapharma means to have an opportunity to contribute to our common goal – developing lifesaving therapies to improve patients’ lives.
+
+What's the best thing about working with us?
+
+You help save lives - Every day is meaningful as we produce life-saving medicines
+Family values - Long-term perspective for employees and relationships
+Be rewarded with an attractive salary and benefits package
+You will have a high level of influence where you can make a difference and leave your footprint
+Work with skilled and fun colleagues in a relatively informal organization
+Skills development - We offer various internal and external employee and leadership trainings, trainee programs and digital solutions
+
+What will you be doing as Data Engineer?
+
+Designing and Implementing Data Solutions: Utilize Azure data services to design and implement scalable data architectures. This includes setting up and maintaining Azure Data Lakes, Azure SQL Databases, and Azure Synapse Analytics.
+Data Integration and Management: Develop ETL (Extract, Transform, Load) processes using Azure Data Factory to integrate data from various sources, ensuring data quality and consistency across the manufacturing process.
+Real-Time Data Processing: Employ Azure Stream Analytics for real-time data processing, enabling immediate insights and actions based on manufacturing data streams.
+Building Predictive Models: Use Azure Machine Learning to build and deploy predictive models that help optimize manufacturing processes and predict outcomes, enhancing decision-making capabilities.
+Ensuring Data Compliance and Security: Implement and maintain data security and compliance measures in line with pharmaceutical industry regulations, utilizing Azure's security features.
+Collaboration and Training: Work closely with IT and manufacturing teams to integrate and optimize data solutions. Provide training to staff on new data tools and processes.
+
+Who are you?
+
+Educational Background: A Bachelor’s degree in Computer Science, Engineering, Data Science, or a related field.
+Azure Expertise: Proven experience with Microsoft Azure data services (Azure Data Factory, Azure Databricks, Azure SQL Database, etc.) and Azure certifications (such as Azure Data Engineer Associate) are highly desirable.
+Data Engineering Experience: At least 3 years of experience in data engineering, with a focus on data integration, data warehousing, and ETL processes.
+Knowledge in Machine Learning: Familiarity with machine learning concepts and experience using Azure Machine Learning to build and deploy models.
+Plus but not required: Industry Compliance Understanding: Knowledge of data privacy and security standards in the pharmaceutical industry, with an understanding of Good Manufacturing Practice (GMP) and related regulatory requirements.
+
+Apply Today!
+
+If you have questions about the position, contact Ms. Claudia Vignau, Recruiter; +41 55 451 21 35.
+
+If you proceed in the process
+
+We will endeavor to review your profile as quickly as possible and provide you with feedback
+The next step is to conduct a phone interview, which takes about 30 minutes.
+Would you like to get to know us better? Learn more about us on our website and follow us daily on LinkedIn!
+About Octapharma
+Headquartered in Lachen, Switzerland, Octapharma is one of the largest human protein manufacturers in the world, developing and producing human proteins from human plasma and human cell lines.
+Octapharma employs nearly 12,000 people worldwide to support the treatment of patients in 118 countries with products across three therapeutic areas: Immunotherapy, Haematology and Critical Care.
+Octapharma has seven R&D sites and five state-of-the-art manufacturing facilities in Austria, France, Germany and Sweden, and operates more than 195 plasma donation centres across Europe and the US. Octapharma has 40 years of experience in patient care.
+For more information, please visit www.octapharma.com","Data Engineer
+Job ID: 
+ 56701
+Location:
+Lachen, CH
+Job Level: 
+ Professionals
+Job Category: 
+ IT
+Employment Type: 
+ Permanent position
+Career Level:
+Do you want to combine the opportunities that a global company provides with the benefits of a family-owned business? Headquartered in Lachen near Zurich, Switzerland, the Octapharma Group is a leading company in the worldwide market for therapeutic human proteins. Working at Octapharma means to have an opportunity to contribute to our common goal – developing lifesaving therapies to improve patients’ lives.
+
+What's the best thing about working with us?
+
+You help save lives - Every day is meaningful as we produce life-saving medicines
+Family values - Long-term perspective for employees and relationships
+Be rewarded with an attractive salary and benefits package
+You will have a high level of influence where you can make a difference and leave your footprint
+Work with skilled and fun colleagues in a relatively informal organization
+Skills development - We offer various internal and external employee and leadership trainings, trainee programs and digital solutions
+
+What will you be doing as Data Engineer?
+
+Designing and Implementing Data Solutions: Utilize Azure data services to design and implement scalable data architectures. This includes setting up and maintaining Azure Data Lakes, Azure SQL Databases, and Azure Synapse Analytics.
+Data Integration and Management: Develop ETL (Extract, Transform, Load) processes using Azure Data Factory to integrate data from various sources, ensuring data quality and consistency across the manufacturing process.
+Real-Time Data Processing: Employ Azure Stream Analytics for real-time data processing, enabling immediate insights and actions based on manufacturing data streams.
+Building Predictive Models: Use Azure Machine Learning to build and deploy predictive models that help optimize manufacturing processes and predict outcomes, enhancing decision-making capabilities.
+Ensuring Data Compliance and Security: Implement and maintain data security and compliance measures in line with pharmaceutical industry regulations, utilizing Azure's security features.
+Collaboration and Training: Work closely with IT and manufacturing teams to integrate and optimize data solutions. Provide training to staff on new data tools and processes.
+
+Who are you?
+
+Educational Background: A Bachelor’s degree in Computer Science, Engineering, Data Science, or a related field.
+Azure Expertise: Proven experience with Microsoft Azure data services (Azure Data Factory, Azure Databricks, Azure SQL Database, etc.) and Azure certifications (such as Azure Data Engineer Associate) are highly desirable.
+Data Engineering Experience: At least 3 years of experience in data engineering, with a focus on data integration, data warehousing, and ETL processes.
+Knowledge in Machine Learning: Familiarity with machine learning concepts and experience using Azure Machine Learning to build and deploy models.
+Plus but not required: Industry Compliance Understanding: Knowledge of data privacy and security standards in the pharmaceutical industry, with an understanding of Good Manufacturing Practice (GMP) and related regulatory requirements.
+
+Apply Today!
+
+If you have questions about the position, contact Ms. Claudia Vignau, Recruiter; +41 55 451 21 35.
+
+If you proceed in the process
+
+We will endeavor to review your profile as quickly as possible and provide you with feedback
+The next step is to conduct a phone interview, which takes about 30 minutes.
+Would you like to get to know us better? Learn more about us on our website and follow us daily on LinkedIn!
+About Octapharma
+Headquartered in Lachen, Switzerland, Octapharma is one of the largest human protein manufacturers in the world, developing and producing human proteins from human plasma and human cell lines.
+Octapharma employs nearly 12,000 people worldwide to support the treatment of patients in 118 countries with products across three therapeutic areas: Immunotherapy, Haematology and Critical Care.
+Octapharma has seven R&D sites and five state-of-the-art manufacturing facilities in Austria, France, Germany and Sweden, and operates more than 195 plasma donation centres across Europe and the US. Octapharma has 40 years of experience in patient care.
+For more information, please visit www.octapharma.com","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Ingests and analyzes manufacturing data streams in real time to surface instant insights and automatically trigger responsive actions."",
+      ""brief_description"": ""Azure Stream Analytics is used for real-time processing so the system can deliver immediate insights and actions on live manufacturing data."",
+      ""raw_excerpt"": ""Real-Time Data Processing: Employ Azure Stream Analytics for real-time data processing, enabling immediate insights and actions based on manufacturing data streams."",
+      ""explanation"": ""The excerpt explicitly describes an AI-enabled stream-analytics workflow that continuously processes data without human intervention, qualifying as an autonomous task performed by the tool itself.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Builds and deploys machine-learning models that forecast production outcomes and recommend process optimizations, improving overall decision making in manufacturing."",
+      ""brief_description"": ""Azure Machine Learning models will optimize manufacturing processes and predict outcomes."",
+      ""raw_excerpt"": ""Building Predictive Models: Use Azure Machine Learning to build and deploy predictive models that help optimize manufacturing processes and predict outcomes, enhancing decision-making capabilities."",
+      ""explanation"": ""This line specifies the creation of predictive ML models whose delivered functions are (a) predicting future manufacturing results and (b) providing guidance to optimize those processes—both distinct AI outputs rather than human engineering activities.""
+    }
+  ]
+}
+"
+00cba828-ac7f-4af0-9c18-3506874724e2,Group Lead Data & AI,Octapharma AG,Grossunternehmen,CH-8853 Lachen SZ,en,en,"Group Lead Data & AI
+Job ID: 
+ 56208
+Location:
+Lachen, CH
+Job Level: 
+ Management
+Job Category: 
+ IT
+Employment Type: 
+ Permanent position
+Career Level:
+Do you want to combine the opportunities that a global company provides with the benefits of a family-owned business? Headquartered in Lachen near Zurich, Switzerland, the Octapharma Group is a leading company in the worldwide market for therapeutic human proteins. Working at Octapharma means to have an opportunity to contribute to our common goal – developing lifesaving therapies to improve patients’ lives.
+
+We are seeking
+A dynamic and highly motivated leader in our corporate IT team as the Group Lead Data & AI at Octapharma group. This pivotal role centers around driving the successful implementation of our new data and AI platform. You will be at the forefront, leading an international team of skilled business and IT professionals towards delivering high-impact data solutions.
+
+Your main responsibilities and opportunities
+Leading cross-functional collaboration, effectively liaising with various departments, stakeholders, partners, and external vendors.
+Strategically shaping the future of our data architecture, establishing a robust technical framework, and setting the direction for data governance.
+Translating complex business needs into clear technical strategies, including aspects like data streams, integrations, transformations, databases, data lakes, machine learning, and data warehouses.
+Ensuring the delivery of solutions that are not only high-performing but also secure, scalable, maintainable, reusable, and reliable.
+
+Your Profile
+Strong leadership skills, both in the line and matrix
+Proven expertise in large-scale technical projects involving cloud and hybrid infrastructures, architecture designs, data models, and technology management.
+A wide spectrum of technical know-how with deep expertise in areas such as Data Platforms, Cloud Solutions, Azure Synapse Analytics, Azure Data Bricks, analytics tools like PowerBI, Qlik, Data Science, Machine Learning with Azure ML, ML Server, Python, Artificial Intelligence, generative AI.
+Bachelor’s or master’s degree in computer science, information technology, or related field
+Previous 5+ years’ leadership experience in data and AI
+You bring a drive for excellence and a positive “can do” approach.
+
+Our offer
+Develop and grow a professional career in and exiting, challenging and international environment
+A responsible and varied job with active participation in the highly complex IT landscape
+And attractive salary and benefits package
+A skilled, motivated and committed team
+
+About Octapharma
+Headquartered in Lachen, Switzerland, Octapharma is one of the largest human protein manufacturers in the world, developing and producing human proteins from human plasma and human cell lines.
+Octapharma employs nearly 12,000 people worldwide to support the treatment of patients in 118 countries with products across three therapeutic areas: Immunotherapy, Haematology and Critical Care.
+Octapharma has seven R&D sites and five state-of-the-art manufacturing facilities in Austria, France, Germany and Sweden, and operates more than 195 plasma donation centres across Europe and the US. Octapharma has 40 years of experience in patient care.
+For more information, please visit www.octapharma.com","Group Lead Data & AI
+Job ID: 
+ 56208
+Location:
+Lachen, CH
+Job Level: 
+ Management
+Job Category: 
+ IT
+Employment Type: 
+ Permanent position
+Career Level:
+Do you want to combine the opportunities that a global company provides with the benefits of a family-owned business? Headquartered in Lachen near Zurich, Switzerland, the Octapharma Group is a leading company in the worldwide market for therapeutic human proteins. Working at Octapharma means to have an opportunity to contribute to our common goal – developing lifesaving therapies to improve patients’ lives.
+
+We are seeking
+A dynamic and highly motivated leader in our corporate IT team as the Group Lead Data & AI at Octapharma group. This pivotal role centers around driving the successful implementation of our new data and AI platform. You will be at the forefront, leading an international team of skilled business and IT professionals towards delivering high-impact data solutions.
+
+Your main responsibilities and opportunities
+Leading cross-functional collaboration, effectively liaising with various departments, stakeholders, partners, and external vendors.
+Strategically shaping the future of our data architecture, establishing a robust technical framework, and setting the direction for data governance.
+Translating complex business needs into clear technical strategies, including aspects like data streams, integrations, transformations, databases, data lakes, machine learning, and data warehouses.
+Ensuring the delivery of solutions that are not only high-performing but also secure, scalable, maintainable, reusable, and reliable.
+
+Your Profile
+Strong leadership skills, both in the line and matrix
+Proven expertise in large-scale technical projects involving cloud and hybrid infrastructures, architecture designs, data models, and technology management.
+A wide spectrum of technical know-how with deep expertise in areas such as Data Platforms, Cloud Solutions, Azure Synapse Analytics, Azure Data Bricks, analytics tools like PowerBI, Qlik, Data Science, Machine Learning with Azure ML, ML Server, Python, Artificial Intelligence, generative AI.
+Bachelor’s or master’s degree in computer science, information technology, or related field
+Previous 5+ years’ leadership experience in data and AI
+You bring a drive for excellence and a positive “can do” approach.
+
+Our offer
+Develop and grow a professional career in and exiting, challenging and international environment
+A responsible and varied job with active participation in the highly complex IT landscape
+And attractive salary and benefits package
+A skilled, motivated and committed team
+
+About Octapharma
+Headquartered in Lachen, Switzerland, Octapharma is one of the largest human protein manufacturers in the world, developing and producing human proteins from human plasma and human cell lines.
+Octapharma employs nearly 12,000 people worldwide to support the treatment of patients in 118 countries with products across three therapeutic areas: Immunotherapy, Haematology and Critical Care.
+Octapharma has seven R&D sites and five state-of-the-art manufacturing facilities in Austria, France, Germany and Sweden, and operates more than 195 plasma donation centres across Europe and the US. Octapharma has 40 years of experience in patient care.
+For more information, please visit www.octapharma.com","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically ingest, integrate and transform diverse data streams into centralized data lakes / warehouses for downstream analytics and ML."",
+      ""brief_description"": ""The platform will handle “data streams, integrations, [and] transformations” as part of a unified data architecture."",
+      ""raw_excerpt"": ""…including aspects like **data streams, integrations, transformations, databases, data lakes**, machine learning, and data warehouses."",
+      ""explanation"": ""Because the ad groups these activities under its new “data and AI platform,” the ETL workflow is expected to run with minimal human intervention, automating the preparation of data used by analytical and ML components.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Train, tune and deploy machine-learning models on Azure ML and ML Server to generate predictive or prescriptive insights for the business."",
+      ""brief_description"": ""Models built with “Machine Learning with Azure ML, ML Server” will deliver analytics that answer complex business questions."",
+      ""raw_excerpt"": ""…**Machine Learning with Azure ML, ML Server**, Python, Artificial Intelligence…"",
+      ""explanation"": ""Explicit references to Azure ML and ML Server indicate the system will automate the end-to-end ML lifecycle—model training, inference, and scalable deployment—rather than leaving these steps to manual analysis.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Generate interactive dashboards and self-service visual analytics that refresh automatically for stakeholders."",
+      ""brief_description"": ""Using “analytics tools like **PowerBI, Qlik**,” the solution will surface real-time insights in graphical form."",
+      ""raw_excerpt"": ""…analytics tools like **PowerBI, Qlik**…"",
+      ""explanation"": ""Power BI and Qlik engines automate data-to-visual-insight workflows—query execution, chart rendering, and scheduled refresh—so the AI-enabled reporting layer continuously informs users without manual spreadsheet work.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Leverage generative-AI models to create natural-language summaries, reports or other content directly from enterprise data."",
+      ""brief_description"": ""The stack explicitly includes “**generative AI**,” suggesting automated text or content generation capabilities."",
+      ""raw_excerpt"": ""…Artificial Intelligence, **generative AI**."",
+      ""explanation"": ""Mention of generative AI implies the platform will move beyond traditional analytics, using large language or foundation models to automatically draft narratives or assets, reducing the need for manual report writing.""
+    }
+  ]
+}
+"
+86e260e9-596e-430f-a45c-5472ae274f0b,Improvement Engineer,Burckhardt Compression AG,Mittelunternehmen,CH-8404 Winterthur,en,de,"Burckhardt Compression ist der weltweite Marktführer im Bereich von Kolbenkompressorsystemen. Als einziger Hersteller und Servicedienstleister bietet das Unternehmen eine komplette Reihe von Kolbenkompressortechnologien und Services an. Die kundenspezifisch ausgelegten Kompressorsysteme werden in den Bereichen Öl- und Gasproduktion, Gastransport und -lagerung, Raffinerie, Chemie und Petrochemie sowie in Industriegasanwendungen eingesetzt. Mit führender Technologie, einem breiten Portfolio an Komponenten sowie einem vollumfänglichen Serviceangebot unterstützt Burckhardt Compression seine Kunden weltweit, die auf ihre Bedürfnisse zugeschnittene Lösung für ihre Kolbenkompressorsysteme zu finden. Seit 1844 schaffen hochqualifizierte Mitarbeitende Spitzenlösungen, um in der Gasverdichtung Massstäbe zu setzen.
+
+We are hiring an additional team member in our team in the Technical Improvement Department. Therefor we are looking for a proactive and dedicated:
+
+Improvement Engineer
+
+Development and lead of reliability strategy together with Head TIMP, VP TSC, DIU ""Digital Innovation Unit"" and other departments
+
+Development of reliability figures for compressors, components and compressor systems
+
+Collaboration and support the reliability groups
+
+Link between data analyses specialist of DIU, compressor specialist and monitoring specialist for data evaluation and machine learning (IIOT, Industry 4.0)
+
+Data analyses of compressor data and trends
+
+Responsible for the interface to the machine diagnostic team (PROGNOST)
+
+Further development of condition-based maintenance (CBM)
+
+Maintenance recommendations for BC products
+
+Business case evaluation of digital offerings and cost – benefit analysis
+
+Providing inputs for product improvements based on CBM and reliability figures
+
+Support in compiling of systematic technical improvement as a product – opportunity management
+
+Ideally you have completed a technical apprenticeship followed by a mechanical or process engineering degree at a university of applied sciences (Master or Bachelor). You have several years of experience in a similar field and preferably an PMP certification. Your knowledge of rotation equipment and/or related processes would be beneficial.
+
+You are highly motivated and self-driven personality with a quality oriented working approach. You are able to make yourself familiar with application-oriented tasks incl. study of relevant literature and theoretical studies.
+
+We offer you flexible working conditions, varied and independent work in a dynamic international environment and opportunities for development. Our employees appreciate the good work atmosphere. A competitive compensation package and excellent benefits are a given.
+
+We are looking forward to receiving your application.
+
+Burckhardt Compression AG | Location: Winterthur | Jessica Eichelberger | Tel.: +41 52 262 53 24","Burckhardt Compression is the global market leader in the field of piston compressor systems. As the only manufacturer and service provider, the company offers a complete range of piston compressor technologies and services. The custom-designed compressor systems are used in oil and gas production, gas transportation and storage, refineries, chemical and petrochemical industries, as well as in industrial gas applications. With leading technology, a broad portfolio of components, and comprehensive service offerings, Burckhardt Compression supports its customers worldwide in finding tailored solutions for their piston compressor systems. Since 1844, highly qualified employees have been creating top solutions to set standards in gas compression.
+
+We are hiring an additional team member for our Technical Improvement Department. Therefore, we are looking for a proactive and dedicated:
+
+Improvement Engineer
+
+- Development and leadership of reliability strategy together with Head TIMP, VP TSC, DIU ""Digital Innovation Unit,"" and other departments
+- Development of reliability metrics for compressors, components, and compressor systems
+- Collaboration with and support of the reliability groups
+- Acting as a link between data analysis specialists from DIU, compressor specialists, and monitoring specialists for data evaluation and machine learning (IIoT, Industry 4.0)
+- Data analysis of compressor data and trends
+- Responsible for the interface with the machine diagnostic team (PROGNOST)
+- Further development of condition-based maintenance (CBM)
+- Maintenance recommendations for BC products
+- Business case evaluation of digital offerings and cost-benefit analysis
+- Providing input for product improvements based on CBM and reliability metrics
+- Support in compiling systematic technical improvements as part of product and opportunity management
+
+Ideally, you have completed a technical apprenticeship followed by a mechanical or process engineering degree at a university of applied sciences (Master's or Bachelor's). You have several years of experience in a similar field and preferably hold a PMP certification. Knowledge of rotating equipment and/or related processes would be advantageous.
+
+You are a highly motivated and self-driven personality with a quality-oriented working approach. You are capable of familiarizing yourself with application-oriented tasks, including studying relevant literature and theoretical concepts.
+
+We offer flexible working conditions, varied and independent work in a dynamic international environment, and opportunities for development. Our employees appreciate the good working atmosphere. A competitive compensation package and excellent benefits are a given.
+
+We look forward to receiving your application.
+
+Burckhardt Compression AG | Location: Winterthur | Jessica Eichelberger | Tel.: +41 52 262 53 24","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Apply machine-learning models to incoming compressor operating data to detect anomalies and emerging failure patterns in real time."",
+      ""brief_description"": ""The DIU’s data-evaluation and machine-learning workflows (IIoT/Industry 4.0) automatically screen sensor streams for abnormal behaviour."",
+      ""raw_excerpt"": ""…acting as a link between data analysis specialists from DIU, compressor specialists, and monitoring specialists for **data evaluation and machine learning (IIoT, Industry 4.0)**…"",
+      ""explanation"": ""The phrase explicitly ties machine learning to data evaluation of compressor signals, implying an AI system that autonomously flags anomalies or trends.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Automatically calculate reliability metrics—such as MTBF or probability-of-failure curves—for compressors, sub-components and entire systems from historical and real-time data."",
+      ""brief_description"": ""AI-driven analytics turn raw performance histories into quantified reliability indicators for each compressor asset."",
+      ""raw_excerpt"": ""Development of **reliability metrics for compressors, components, and compressor systems**"",
+      ""explanation"": ""Because the metrics are derived from large operational datasets, the advert implies an analytics/ML engine that performs the metric computation rather than manual calculation.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Predict optimal intervention points and schedule service actions through condition-based maintenance algorithms using streaming sensor data."",
+      ""brief_description"": ""ML models underpin the company’s **further development of condition-based maintenance (CBM)** strategy."",
+      ""raw_excerpt"": ""**Further development of condition-based maintenance (CBM)**"",
+      ""explanation"": ""CBM relies on predictive analytics; the job stresses advancing CBM, indicating AI tools that forecast when maintenance should occur.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Generate automated maintenance recommendations for Burckhardt Compression products by combining predictive models with asset health assessments."",
+      ""brief_description"": ""The system turns CBM outputs into actionable **maintenance recommendations for BC products**."",
+      ""raw_excerpt"": ""**Maintenance recommendations for BC products**"",
+      ""explanation"": ""Recommendations imply an AI layer translating predictive insights into concrete service tasks for the customer.""
+    },
+    {
+      ""task_id"": 5,
+      ""ai_capability"": ""Execute continuous machine diagnostics via the PROGNOST platform to monitor compressor health and identify specific fault conditions."",
+      ""brief_description"": ""The PROGNOST diagnostic system automatically evaluates vibration and process signals to pinpoint developing faults."",
+      ""raw_excerpt"": ""Responsible for the interface with the **machine diagnostic team (PROGNOST)**"",
+      ""explanation"": ""PROGNOST is a known AI-enabled diagnostic tool; the interface role presumes its automated fault-detection functions are part of the overall solution.""
+    }
+  ]
+}
+"
+2f4752b2-4b48-4ef2-80aa-7d44dd19684d,Praktikum in Data Science,Burckhardt Compression AG,Mittelunternehmen,CH-8404 Winterthur,de,de,"Burckhardt Compression ist der weltweite Marktführer im Bereich von Kolbenkompressorsystemen. Als einziger Hersteller und Servicedienstleister bietet das Unternehmen eine komplette Reihe von Kolbenkompressortechnologien und Services an. Die kundenspezifisch ausgelegten Kompressorsysteme werden in den Bereichen Gasförderung und -verarbeitung, Gastransport und -lagerung, Raffinerie, Chemie und Petrochemie sowie in Industriegas und der Wasserstoffmobilität und -energie eingesetzt. Mit führender Technologie, einem breiten Portfolio an Komponenten sowie einem vollumfänglichen Serviceangebot unterstützt Burckhardt Compression seine Kunden weltweit, die auf ihre Bedürfnisse zugeschnittene Lösung für ihre Kolbenkompressorsysteme zu finden. Seit 1844 schaffen hochqualifizierte Mitarbeitende Spitzenlösungen, um in der Gasverdichtung Massstäbe zu setzen.
+
+Für unsere IT im Bereich Digital Innovation Unit suchen wir per sofort für ca. 6 – 8 Monate eine initiative und engagierte Persönlichkeit als
+
+Praktikum in Data Science
+
+(w/m/d) 50 - 60%
+
+(Option eine Master Thesis in Machine Learning and Smart Maintenance abzuschliessen)
+
+Sie unterstützen das Digital Innovation Unit -Team aktiv. Ziel der Arbeit ist es, datengesteuerte Modelle für die vorausschauende Wartung und Optimierung von Verdichtern zu erstellen, die sowohl internes technisches Wissen als auch verfügbare Sensordaten nutzen.
+
+Ihr Aufgabengebiet umfasst im Wesentlichen:
+
+Generieren von synthetischen Daten mit einem thermodynamischen Simulationswerkzeug und die Ergebnisse in einer Cloud-Datenbank zu integrieren
+
+Modellierung des Verdichters mit datengesteuerten und physikalisch informierten Techniken des maschinellen Lernens und Deep Learning untersuchen und die Leistung der resultierenden Algorithmen bewerten.
+
+Mithilfe im Team bei im Verantwortungsbereich
+
+Ihr Profil:
+
+IT Masterstudiengang oder ähnliches (Uni/FH)
+
+Wunsch als Werkstudent zu arbeiten und die Möglichkeit zu haben, die Masterthesis im Bereich
+
+Gute Kenntnisse in Python und SQL. Erfahrung mit Azure und Databricks ist von Vorteil
+
+Gute Kenntnisse in Machine Learning und Deep Learning und den entsprechenden Python-Bibliotheken
+
+Grundkenntnisse der Thermodynamik und des Maschinenbaus sind von Vorteil
+
+Freude die Kenntnisse in einem dynamischen Unternehmensumfeld praktisch anzuwenden
+
+Proaktive, kreative und innovative Persönlichkeit
+
+Motivation zur strukturierten Einarbeitung in ein neues Themengebiet und das Interesse daran, praktische Erfahrung in der Industrie zu sammeln
+
+Eigenverantwortliche, zielorientierte und teamfähige Persönlichkeit
+
+Englischkenntnisse in Wort und Schrift (Niveau – C1) sind zwingend notwendig, Deutschkenntnisse sind von Vorteil
+
+Globaler Austausch mit Kollegen und in den Projektarbeiten
+
+Wir bieten Ihnen flexible Arbeitsbedingungen, vielseitige und selbstständige Tätigkeiten in einem dynamischen internationalen Umfeld. Gute Arbeitsbedingungen und eine offene Unternehmenskultur, die sich auf klar definierte und im Alltag gelebte Werte stützt, zeichnen das Unternehmen aus.
+
+Wir freuen uns auf Ihre vollständigen Bewerbungsunterlagen.
+
+Burckhardt Compression AG | Standort Winterthur
+
+Jessica Eichelberger | Tel.: +41 052 261 53 27","Burckhardt Compression is the global market leader in the field of piston compressor systems. As the only manufacturer and service provider, the company offers a complete range of piston compressor technologies and services. The custom-designed compressor systems are used in the areas of gas production and processing, gas transportation and storage, refineries, chemical and petrochemical industries, as well as in industrial gases and hydrogen mobility and energy. With leading technology, a broad portfolio of components, and comprehensive service offerings, Burckhardt Compression supports its customers worldwide in finding tailored solutions for their piston compressor systems. Since 1844, highly qualified employees have been creating top solutions to set standards in gas compression.
+
+For our IT department in the Digital Innovation Unit, we are immediately looking for an initiative and committed personality for approximately 6 – 8 months as
+
+Internship in Data Science
+
+(m/f/d) 50 - 60%
+
+(Option to complete a Master’s thesis in Machine Learning and Smart Maintenance)
+
+You will actively support the Digital Innovation Unit team. The goal of the work is to develop data-driven models for predictive maintenance and optimization of compressors, utilizing both internal technical knowledge and available sensor data.
+
+Your main responsibilities include:
+
+- Generating synthetic data using a thermodynamic simulation tool and integrating the results into a cloud database
+- Investigating the modeling of compressors with data-driven and physically informed machine learning and deep learning techniques, and evaluating the performance of the resulting algorithms
+- Assisting the team within your area of responsibility
+
+Your profile:
+
+- Master’s degree in IT or similar (university/technical college)
+- Desire to work as a working student and the opportunity to complete a Master’s thesis in the field
+- Good knowledge of Python and SQL. Experience with Azure and Databricks is an advantage
+- Good knowledge of Machine Learning and Deep Learning and the relevant Python libraries
+- Basic knowledge of thermodynamics and mechanical engineering is advantageous
+- Enjoy applying your knowledge practically in a dynamic corporate environment
+- Proactive, creative, and innovative personality
+- Motivation for structured onboarding into a new subject area and interest in gaining practical industry experience
+- Independent, goal-oriented, and team-oriented personality
+- English skills in spoken and written form (level – C1) are essential; German skills are a plus
+- International collaboration with colleagues and involvement in project work
+
+We offer flexible working conditions, diverse and independent activities in a dynamic international environment. Good working conditions and an open corporate culture based on clearly defined and everyday lived values distinguish the company.
+
+We look forward to receiving your complete application documents.
+
+Burckhardt Compression AG | Location Winterthur
+
+Jessica Eichelberger | Tel.: +41 052 261 53 27","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Predict impending faults and determine the optimal moment for service on reciprocating compressors (predictive maintenance)."",
+      ""brief_description"": ""The models will use sensor signals and domain knowledge to foresee when maintenance is required before a failure occurs."",
+      ""raw_excerpt"": ""„Ziel der Arbeit ist es, datengesteuerte Modelle **für die vorausschauende Wartung** … zu erstellen, die sowohl internes technisches Wissen als auch verfügbare Sensordaten nutzen.“"",
+      ""explanation"": ""The advert explicitly states that the data-driven models are intended for ‘vorausschauende Wartung’ (predictive maintenance); this is an autonomous AI function that monitors equipment health and schedules service.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Optimize compressor operating parameters to improve efficiency and performance under varying conditions."",
+      ""brief_description"": ""AI models will recommend operating settings or adjustments that maximise performance and reduce energy or wear."",
+      ""raw_excerpt"": ""„Ziel der Arbeit ist es, datengesteuerte Modelle für … **Optimierung von Verdichtern** zu erstellen …“"",
+      ""explanation"": ""The same sentence lists ‘Optimierung von Verdichtern’; optimisation implies the AI system will autonomously search operating space and suggest or set improved configurations.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Create a physics-informed, data-driven digital model that accurately simulates compressor behaviour in real time."",
+      ""brief_description"": ""Using machine-learning and deep-learning techniques, the system will replicate thermodynamic behaviour of the compressor as a virtual twin."",
+      ""raw_excerpt"": ""„**Modellierung des Verdichters mit datengesteuerten und physikalisch informierten Techniken des maschinellen Lernens und Deep Learning** untersuchen …“"",
+      ""explanation"": ""The advert notes building a physics-informed ML model of the compressor; such a model acts as a digital twin that can simulate performance, enabling the other tasks.""
+    }
+  ]
+}
+"

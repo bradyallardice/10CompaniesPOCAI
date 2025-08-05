@@ -1,0 +1,2609 @@
+uid,title,company_name,company_size,location_raw,detected_language,original_language,content_clean,translated_text,Final
+1421ab9a-9aab-42b1-9c85-895194d328f8,Java Developer,Locatee AG,Kleinstunternehmen,8047 Zürich,en,en,"Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee, large worldwide organisations are able to intelligently optimise their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Through a flat organisation we encourage innovation, ownership and open communication so that everybody feels engaged in the dynamic of the group
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich
+
+The ability to choose your own work devices
+
+The chance to work in a young, ambitious and talented team where friendship is one of the company's values
+
+We live diversity and speak 12 different languages (English being our company language)
+
+Weekly team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea, coffee & snacks
+
+We're really much looking forward to being in touch with you!","Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee, large worldwide organisations are able to intelligently optimise their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Through a flat organisation we encourage innovation, ownership and open communication so that everybody feels engaged in the dynamic of the group
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich
+
+The ability to choose your own work devices
+
+The chance to work in a young, ambitious and talented team where friendship is one of the company's values
+
+We live diversity and speak 12 different languages (English being our company language)
+
+Weekly team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea, coffee & snacks
+
+We're really much looking forward to being in touch with you!","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically collect and fuse real-time signals from sensors, calendars, networks and other building systems to create a live digital picture of how every workspace is being used."",
+      ""brief_description"": ""The platform “augments the physical workspace with real-time data”."",
+      ""raw_excerpt"": ""Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings."",
+      ""explanation"": ""This sentence shows that the software itself ingests diverse, real-time data streams and enriches the building with that information, a distinct AI-enabled data-fusion capability.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Integrate corporate calendar information through Exchange Web API and other external feeds so that occupancy and booking data flow automatically into the workspace analytics engine."",
+      ""brief_description"": ""The system builds integrations for sources such as Exchange Web API."",
+      ""raw_excerpt"": ""Develop integrations for different data sources, for example Exchange Web API for the workspace analytics"",
+      ""explanation"": ""The excerpt indicates that the product includes connectors that pull data from third-party systems; once deployed, those integrations run autonomously and are part of the AI solution rather than a human activity.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Compute large-scale aggregations and statistical analytics that quantify utilization, occupancy trends and other key workspace KPIs in near real time."",
+      ""brief_description"": ""The software implements “data analytics and aggregations”."",
+      ""raw_excerpt"": ""Implement data analytics and aggregations"",
+      ""explanation"": ""Although the ad assigns engineers to implement it, the capability describes what the AI layer ultimately does—automatically crunch big data and surface metrics, replacing manual spreadsheet analysis.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Generate AI-driven insights and recommendations that help organisations intelligently optimise office layouts, capacity and employee experience."",
+      ""brief_description"": ""Locatee enables customers to “intelligently optimize their office buildings”."",
+      ""raw_excerpt"": ""Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace."",
+      ""explanation"": ""The phrase shows that the platform’s analytics go beyond reporting to prescriptive guidance—an automated decision-support function that would previously require human consultants.""
+    }
+  ]
+}
+"
+53fedbf8-2ccf-4dde-8c46-e01d5337cdf5,Java Developer,Locatee AG,Kleinstunternehmen,8048 Zürich,en,en,"Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+An open and supportive product culture - all views are considered; all team members have the opportunity to have their say and anything that is clearly not working for us we look at ways to improve
+
+A lot of independence and responsibility
+
+An inspiring and modern work environment in Zurich
+
+Work in a flat hierarchy
+
+The ability to choose your own work devices
+
+The chance to work in a young, multi-cultural, passionate and talented team that shares and cares for each other: we live diversity and speak 10 different languages (English being our company language)
+
+Regular team events, we never miss out on fun!
+
+Fresh fruits basket and homemade cakes
+
+We're really much looking forward to being in touch with you!","Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+An open and supportive product culture - all views are considered; all team members have the opportunity to have their say and anything that is clearly not working for us we look at ways to improve
+
+A lot of independence and responsibility
+
+An inspiring and modern work environment in Zurich
+
+Work in a flat hierarchy
+
+The ability to choose your own work devices
+
+The chance to work in a young, multi-cultural, passionate and talented team that shares and cares for each other: we live diversity and speak 10 different languages (English being our company language)
+
+Regular team events, we never miss out on fun!
+
+Fresh fruits basket and homemade cakes
+
+We're really much looking forward to being in touch with you!","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically collect and fuse real-time signals from sensors, calendars, networks and other building systems to create a live digital picture of how every workspace is being used."",
+      ""brief_description"": ""The platform “augments the physical workspace with real-time data”."",
+      ""raw_excerpt"": ""Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings."",
+      ""explanation"": ""This sentence shows that the software itself ingests diverse, real-time data streams and enriches the building with that information, a distinct AI-enabled data-fusion capability.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Integrate corporate calendar information through Exchange Web API and other external feeds so that occupancy and booking data flow automatically into the workspace analytics engine."",
+      ""brief_description"": ""The system builds integrations for sources such as Exchange Web API."",
+      ""raw_excerpt"": ""Develop integrations for different data sources, for example Exchange Web API for the workspace analytics"",
+      ""explanation"": ""The excerpt indicates that the product includes connectors that pull data from third-party systems; once deployed, those integrations run autonomously and are part of the AI solution rather than a human activity.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Compute large-scale aggregations and statistical analytics that quantify utilization, occupancy trends and other key workspace KPIs in near real time."",
+      ""brief_description"": ""The software implements “data analytics and aggregations”."",
+      ""raw_excerpt"": ""Implement data analytics and aggregations"",
+      ""explanation"": ""Although the ad assigns engineers to implement it, the capability describes what the AI layer ultimately does—automatically crunch big data and surface metrics, replacing manual spreadsheet analysis.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Generate AI-driven insights and recommendations that help organisations intelligently optimise office layouts, capacity and employee experience."",
+      ""brief_description"": ""Locatee enables customers to “intelligently optimize their office buildings”."",
+      ""raw_excerpt"": ""Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace."",
+      ""explanation"": ""The phrase shows that the platform’s analytics go beyond reporting to prescriptive guidance—an automated decision-support function that would previously require human consultants.""
+    }
+  ]
+}
+"
+6c3e4f83-6c74-445e-bd3f-d95c29f13d38,Java Developer,Locatee AG,Kleinstunternehmen,8048 Zürich,en,en,"Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Your chance to make a difference and be valued for that
+
+A lot of independence and responsibility
+
+An inspiring and modern work environment in Zurich Altstetten
+
+Work in a flat hierarchy
+
+The chance to work with an awesome, energetic and talented team of professional fun-havers with regular team events
+
+Fresh fruits, coffee, local beers, pool tables, table football...
+
+We live diversity!
+
+​
+
+We're really much looking forward to being in touch with you!","Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Your chance to make a difference and be valued for that
+
+A lot of independence and responsibility
+
+An inspiring and modern work environment in Zurich Altstetten
+
+Work in a flat hierarchy
+
+The chance to work with an awesome, energetic and talented team of professional fun-havers with regular team events
+
+Fresh fruits, coffee, local beers, pool tables, table football...
+
+We live diversity!
+
+​
+
+We're really much looking forward to being in touch with you!","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically collect and fuse real-time signals from sensors, calendars, networks and other building systems to create a live digital picture of how every workspace is being used."",
+      ""brief_description"": ""The platform “augments the physical workspace with real-time data”."",
+      ""raw_excerpt"": ""Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings."",
+      ""explanation"": ""This sentence shows that the software itself ingests diverse, real-time data streams and enriches the building with that information, a distinct AI-enabled data-fusion capability.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Integrate corporate calendar information through Exchange Web API and other external feeds so that occupancy and booking data flow automatically into the workspace analytics engine."",
+      ""brief_description"": ""The system builds integrations for sources such as Exchange Web API."",
+      ""raw_excerpt"": ""Develop integrations for different data sources, for example Exchange Web API for the workspace analytics"",
+      ""explanation"": ""The excerpt indicates that the product includes connectors that pull data from third-party systems; once deployed, those integrations run autonomously and are part of the AI solution rather than a human activity.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Compute large-scale aggregations and statistical analytics that quantify utilization, occupancy trends and other key workspace KPIs in near real time."",
+      ""brief_description"": ""The software implements “data analytics and aggregations”."",
+      ""raw_excerpt"": ""Implement data analytics and aggregations"",
+      ""explanation"": ""Although the ad assigns engineers to implement it, the capability describes what the AI layer ultimately does—automatically crunch big data and surface metrics, replacing manual spreadsheet analysis.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Generate AI-driven insights and recommendations that help organisations intelligently optimise office layouts, capacity and employee experience."",
+      ""brief_description"": ""Locatee enables customers to “intelligently optimize their office buildings”."",
+      ""raw_excerpt"": ""Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace."",
+      ""explanation"": ""The phrase shows that the platform’s analytics go beyond reporting to prescriptive guidance—an automated decision-support function that would previously require human consultants.""
+    }
+  ]
+}
+"
+cd0623ce-80c5-4248-b912-1599a4f0021f,"Product Manager - Technical, B2B, SaaS",Locatee AG,Kleinstunternehmen,8047 Zürich,en,en,"Are you a product person, tech savvy and ready for a new challenge in a leading Swiss PropTech start-up with global growth track-record? Then apply now and become part of our mission!
+
+Locatee is the leading workplace analytics solution that transforms complex data into space utilisation insight. Developed with a strong focus and a deep understanding of the corporate real estate challenges facing the modern world of work, Locatee empowers companies to make decisions about your business buildings with confidence.
+
+We are looking for a Technical Product Manager who will take a leading role in further enhancing and building our workplace analytics solution. You will be responsible for the data ingestion and processing components of our application.
+
+The ideal candidate has a computer science degree and moved from a software development role to product management.
+
+What you will do
+
+Interact with external and internal stakeholders to identify functional and technical requirements for new feature developments
+
+Work closely with the Head of Product & Head of Engineering in driving the company vision forward
+
+Take the Product Owner responsibility in the Platform Scrum team
+
+Create and maintain a product roadmap based on user needs, business requirements and technical constraints
+
+Develop an appropriate business case to justify development efforts
+
+Communicate product benefits to customers (product demonstrations) and to internal stakeholders
+
+Define high quality user stories, feature specifications and prioritize the backlog (constantly iterate and measure)
+
+Support in designing and executing PoC
+
+Work closely with the development team to manage product life-cycle from concept to delivery.
+
+What you bring
+
+Proven history of successful SaaS product management: from product discovery to agile development and delivery
+
+Ability to move from high-level strategy to detailed execution
+
+You have a very good understanding of web product development and architectures, ideally some experience with Java, SQL and Cloud-native technologies
+
+A basic understanding of common Data Science techniques, in particular Machine Learning, and the high-level technical requirements/trade-offs involved
+
+Experience managing technical products or willingness to learn
+
+BA/BSc (MSc preferred) in Computer Science, IT, Mathematics, Physics, Statistics, Data Science - or equivalent experience
+
+Demonstrated ability to achieve strategic goals in a fast-paced environment, and to evolve product strategy based on research, data and industry trends
+
+You have a team centric attitude
+
+Good analytical and organizational skills, with proven ability to take initiatives
+
+Excellent communication and presentation skills in English (written and spoken). German is a plus
+
+Valid Swiss work permit or EU passport
+
+Why you should work with us
+
+The chance to work in an English-speaking office with room to grow in a dedicated, passionate, expert and experienced team that cares for each other
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards: we offer Phantom Stock Options to be part of Locatee’s success
+
+Through a flat organisation we encourage innovation, ownership and open communication so that everybody feels engaged in the dynamic of the group
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich (you'll love our plants & trees, the hammock, standing desks, quiet zones, couches,...)
+
+The ability to choose your own work devices
+
+We live diversity
+
+Optimise you work-life balance and work one week per year from wherever you want
+
+Continuous learning through our Locatee Academy
+
+Regular team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea, coffee & snacks
+
+Who we are
+
+We are a Zurich-based start-up that supports large companies in optimizing their office buildings. Our Smart Building platform ""Locatee "" provides real-time data that makes office buildings intelligent and user-oriented. Thanks to Locatee, large organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+Our motto is to create a work environment where people love to work. This is not only our working culture but also what we want our customers to reach thanks to Locatee.
+
+Our fantastic diverse team consists of 30+ people with strong background in Product, Computer & Data science, Business Development, Marketing and Human Resources.","Are you a product person, tech savvy and ready for a new challenge in a leading Swiss PropTech start-up with global growth track-record? Then apply now and become part of our mission!
+
+Locatee is the leading workplace analytics solution that transforms complex data into space utilisation insight. Developed with a strong focus and a deep understanding of the corporate real estate challenges facing the modern world of work, Locatee empowers companies to make decisions about your business buildings with confidence.
+
+We are looking for a Technical Product Manager who will take a leading role in further enhancing and building our workplace analytics solution. You will be responsible for the data ingestion and processing components of our application.
+
+The ideal candidate has a computer science degree and moved from a software development role to product management.
+
+What you will do
+
+Interact with external and internal stakeholders to identify functional and technical requirements for new feature developments
+
+Work closely with the Head of Product & Head of Engineering in driving the company vision forward
+
+Take the Product Owner responsibility in the Platform Scrum team
+
+Create and maintain a product roadmap based on user needs, business requirements and technical constraints
+
+Develop an appropriate business case to justify development efforts
+
+Communicate product benefits to customers (product demonstrations) and to internal stakeholders
+
+Define high quality user stories, feature specifications and prioritize the backlog (constantly iterate and measure)
+
+Support in designing and executing PoC
+
+Work closely with the development team to manage product life-cycle from concept to delivery.
+
+What you bring
+
+Proven history of successful SaaS product management: from product discovery to agile development and delivery
+
+Ability to move from high-level strategy to detailed execution
+
+You have a very good understanding of web product development and architectures, ideally some experience with Java, SQL and Cloud-native technologies
+
+A basic understanding of common Data Science techniques, in particular Machine Learning, and the high-level technical requirements/trade-offs involved
+
+Experience managing technical products or willingness to learn
+
+BA/BSc (MSc preferred) in Computer Science, IT, Mathematics, Physics, Statistics, Data Science - or equivalent experience
+
+Demonstrated ability to achieve strategic goals in a fast-paced environment, and to evolve product strategy based on research, data and industry trends
+
+You have a team centric attitude
+
+Good analytical and organizational skills, with proven ability to take initiatives
+
+Excellent communication and presentation skills in English (written and spoken). German is a plus
+
+Valid Swiss work permit or EU passport
+
+Why you should work with us
+
+The chance to work in an English-speaking office with room to grow in a dedicated, passionate, expert and experienced team that cares for each other
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards: we offer Phantom Stock Options to be part of Locatee’s success
+
+Through a flat organisation we encourage innovation, ownership and open communication so that everybody feels engaged in the dynamic of the group
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich (you'll love our plants & trees, the hammock, standing desks, quiet zones, couches,...)
+
+The ability to choose your own work devices
+
+We live diversity
+
+Optimise you work-life balance and work one week per year from wherever you want
+
+Continuous learning through our Locatee Academy
+
+Regular team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea, coffee & snacks
+
+Who we are
+
+We are a Zurich-based start-up that supports large companies in optimizing their office buildings. Our Smart Building platform ""Locatee "" provides real-time data that makes office buildings intelligent and user-oriented. Thanks to Locatee, large organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+Our motto is to create a work environment where people love to work. This is not only our working culture but also what we want our customers to reach thanks to Locatee.
+
+Our fantastic diverse team consists of 30+ people with strong background in Product, Computer & Data science, Business Development, Marketing and Human Resources.","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Convert large, heterogeneous building data streams into actionable space-utilisation insights through analytics and machine-learning pipelines."",
+      ""brief_description"": ""Locatee automatically ingests complex building data and outputs clear metrics on how every area of an office is used."",
+      ""raw_excerpt"": ""Locatee is the leading workplace analytics solution that transforms complex data into space utilisation insight."",
+      ""explanation"": ""The phrase specifies an automated transformation of raw data into insights, a typical ML-enabled analytics function.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Provide real-time workplace-occupancy analytics so stakeholders can view up-to-the-minute utilisation of their offices."",
+      ""brief_description"": ""The platform streams live data showing current occupancy across floors, zones and buildings."",
+      ""raw_excerpt"": ""Our Smart Building platform \""Locatee\"" provides real-time data that makes office buildings intelligent and user-oriented."",
+      ""explanation"": ""“Real-time data” implies continuous AI/ML processing and surfacing of live occupancy metrics.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Generate decision-support analytics that guide corporate real-estate teams in space-allocation and investment choices."",
+      ""brief_description"": ""Locatee turns analytics into concrete recommendations, helping companies decide which buildings or areas to expand, shrink or repurpose."",
+      ""raw_excerpt"": ""Locatee empowers companies to make decisions about your business buildings with confidence."",
+      ""explanation"": ""Empowering confident decisions indicates the system delivers prescriptive insights derived from its analytics output.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Detect under-utilised areas and recommend optimisation tactics to intelligently improve office-space efficiency."",
+      ""brief_description"": ""The system spots usage patterns and suggests how organisations can optimise layout, capacity and resource allocation."",
+      ""raw_excerpt"": ""Thanks to Locatee, large organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace."",
+      ""explanation"": ""“Intelligently optimise” signals an AI-driven detection of inefficiencies and automated optimisation suggestions.""
+    },
+    {
+      ""task_id"": 5,
+      ""ai_capability"": ""Feed smart-building controls with occupancy insights, enabling dynamic adjustment of workspace environments to user needs."",
+      ""brief_description"": ""Real-time analytics from Locatee can trigger automated building functions (e.g., HVAC, lighting) to create user-oriented spaces."",
+      ""raw_excerpt"": ""Smart Building platform \""Locatee\"" provides real-time data that makes office buildings intelligent and user-oriented."",
+      ""explanation"": ""Making buildings “intelligent and user-oriented” implies downstream automation where AI insights drive adaptive building systems.""
+    }
+  ]
+}
+"
+d6535046-d1d2-491f-af0b-557f0f876ded,Data Scientist mit Schwerpunkt Analytics (w/m),Basler Kantonalbank,Mittelunternehmen,Basel,de,de,"Data Scientist mit Schwerpunkt Analytics (w/m) 80-100%
+
+Bereich/Abteilung:
+
+Digitale Marktleistungen/Digitale Marktleistungen
+
+Arbeitsort:
+
+Basel
+
+Arbeitspensum:
+
+80-100%
+
+Stellenantritt:
+
+01.04.2019 oder nach Vereinbarung
+
+Motiviert, leistungsfähig und veränderungsbereit. So sind die Mitarbeiterinnen und Mitarbeiter der Basler Kantonalbank. Die Basler Kantonalbank, die untrennbar mit Basel verbunden ist und sich für eine lebenswerte und wirtschaftlich erfolgreiche Region engagiert.
+
+Stellenbeschreibung
+Die neugeschaffene Gruppe „Data Analytics“ innerhalb des Bereichs Digitale Marktleistungen verantwortet die Entwicklung und Umsetzung der strategischen Data Analytics Roadmap im Konzern Basler Kantonalbank. Zur Ergänzung des Teams suchen wir eine engagierte, innovationsfreudige und fachlich erfahrene Persönlichkeit als Data Scientist mit Schwerpunkt Analytics (w/m). In dieser interessanten und abwechslungsreichen Funktion liegt der Fokus auf Analytics und Machine Learning. In diesem Zusammenhang sind Sie für die folgenden Aufgaben verantwortlich:
+
+Erfassung der Businessanforderungen und Definition des Datenbedarfs
+
+Pilotierung von Datentransformation und -aufbereitung
+
+Modellierung von strukturierten und unstrukturierten Daten
+
+Text Mining
+
+Entwicklung und Weiterentwicklung von Machine Learning Modellen, entsprechende Operationalisierung sowie Modellmonitoring
+
+Begleitung von externen Data Scientisten und Review von extern entwickelten Analysen und Modellen
+
+Dokumentation, Präsentation und Diskussion von Analyseresultaten mit internen Kunden
+
+Projektmitarbeit und fachliche Verantwortung für Data Science Projekte
+
+Anforderungsprofil
+
+Abgeschlossenes Masterstudium in Data Science, Informatik, Statistik, Mathematik oder quantitativen Wirtschaftswissenschaften mit starkem analytischem Hintergrund
+
+Breites Data Science Know-how mit mindestens drei Jahren Berufserfahrung im Bereich analytischer Fragestellungen, Erfahrung im Finanzdienstleistungssektor von Vorteil
+
+SQL-Kenntnisse, Programmierkenntnisse in Python und/oder R
+
+Hohe Methodenkompetenz und Umsetzungsstärke, vernetztes Denken sowie zuverlässige, systematische und selbständige Arbeitsweise
+
+Ausgeprägte Eigeninitiative, Kreativität und Freude an der Zusammenarbeit im Team
+
+Bereitschaft neue Technologien zu lernen und umzusetzen
+
+Stilsicheres Deutsch und gute Sprachkenntnisse in Englisch
+
+Fachliche Auskünfte
+
+Herr Pascal Freudiger, Fachspezialist Zielkundenmanagement, Tel. 061 266 32 89
+
+Kontakt
+
+Frau Sandra Ankli, Personalverantwortliche, Tel. 061 266 33 42
+
+Jetzt bewerbenPrint","Data Scientist with a focus on Analytics (m/f) 80-100%
+
+Division/Department:
+
+Digital Market Services / Digital Market Services
+
+Work Location:
+
+Basel
+
+Workload:
+
+80-100%
+
+Start Date:
+
+April 1, 2019, or by arrangement
+
+Motivated, high-performing, and open to change. These are the qualities of the employees at Basler Kantonalbank. The Basler Kantonalbank, which is inseparably linked to Basel, is committed to a livable and economically successful region.
+
+Job Description
+The newly established ""Data Analytics"" group within the Digital Market Services division is responsible for developing and implementing the strategic Data Analytics roadmap across the Basler Kantonalbank group. To strengthen the team, we are looking for an engaged, innovative, and experienced professional as a Data Scientist with a focus on Analytics (m/f). In this interesting and varied role, the focus is on Analytics and Machine Learning. In this context, you will be responsible for the following tasks:
+
+- Gathering business requirements and defining data needs
+- Piloting data transformation and preparation
+- Modeling structured and unstructured data
+- Text mining
+- Developing and enhancing machine learning models, operationalizing them, and monitoring their performance
+- Supporting external data scientists and reviewing externally developed analyses and models
+- Documenting, presenting, and discussing analysis results with internal clients
+- Participating in projects and taking professional responsibility for data science initiatives
+
+Qualifications
+
+- Completed master's degree in Data Science, Computer Science, Statistics, Mathematics, or quantitative Economics with a strong analytical background
+- Broad Data Science expertise with at least three years of professional experience in analytical questions; experience in the financial services sector is an advantage
+- SQL skills, programming knowledge in Python and/or R
+- Strong methodological competence and implementation strength, networked thinking, as well as reliable, systematic, and independent working style
+- Demonstrated initiative, creativity, and enjoyment of teamwork
+- Willingness to learn and implement new technologies
+- Proficient in German and good command of English
+
+Contact for Technical Inquiries
+
+Mr. Pascal Freudiger, Specialist in Target Customer Management, Tel. 061 266 32 89
+
+Contact
+
+Ms. Sandra Ankli, HR Responsible, Tel. 061 266 33 42
+
+Apply nowPrint","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically analyse and mine large volumes of textual data to uncover patterns, keywords or sentiments."",
+      ""brief_description"": ""The position calls for text-mining capabilities to process unstructured text."",
+      ""raw_excerpt"": ""Text Mining"",
+      ""explanation"": ""Because “Text Mining” refers to applying NLP/ML algorithms that read and extract information from text with minimal human intervention, this is a distinct AI function the system itself will carry out.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Train machine-learning models that learn from both structured (tables, transactions) and unstructured (text, logs) data in order to generate predictions or analytic insights."",
+      ""brief_description"": ""The advert states that models will be built on structured and unstructured data."",
+      ""raw_excerpt"": ""Modellierung von strukturierten und unstrukturierten Daten"",
+      ""explanation"": ""“Modellierung … Daten” signals the use of ML algorithms that ingest varied data types and autonomously discover relationships during training—an activity executed by the AI, not by human coders once the pipeline is configured.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Continuously monitor deployed machine-learning models, tracking performance metrics and detecting drift or anomalies without manual checks."",
+      ""brief_description"": ""Model monitoring is listed as part of the ML lifecycle."",
+      ""raw_excerpt"": ""Modellmonitoring"",
+      ""explanation"": ""Model-monitoring systems use automated dashboards or alerts to watch prediction quality over time, a task performed by AI/analytics tooling rather than by humans reading logs.""
+    }
+  ]
+}
+"
+6cf9f056-66e0-4234-93a8-1da5e7fdcd6e,DATA SCIENTIST (INTERNSHIP AND/OR FULLTIME),Locatee AG,Kleinstunternehmen,CH-8045 Zürich,en,en,"DATA SCIENTIST (INTERNSHIP OR FULLTIME)
+
+Are you a Data Science or Computer Science graduate We are a Zurich-based startup focussing on challenges in looking for interesting and challenging problems to solve? Workspace Management for large organizations. We use Do you like to write algorithms to turn data into meaningful indoor location tracking to measure movement behaviours insights? Are you ready to take on a new challenge in and to determine how large office buildings are utilized. We developing an innovative business to business software are a strong team, have recently closed our first financing solution? round and won our first paying customers.
+
+Apply now and join us on our mission to revolutionize the way how Corporate Real Estate is managed.
+
+YOUR TASK YOUR SKILLS Analyze indoor location data to help our customers Experience in analyzing data and extracting
+
+understand how their office space is used meaningful insights Implement and apply Machine Learning and Working knowledge of Java and SQL. Experience
+
+Statistics algorithms with Frameworks (e.g. Spring, Hibernate) are a plus Come up with ideas how to present the gained Experience in visualizing data with Tableau,
+
+insights Qlikview or D3 or similar Internship, with the possibility to become a Smart mind with a sense for great products and
+
+permanent employee after 3-6 months engineering You like to take responsibility and work
+
+independently Willing to learn and continuously working on
+
+improving your skills Team player Fluent in English Shell scripting and sysadmin experience is a plus German is a plus
+
+WHAT WE OFFER CONTACT
+
+Work on an innovative product for real estate Do you want to become part of Locatee's vision and grow managers of the biggest organizations together with us? Please email your CV and reference Join a small team where you have a direct impact project to jobs@locatee.ch with the subject line ""Data Take on responsibility and challenges from the first Scientist"" and share some examples from your previous
+
+day on work. Please include links to your recent projects (links, Great office in Zurich Binz code samples e.g. on Github or as attachment). Regular team events
+
+Locatee AGBenedikt KöppelBinzstrasse 418045 Zürichjobs@locatee.ch
+
+www.locatee.ch","DATA SCIENTIST (INTERNSHIP OR FULLTIME)
+
+Are you a Data Science or Computer Science graduate We are a Zurich-based startup focussing on challenges in looking for interesting and challenging problems to solve? Workspace Management for large organizations. We use Do you like to write algorithms to turn data into meaningful indoor location tracking to measure movement behaviours insights? Are you ready to take on a new challenge in and to determine how large office buildings are utilized. We developing an innovative business to business software are a strong team, have recently closed our first financing solution? round and won our first paying customers.
+
+Apply now and join us on our mission to revolutionize the way how Corporate Real Estate is managed.
+
+YOUR TASK YOUR SKILLS Analyze indoor location data to help our customers Experience in analyzing data and extracting
+
+understand how their office space is used meaningful insights Implement and apply Machine Learning and Working knowledge of Java and SQL. Experience
+
+Statistics algorithms with Frameworks (e.g. Spring, Hibernate) are a plus Come up with ideas how to present the gained Experience in visualizing data with Tableau,
+
+insights Qlikview or D3 or similar Internship, with the possibility to become a Smart mind with a sense for great products and
+
+permanent employee after 3-6 months engineering You like to take responsibility and work
+
+independently Willing to learn and continuously working on
+
+improving your skills Team player Fluent in English Shell scripting and sysadmin experience is a plus German is a plus
+
+WHAT WE OFFER CONTACT
+
+Work on an innovative product for real estate Do you want to become part of Locatee's vision and grow managers of the biggest organizations together with us? Please email your CV and reference Join a small team where you have a direct impact project to jobs@locatee.ch with the subject line ""Data Take on responsibility and challenges from the first Scientist"" and share some examples from your previous
+
+day on work. Please include links to your recent projects (links, Great office in Zurich Binz code samples e.g. on Github or as attachment). Regular team events
+
+Locatee AGBenedikt KöppelBinzstrasse 418045 Zürichjobs@locatee.ch
+
+www.locatee.ch","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically capture and interpret indoor-positioning signals to quantify people’s movement patterns inside an office building."",
+      ""brief_description"": ""The AI system ingests raw indoor-location streams and converts them into time-series of individual and aggregate movement behaviours."",
+      ""raw_excerpt"": ""“We use indoor location tracking to measure movement behaviours”"",
+      ""explanation"": ""This line shows that the product’s core AI module ingests location-tracking data and translates it into behavioural metrics, an automated sensing and interpretation task.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Compute real-time and historical occupancy/utilization metrics for large corporate office spaces."",
+      ""brief_description"": ""From the processed location traces, the system infers how intensively each area of a building is used over time."",
+      ""raw_excerpt"": ""“...and to determine how large office buildings are utilized.”"",
+      ""explanation"": ""The wording indicates an AI function that transforms movement data into quantitative space-utilization indicators, automating a key facilities-management workflow.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Generate analytical insights that help corporate real-estate managers understand space-usage patterns."",
+      ""brief_description"": ""By applying machine-learning/statistical models to the derived occupancy data, the tool surfaces actionable findings for customers."",
+      ""raw_excerpt"": ""“Analyze indoor location data to help our customers understand how their office space is used”"",
+      ""explanation"": ""Beyond raw metrics, the ad highlights an AI layer that extracts and packages higher-level insights, justifying its inclusion as a distinct automated analytics task.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Automatically present the extracted insights through dashboards or visual reports."",
+      ""brief_description"": ""The platform delivers the findings to end users via visualizations that communicate key patterns and anomalies."",
+      ""raw_excerpt"": ""“Come up with ideas how to present the gained insights”"",
+      ""explanation"": ""While phrased as a human responsibility, the end-goal is a product feature: an automated reporting/visualization component that surfaces the AI-derived insights, so it is kept as a system-level task.""
+    }
+  ]
+}
+"
+91d6e43b-64e4-41c2-9634-dddc5975c612,Head Data Analytics w/m,Basler Kantonalbank,Mittelunternehmen,Basel,de,de,"Head Data Analytics w/m 80 - 100%
+
+Bereich/Abteilung:
+
+Digitale Marktleistungen/Digitale Marktleistungen
+
+Arbeitsort:
+
+Basel
+
+Arbeitspensum:
+
+80 - 100%
+
+Stellenantritt:
+
+01.10.2018 oder nach Vereinbarung
+
+Motiviert, leistungsfähig und veränderungsbereit. So sind die Mitarbeiterinnen und Mitarbeiter der Basler Kantonalbank. Die Basler Kantonalbank, die untrennbar mit Basel verbunden ist und sich für eine lebenswerte und wirtschaftlich erfolgreiche Region engagiert.
+
+Im neuen Geschäftsbereich Digitale Marktleistungen suchen wir den Head Data Analytics (w/m) mit Erfahrung im Finanzdienstleistungssektor und in der Anwendung von Big Data sowie Machine Learning-Technologien. In dieser Funktion sind Sie mit Ihrem Team verantwortlich für die Entwicklung und Umsetzung der strategischen Data Analytics Roadmap im BKB Konzern. Dies umfasst Anwendungsbereiche wie die Weiterentwicklung unseres Leistungs- und Serviceangebots für unsere Kunden, Marketinganalysen oder die Optimierung der Risiko- und Back Office-Prozesse.
+
+Hier haben Sie die einmalige Chance, die digitale Transformation und die strategische Weiterentwicklung unserer Bank massgeblich voranzutreiben!
+
+Stellenbeschreibung
+
+Leitung des Data Analytics Teams (2-3 Mitarbeitende)
+
+Verantwortung für die strategische Data Analytics Roadmap im BKB Konzern
+
+Definition der Prozesse, Algorithmen und Systemanforderungen zur Nutzung von fortgeschrittener Datentechnologie im BKB Konzern
+
+Kompetenzzentrum für quantitative Datenmethode mit laufender Weiterentwicklung des Know-hows
+
+Business-Verantwortung für die Datensysteme
+
+Identifikation und Bewertung von neuen Opportunitäten zur Datennutzung
+
+Durchführung von Projekten entlang des gesamten Data Science Prozesses über die Schaffung eines konsistenten Businessverständnisses, Datenverständnis, Datenaufbereitung, Modellierung, Evaluation und Deployment
+
+Coaching und Weiterentwicklung der Mitarbeitenden
+
+Anforderungsprofil
+
+Überdurchschnittlicher Hochschulabschluss (ETH/Uni/FH) in Data Science, Statistik, Informatik, Mathematik oder Physik
+
+Starke analytische und konzeptionelle Fähigkeiten und strategische Weitsicht
+
+Fundierte Erfahrung in der Anwendung von Data Science im Zusammenhang mit Big Data und Machine Learning kombiniert mit „out of the box thinking“, um neue Lösungen zu entwickeln
+
+Kenntnisse in relevante Programmiersprachen (z.B. Python, R) sowie Datenbanken (SQL / NonSQL). Erfahrungen mit IBM SPSS Modeler und Statistics von Vorteil.
+
+Erfahrung in der Leitung von Projekten im Data Analytics-Kontext
+
+Kommunikationsstärke auf Senior Management Level mit der Fähigkeit, komplexe technische Sachverhalte einfach darzustellen
+
+Erfahrungen in der Finanzdienstleistungsindustrie wünschenswert
+
+Erste Erfahrung in der Mitarbeiterführung von Vorteil
+
+Starke Kundenorientierung mit der Leidenschaft für den Einsatz von Technologie zur Lösung von Kunden- bzw. Business-Problemen
+
+Fachliche Auskünfte
+
+Herr Michael Baumberger, Leiter Vertriebsentwicklung, Tel. 061 266 31 15
+
+Kontakt
+
+Herr Bernd Ruf, Personalverantwortlicher, Tel. 061 266 20 33
+
+Jetzt bewerbenPrint","Head of Data Analytics (m/f) 80 - 100%
+
+Division/Department:
+
+Digital Market Services / Digital Market Services
+
+Workplace:
+
+Basel
+
+Workload:
+
+80 - 100%
+
+Start Date:
+
+October 1, 2018, or by agreement
+
+Motivated, high-performing, and open to change. These are the qualities of the employees at Basler Kantonalbank. The Basler Kantonalbank, which is inextricably linked to Basel, is committed to a livable and economically successful region.
+
+In the new Digital Market Services division, we are looking for a Head of Data Analytics (m/f) with experience in the financial services sector and in the application of Big Data as well as Machine Learning technologies. In this role, you and your team will be responsible for developing and implementing the strategic Data Analytics roadmap for the BKB Group. This includes areas such as enhancing our service and product offerings for customers, marketing analyses, and optimizing risk and back-office processes.
+
+This is a unique opportunity to significantly drive forward the digital transformation and strategic development of our bank!
+
+Job Description
+
+- Lead the Data Analytics team (2-3 employees)
+- Responsible for the strategic Data Analytics roadmap within the BKB Group
+- Define processes, algorithms, and system requirements for utilizing advanced data technologies within the BKB Group
+- Serve as the competence center for quantitative data methods with ongoing knowledge development
+- Business responsibility for data systems
+- Identify and evaluate new opportunities for data utilization
+- Execute projects across the entire Data Science process, from creating a consistent business understanding, data understanding, data preparation, modeling, evaluation, to deployment
+- Coach and further develop team members
+
+Requirements Profile
+
+- Above-average university degree (ETH/University/FH) in Data Science, Statistics, Computer Science, Mathematics, or Physics
+- Strong analytical and conceptual skills with strategic foresight
+- Extensive experience in applying Data Science in the context of Big Data and Machine Learning, combined with ""out of the box thinking"" to develop new solutions
+- Knowledge of relevant programming languages (e.g., Python, R) and databases (SQL / NoSQL). Experience with IBM SPSS Modeler and Statistics is advantageous
+- Project management experience in the Data Analytics context
+- Strong communication skills at senior management level, with the ability to present complex technical issues simply
+- Experience in the financial services industry is desirable
+- Initial experience in team leadership is a plus
+- Strong customer orientation with a passion for using technology to solve customer and business problems
+
+Professional Inquiries
+
+Mr. Michael Baumberger, Head of Sales Development, Tel. 061 266 31 15
+
+Contact
+
+Mr. Bernd Ruf, HR Manager, Tel. 061 266 20 33
+
+Apply nowPrint","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Generate data-driven insights that guide the enhancement and personalization of the bank’s products and customer services."",
+      ""brief_description"": ""Use advanced analytics to refine and expand BKB’s offering for its retail and corporate clients."",
+      ""raw_excerpt"": ""Weiterentwicklung unseres Leistungs- und Serviceangebots für unsere Kunden"",
+      ""explanation"": ""The excerpt explicitly states that data analytics and ML will be applied to improve the bank’s products and services; the AI system therefore delivers customer-centric insight and personalization capabilities.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Perform marketing analytics—such as customer segmentation, campaign performance measurement, and targeting—using machine-learning models."",
+      ""brief_description"": ""Apply ML-based marketing analysis to understand customer behavior and optimize campaigns."",
+      ""raw_excerpt"": ""Marketinganalysen"",
+      ""explanation"": ""‘Marketinganalysen’ indicates that analytics (powered by Big Data and ML according to the ad) will automate marketing-related insight generation.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Model and predict financial risks to streamline and enhance the bank’s risk-management processes."",
+      ""brief_description"": ""Use predictive models to optimize BKB’s risk processes (e.g., credit, market, operational risk)."",
+      ""raw_excerpt"": ""Optimierung der Risiko- ... Prozesse"",
+      ""explanation"": ""The ad cites the ‘optimisation of risk processes’ as a direct application area for ML, implying automated risk assessment and decision support.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Automate and optimize back-office workflows through predictive analytics and process-mining ML tools."",
+      ""brief_description"": ""Leverage ML to increase efficiency and reduce manual effort in back-office operations."",
+      ""raw_excerpt"": ""Optimierung der ... Back Office-Prozesse"",
+      ""explanation"": ""The same excerpt references back-office optimisation; AI techniques are typically used here for workload prediction, exception handling, and straight-through processing, making it a distinct automation target.""
+    }
+  ]
+}
+"
+5ab5eaa5-5e0c-4d17-babd-a19f92335394,Controlling Analyst (Analytics & Data Intelligence) 80 - 100%,Basler Kantonalbank,Mittelunternehmen,Basel,de,de,"Controlling Analyst (Analytics & Data Intelligence) 80 - 100%
+
+Bereich/Abteilung:
+
+Finanzen und Risiko/Gesamtbanksteuerung
+
+Arbeitsort:
+
+Basel
+
+Arbeitspensum:
+
+80 - 100%
+
+Stellenantritt:
+
+01.05.2020 oder nach Vereinbarung
+
+Motiviert, engagiert und zukunftsorientiert – so sind die Mitarbeitenden der Basler Kantonalbank. Die Basler Kantonalbank ist untrennbar mit der Region verbunden. Wir setzen uns für eine wirtschaftlich erfolgreiche und lebenswerte Region ein – und unsere Mitarbeitenden leisten jeden Tag ihren Beitrag dazu.
+
+Stellenbeschreibung
+Die Gruppe Revenue Management & Financial Analytics ist innerhalb der Abteilung Gesamtbanksteuerung angesiedelt und befasst sich mit spannenden und anspruchsvollen Aufgabengebieten wie beispielsweise dem Aufbau und der Weiterentwicklung von Auswertungen mittels Data Analytics oder der analytischen Gesamtbanksteuerung.
+
+Zur Ergänzung des Teams suchen wir eine engagierte, innovationsfreudige und fachlich erfahrene Persönlichkeit als Controlling Analyst (Analytics & Data Intelligence). In dieser interessanten und abwechslungsreichen Funktion liegt der Fokus auf Analytics und Machine Learning im Finanzbereich. In diesem Zusammenhang sind Sie für die folgenden Aufgaben verantwortlich:
+
+Aufbau und Mitgestaltung des Themenfeldes Financial Data Analytics hinsichtlich von analytischen Forecast-Modellen sowie weiteren Use-Cases im Finanzbereich
+
+Ablösung bestehender Reportings mittels modernen Visualisierungssoftwares (z.B. mit Power BI und/oder Tableau; Cognos)
+
+Erfassung von Businessanforderungen (Use-Cases) und Definition des Datenbedarfs
+
+Modellierung von strukturierten und unstrukturierten Daten
+
+Entwicklung und Weiterentwicklung von Machine Learning Modellen sowie der entsprechenden Operationalisierung sowie Modellmonitoring
+
+Dokumentation, Präsentation und Diskussion von Analyseresultaten mit internen Kunden
+
+Anforderungsprofil
+Wir wenden uns an Kandidatinnen und Kandidaten, welche die folgenden Anforderungen erfüllen:
+
+Abgeschlossenes Masterstudium in Data Science, Informatik, Statistik, Mathematik oder quantitativen Wirtschaftswissenschaften mit starkem analytischem Hintergrund
+
+Breites Data Science Know-how mit mindestens drei Jahren Berufserfahrung im Bereich analytischer Fragestellungen, Erfahrung im Finanzdienstleistungssektor von Vorteil
+
+SQL-Kenntnisse, Programmierkenntnisse in Python und/oder R
+
+Hohe Methodenkompetenz und Umsetzungsstärke, vernetztes Denken sowie zuverlässige, systematische und selbständige Arbeitsweise
+
+Ausgeprägte Eigeninitiative, Kreativität und Freude an der Zusammenarbeit im Team
+
+Bereitschaft neue Technologien zu lernen und umzusetzen
+
+Fachliche Auskünfte
+
+Herr Frank Maier, Gruppenleiter Revenue Management & Financial Analytics,
+061 266 37 69
+
+Kontakt
+
+Frau Sandra Ankli, HR Business Partner, Tel. 061 266 33 42
+
+Jetzt bewerbenPrint","Controlling Analyst (Analytics & Data Intelligence) 80 - 100%
+
+Department/Division:
+
+Finance and Risk/Overall Bank Management
+
+Work Location:
+
+Basel
+
+Workload:
+
+80 - 100%
+
+Start Date:
+
+May 1, 2020, or by agreement
+
+Motivated, committed, and future-oriented – these are the qualities of the employees at Basler Kantonalbank. The Basler Kantonalbank is inextricably linked to the region. We are dedicated to fostering a successful and livable region – and our employees contribute to this every day.
+
+Job Description
+The Revenue Management & Financial Analytics group is part of the Overall Bank Management department and deals with exciting and challenging tasks such as developing and enhancing analyses using Data Analytics or the analytical overall bank management.
+
+To strengthen our team, we are looking for an engaged, innovative, and experienced professional as a Controlling Analyst (Analytics & Data Intelligence). In this interesting and varied role, the focus is on Analytics and Machine Learning in the financial sector. In this context, you will be responsible for the following tasks:
+
+- Developing and shaping the area of Financial Data Analytics, including analytical forecast models and other use cases in the financial sector
+- Replacing existing reports with modern visualization software (e.g., Power BI and/or Tableau; Cognos)
+- Gathering business requirements (use cases) and defining data needs
+- Modeling structured and unstructured data
+- Developing and further refining Machine Learning models, including operationalization and model monitoring
+- Documenting, presenting, and discussing analysis results with internal clients
+
+Qualifications
+We are looking for candidates who meet the following requirements:
+
+- Completed Master’s degree in Data Science, Computer Science, Statistics, Mathematics, or Quantitative Economics with a strong analytical background
+- Broad Data Science expertise with at least three years of professional experience in analytical questions; experience in the financial services sector is an advantage
+- SQL skills, programming knowledge in Python and/or R
+- Strong methodological competence and implementation strength, networked thinking, as well as reliable, systematic, and independent working style
+- High initiative, creativity, and enjoyment of teamwork
+- Willingness to learn and implement new technologies
+
+Contact for Technical Inquiries
+
+Mr. Frank Maier, Group Head Revenue Management & Financial Analytics,  
+Phone: +41 61 266 37 69
+
+Contact
+
+Ms. Sandra Ankli, HR Business Partner, Phone: +41 61 266 33 42
+
+Apply nowPrint","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Generate forward-looking financial forecasts with machine-learning–based analytical models."",
+      ""brief_description"": ""AI models predict revenue, costs, or other key metrics to support Gesamtbanksteuerung (enterprise-wide controlling)."",
+      ""raw_excerpt"": ""„Aufbau und Mitgestaltung des Themenfeldes Financial Data Analytics hinsichtlich von analytischen Forecast-Modellen … im Finanzbereich“"",
+      ""explanation"": ""The ad explicitly calls for building ‘analytische Forecast-Modelle’; such models automate the task of producing quantitative forecasts that humans would otherwise prepare manually.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Automatically create and refresh interactive finance reports and dashboards via modern BI tools."",
+      ""brief_description"": ""The system replaces legacy static reports with auto-updated visual dashboards in Power BI/Tableau/Cognos."",
+      ""raw_excerpt"": ""„Ablösung bestehender Reportings mittels modernen Visualisierungssoftwares (z.B. mit Power BI und/oder Tableau; Cognos)“"",
+      ""explanation"": ""Using BI platforms to automate report generation and visualization shifts routine reporting work from humans to an AI-enabled tool chain that renders and updates dashboards.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Ingest, transform, and model both structured and unstructured financial data for analytics and ML pipelines."",
+      ""brief_description"": ""Automated data-modeling workflows prepare heterogeneous data sources for downstream analysis."",
+      ""raw_excerpt"": ""„Modellierung von strukturierten und unstrukturierten Daten“"",
+      ""explanation"": ""Data-modeling engines automate the extraction, cleaning, and schema design tasks that analysts would otherwise perform by hand.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Deploy machine-learning models into production and continuously monitor their performance and drift."",
+      ""brief_description"": ""Operationalized ML services run predictions and trigger monitoring logic without manual intervention."",
+      ""raw_excerpt"": ""„Entwicklung und Weiterentwicklung von Machine Learning Modellen sowie der entsprechenden Operationalisierung sowie Modellmonitoring“"",
+      ""explanation"": ""The advert emphasizes operationalizing and monitoring ML models; these automated services handle live inference and health checks that would otherwise demand ongoing human oversight.""
+    }
+  ]
+}
+"
+b1570116-6144-42bd-911c-17e6a4778f2d,Data Scientist mit Schwerpunkt Data Engineering (w/m),Basler Kantonalbank,Mittelunternehmen,Basel,de,de,"Data Scientist mit Schwerpunkt Data Engineering (w/m) 80-100%
+
+Bereich/Abteilung:
+
+Digitale Marktleistungen/Digitale Marktleistungen
+
+Arbeitsort:
+
+Basel
+
+Arbeitspensum:
+
+80-100%
+
+Stellenantritt:
+
+01.04.2019 oder nach Vereinbarung
+
+Motiviert, leistungsfähig und veränderungsbereit. So sind die Mitarbeiterinnen und Mitarbeiter der Basler Kantonalbank. Die Basler Kantonalbank, die untrennbar mit Basel verbunden ist und sich für eine lebenswerte und wirtschaftlich erfolgreiche Region engagiert.
+
+Stellenbeschreibung
+Die neugeschaffene Gruppe „Data Analytics“ innerhalb des Bereichs Digitale Marktleistungen verantwortet die Entwicklung und Umsetzung der strategischen Data Analytics Roadmap im Konzern Basler Kantonalbank. Zur Ergänzung des Teams suchen wir eine initiative, innovationsfreudige und versierte Persönlichkeit als Data Scientist mit Schwerpunkt Data Engineering (w/m). In dieser spannenden und vielseitigen Funktion liegt der Fokus auf der Bereitstellung von unstrukturierten und strukturierten Daten für die analytische Auswertung und Modellierung durch interne und externe Analysten. Dabei sind Sie für die folgenden Hauptaufgaben zuständig:
+
+Anforderungsmanagement in Bezug auf die Datenbereitstellung:
+Verantwortlich für das Zieldatenmodell („Change and Run“); Konsolidierung und Priorisierung der Datenanforderungen bezüglich Datenintegration, Datentransformation und Datenmanagement sowie zur Operationalisierung analytischer Resultate; Prüfung der Umsetzung
+
+System-Owner für Systeme zur Verarbeitung unstrukturierter Daten sowie für Analytics-Instrumente: Bereitstellung und Unterhalt von Datenverarbeitungssystemen als Grundlage für die Analyse strukturierter und unstrukturierter Daten
+
+Analyse von Daten in Quellsystemen
+
+Operationalisierung von Machine Learning Modellen
+
+Begleitung von externen Data Scientisten sowie enge Zusammenarbeit mit der IT und mit anderen internen Schnittstellen
+
+Projektmitarbeit und fachliche Verantwortung für Data Science Projekte
+
+Anforderungsprofil
+
+Abgeschlossener Hoch- oder Fachhochschulabschluss mit technischer Ausrichtung
+
+Breites Data Science Know-how mit mindestens drei Jahren Berufserfahrung im Bereich Data Engineering
+
+Erfahrung mit Data Warehousing- und Datenbankprojekten sowie ETL- und SQL-Kenntnisse
+
+Programmierkenntnisse in Python und/oder R
+
+Bereitschaft neue Technologien zu lernen und umzusetzen
+
+Vernetzte Denk- und pragmatische, wirkungsorientierte Vorgehensweise sowie zuverlässige, flexible und selbständige Arbeitsweise
+
+Hohe Eigeninitiative, Kreativität und Freude an der Zusammenarbeit im Team
+
+Stilsicheres Deutsch und gute Sprachkenntnisse in Englisch
+
+Fachliche Auskünfte
+
+Herr Pascal Freudiger, Fachspezialist Zielkundenmanagement, Tel. 061 266 32 89
+
+Kontakt
+
+Frau Sandra Ankli, Personalverantwortliche, Tel. 061 266 33 42
+
+Jetzt bewerbenPrint","Data Scientist with a Focus on Data Engineering (m/f) 80-100%
+
+Division/Department:
+
+Digital Market Services / Digital Market Services
+
+Work Location:
+
+Basel
+
+Workload:
+
+80-100%
+
+Start Date:
+
+April 1, 2019, or by arrangement
+
+Motivated, high-performing, and open to change. These are the qualities of the employees at Basler Kantonalbank. The Basler Kantonalbank, which is inextricably linked to Basel, is committed to a livable and economically successful region.
+
+Job Description
+The newly established ""Data Analytics"" group within the Digital Market Services division is responsible for developing and implementing the strategic Data Analytics roadmap across the Basler Kantonalbank group. To complement the team, we are seeking an initiative-taking, innovative, and experienced individual as a Data Scientist with a focus on Data Engineering (m/f). In this exciting and diverse role, the primary focus is on providing unstructured and structured data for analytical evaluation and modeling by internal and external analysts. Your main responsibilities include:
+
+Requirements management regarding data provision:
+Responsible for the target data model (""Change and Run""); consolidating and prioritizing data requirements related to data integration, data transformation, and data management, as well as operationalizing analytical results; reviewing implementation
+
+System owner for systems processing unstructured data and for analytics tools:
+Providing and maintaining data processing systems as a foundation for analyzing structured and unstructured data
+
+Analysis of data in source systems
+
+Operationalization of machine learning models
+
+Supporting external data scientists and working closely with IT and other internal interfaces
+
+Project participation and professional responsibility for data science projects
+
+Candidate Profile
+
+Completed higher education or university degree with a technical focus
+
+Extensive data science expertise with at least three years of professional experience in data engineering
+
+Experience with data warehousing and database projects, as well as ETL and SQL skills
+
+Programming skills in Python and/or R
+
+Willingness to learn and implement new technologies
+
+Connected thinking, pragmatic, impact-oriented approach, as well as reliable, flexible, and independent working style
+
+High initiative, creativity, and enjoyment of teamwork
+
+Proficiency in German and good knowledge of English
+
+Professional Inquiries
+
+Mr. Pascal Freudiger, Specialist in Target Customer Management, Tel. 061 266 32 89
+
+Contact
+
+Ms. Sandra Ankli, HR Manager, Tel. 061 266 33 42
+
+Apply nowPrint","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically ingest, clean, integrate and structure heterogeneous data sets so they can be used directly for analytical modeling."",
+      ""brief_description"": ""The system prepares both unstructured and structured data so analysts can immediately analyze and model them."",
+      ""raw_excerpt"": ""Bereitstellung von unstrukturierten und strukturierten Daten für die analytische Auswertung und Modellierung"",
+      ""explanation"": ""This line indicates that dedicated data-processing technology (not manual effort) prepares multiple data types for analytics, an automated data-engineering function often powered by AI-enabled ETL pipelines.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Process and transform unstructured data (e.g., free-text, documents) into structured, analysis-ready features using specialized tools."",
+      ""brief_description"": ""Systems for processing unstructured data convert raw text and other unstructured inputs into an analyzable format."",
+      ""raw_excerpt"": ""System-Owner für Systeme zur Verarbeitung unstrukturierter Daten sowie für Analytics-Instrumente: Bereitstellung ... von Datenverarbeitungssystemen als Grundlage für die Analyse strukturierter und unstrukturierter Daten"",
+      ""explanation"": ""Mention of ‘Systeme zur Verarbeitung unstrukturierter Daten’ implies automated parsing, extraction, and transformation tasks typically handled by AI/NLP pipelines.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Run automated analytics on data directly within source systems to uncover patterns and insights without manual extraction."",
+      ""brief_description"": ""Analytics instruments analyze data held in operational source systems."",
+      ""raw_excerpt"": ""Analyse von Daten in Quellsystemen"",
+      ""explanation"": ""Because the analysis occurs in the source systems themselves, it points to AI-driven analytics software that scans and interprets operational data in place.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Generate real-time or scheduled predictions by deploying machine-learning models into production workflows."",
+      ""brief_description"": ""Operationalized ML models deliver predictive outputs that feed into business processes."",
+      ""raw_excerpt"": ""Operationalisierung von Machine Learning Modellen"",
+      ""explanation"": ""Operationalizing ML models means the models automatically produce predictions or scores for end-users or downstream systems, replacing manual statistical analyses.""
+    }
+  ]
+}
+"
+f91f5cee-e2d4-46b9-a8bd-7222ac12036b,Java Developer,Locatee AG,Kleinstunternehmen,CH-8048 Zürich,en,en,"WHAT YOU WILL DO
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+WHAT YOU BRING
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Great teammate, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+WHY YOU SHOULD WORK WITH US
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Through a flat organisation we encourage innovation, ownership and open communication so that everybody feels engaged in the dynamic of the group
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich
+
+The ability to choose your own work devices
+
+The chance to work in a young, ambitious and talented team where friendship is one of the company's values
+
+We live diversity and speak 12 different languages (English being our company language)
+
+Weekly team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea, coffee & snacks
+
+CONTACT
+
+Do you want to become part of Locatee’s vision and grow together with us? Apply now and share some examples from your previous work. Please include links to your recent projects (links, code samples, e.g. on Github or as attachment). We are looking forward to hearing from you.","WHAT YOU WILL DO
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+WHAT YOU BRING
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Great teammate, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+WHY YOU SHOULD WORK WITH US
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Through a flat organisation we encourage innovation, ownership and open communication so that everybody feels engaged in the dynamic of the group
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich
+
+The ability to choose your own work devices
+
+The chance to work in a young, ambitious and talented team where friendship is one of the company's values
+
+We live diversity and speak 12 different languages (English being our company language)
+
+Weekly team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea, coffee & snacks
+
+CONTACT
+
+Do you want to become part of Locatee’s vision and grow together with us? Apply now and share some examples from your previous work. Please include links to your recent projects (links, code samples, e.g. on Github or as attachment). We are looking forward to hearing from you.","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically collect and fuse real-time signals from sensors, calendars, networks and other building systems to create a live digital picture of how every workspace is being used."",
+      ""brief_description"": ""The platform “augments the physical workspace with real-time data”."",
+      ""raw_excerpt"": ""Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings."",
+      ""explanation"": ""This sentence shows that the software itself ingests diverse, real-time data streams and enriches the building with that information, a distinct AI-enabled data-fusion capability.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Integrate corporate calendar information through Exchange Web API and other external feeds so that occupancy and booking data flow automatically into the workspace analytics engine."",
+      ""brief_description"": ""The system builds integrations for sources such as Exchange Web API."",
+      ""raw_excerpt"": ""Develop integrations for different data sources, for example Exchange Web API for the workspace analytics"",
+      ""explanation"": ""The excerpt indicates that the product includes connectors that pull data from third-party systems; once deployed, those integrations run autonomously and are part of the AI solution rather than a human activity.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Compute large-scale aggregations and statistical analytics that quantify utilization, occupancy trends and other key workspace KPIs in near real time."",
+      ""brief_description"": ""The software implements “data analytics and aggregations”."",
+      ""raw_excerpt"": ""Implement data analytics and aggregations"",
+      ""explanation"": ""Although the ad assigns engineers to implement it, the capability describes what the AI layer ultimately does—automatically crunch big data and surface metrics, replacing manual spreadsheet analysis.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Generate AI-driven insights and recommendations that help organisations intelligently optimise office layouts, capacity and employee experience."",
+      ""brief_description"": ""Locatee enables customers to “intelligently optimize their office buildings”."",
+      ""raw_excerpt"": ""Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace."",
+      ""explanation"": ""The phrase shows that the platform’s analytics go beyond reporting to prescriptive guidance—an automated decision-support function that would previously require human consultants.""
+    }
+  ]
+}
+"
+53507a34-4eac-4339-a5ce-8c7a367aef37,Java Developer,Locatee AG,Kleinstunternehmen,8048 Zürich,en,en,"Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Your chance to make a difference and be valued for that
+
+A lot of independence and responsibility
+
+An inspiring and modern work environment in Zurich Altstetten
+
+Work in a flat hierarchy
+
+The ability to choose your own work devices
+
+The chance to work with an awesome, energetic and talented team of professional fun-havers with regular team events, we never miss out on fun!
+
+Fresh fruits, homemade cakes, coffee, local beers, pool tables, table football...
+
+We live diversity!
+
+We're really much looking forward to being in touch with you!","Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Your chance to make a difference and be valued for that
+
+A lot of independence and responsibility
+
+An inspiring and modern work environment in Zurich Altstetten
+
+Work in a flat hierarchy
+
+The ability to choose your own work devices
+
+The chance to work with an awesome, energetic and talented team of professional fun-havers with regular team events, we never miss out on fun!
+
+Fresh fruits, homemade cakes, coffee, local beers, pool tables, table football...
+
+We live diversity!
+
+We're really much looking forward to being in touch with you!","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically collect and fuse real-time signals from sensors, calendars, networks and other building systems to create a live digital picture of how every workspace is being used."",
+      ""brief_description"": ""The platform “augments the physical workspace with real-time data”."",
+      ""raw_excerpt"": ""Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings."",
+      ""explanation"": ""This sentence shows that the software itself ingests diverse, real-time data streams and enriches the building with that information, a distinct AI-enabled data-fusion capability.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Integrate corporate calendar information through Exchange Web API and other external feeds so that occupancy and booking data flow automatically into the workspace analytics engine."",
+      ""brief_description"": ""The system builds integrations for sources such as Exchange Web API."",
+      ""raw_excerpt"": ""Develop integrations for different data sources, for example Exchange Web API for the workspace analytics"",
+      ""explanation"": ""The excerpt indicates that the product includes connectors that pull data from third-party systems; once deployed, those integrations run autonomously and are part of the AI solution rather than a human activity.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Compute large-scale aggregations and statistical analytics that quantify utilization, occupancy trends and other key workspace KPIs in near real time."",
+      ""brief_description"": ""The software implements “data analytics and aggregations”."",
+      ""raw_excerpt"": ""Implement data analytics and aggregations"",
+      ""explanation"": ""Although the ad assigns engineers to implement it, the capability describes what the AI layer ultimately does—automatically crunch big data and surface metrics, replacing manual spreadsheet analysis.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Generate AI-driven insights and recommendations that help organisations intelligently optimise office layouts, capacity and employee experience."",
+      ""brief_description"": ""Locatee enables customers to “intelligently optimize their office buildings”."",
+      ""raw_excerpt"": ""Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace."",
+      ""explanation"": ""The phrase shows that the platform’s analytics go beyond reporting to prescriptive guidance—an automated decision-support function that would previously require human consultants.""
+    }
+  ]
+}
+"
+0208b9b2-4684-415d-a114-569b16ed9f96,Data Scientist mit Schwerpunkt Analytics (w/m) 80% - 100%,Basler Kantonalbank,Mittelunternehmen,Basel,de,de,"Data Scientist mit Schwerpunkt Analytics (w/m)
+
+Motiviert, leistungsfähig und veränderungsbereit. So sind die Mitarbeiterinnen und Mitarbeiter der Basler Kantonalbank. Die Basler Kantonalbank, die untrennbar mit Basel verbunden ist und sich für eine lebenswerte und wirtschaftlich erfolgreiche Region engagiert.
+Die neugeschaffene Gruppe ""Data Analytics"" innerhalb des Bereichs Digitale Marktleistungen verantwortet die Entwicklung und Umsetzung der strategischen Data Analytics Roadmap im Konzern Basler Kantonalbank. Zur Ergänzung des Teams suchen wir eine engagierte, innovationsfreudige und fachlich erfahrene Persönlichkeit als Data Scientist mit Schwerpunkt Analytics (w/m). In dieser interessanten und abwechslungsreichen Funktion liegt der Fokus auf Analytics und Machine Learning. In diesem Zusammenhang sind Sie für die folgenden Aufgaben verantwortlich:
+
+Erfassung der Businessanforderungen und Definition des Datenbedarfs
+
+Pilotierung von Datentransformation und -aufbereitung
+
+Modellierung von strukturierten und unstrukturierten Daten
+
+Text Mining
+
+Entwicklung und Weiterentwicklung von Machine Learning Modellen, entsprechende Operationalisierung sowie Modellmonitoring
+
+Begleitung von externen Data Scientisten und Review von extern entwickelten Analysen und Modellen
+
+Dokumentation, Präsentation und Diskussion von Analyseresultaten mit internen Kunden
+
+Projektmitarbeit und fachliche Verantwortung für Data Science Projekte
+
+Anforderungsprofil
+
+Abgeschlossenes Masterstudium in Data Science, Informatik, Statistik, Mathematik oder quantitativen Wirtschaftswissenschaften mit starkem analytischem Hintergrund
+
+Breites Data Science Know-how mit mindestens drei Jahren Berufserfahrung im Bereich analytischer Fragestellungen, Erfahrung im Finanzdienstleistungssektor von Vorteil
+
+SQL-Kenntnisse, Programmierkenntnisse in Python und/oder R
+
+Hohe Methodenkompetenz und Umsetzungsstärke, vernetztes Denken sowie zuverlässige, systematische und selbständige Arbeitsweise
+
+Ausgeprägte Eigeninitiative, Kreativität und Freude an der Zusammenarbeit im Team
+
+Bereitschaft neue Technologien zu lernen und umzusetzen
+
+Stilsicheres Deutsch und gute Sprachkenntnisse in Englisch
+
+Fachliche Auskünfte
+Herr Pascal Freudiger, Fachspezialist Zielkundenmanagement, Tel. 061 266 32 89
+Kontakt","Data Scientist with a Focus on Analytics (m/f)
+
+Motivated, high-performing, and open to change. These are the qualities of the employees at Basler Kantonalbank. The Basler Kantonalbank, which is inextricably linked to Basel, is committed to a livable and economically successful region.
+The newly created ""Data Analytics"" group within the Digital Market Services division is responsible for developing and implementing the strategic Data Analytics roadmap across the Basler Kantonalbank group. To complement the team, we are seeking an engaged, innovative, and experienced professional as a Data Scientist with a focus on Analytics (m/f). This interesting and varied role primarily focuses on Analytics and Machine Learning. In this context, you will be responsible for the following tasks:
+
+- Gathering business requirements and defining data needs
+- Piloting data transformation and preparation
+- Modeling structured and unstructured data
+- Text mining
+- Developing and enhancing machine learning models, operationalizing them, and monitoring their performance
+- Supporting external data scientists and reviewing externally developed analyses and models
+- Documenting, presenting, and discussing analysis results with internal clients
+- Participating in projects and taking professional responsibility for Data Science initiatives
+
+Requirements Profile
+
+- Completed master's degree in Data Science, Computer Science, Statistics, Mathematics, or quantitative Economics with a strong analytical background
+- Broad Data Science expertise with at least three years of professional experience in analytical questions; experience in the financial services sector is an advantage
+- SQL skills, programming knowledge in Python and/or R
+- Strong methodological competence and implementation strength, networked thinking, as well as reliable, systematic, and independent working style
+- Strong initiative, creativity, and enjoyment of teamwork
+- Willingness to learn and implement new technologies
+- Proficiency in German and good language skills in English
+
+Professional Inquiries
+Mr. Pascal Freudiger, Specialist in Target Customer Management, Tel. 061 266 32 89
+Contact","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Generate predictive or descriptive models from structured banking data to inform business decisions."",
+      ""brief_description"": ""The ML system ingests structured data (e.g., transactions, customer attributes) and produces quantitative forecasts or classifications."",
+      ""raw_excerpt"": ""• Modeling structured and unstructured data"",
+      ""explanation"": ""The phrase indicates that once built, the models will automatically analyze structured data sets—an AI-driven function distinct from any human coding effort.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Apply machine-learning techniques to unstructured data (e-mails, PDFs, logs) to uncover patterns or derive features."",
+      ""brief_description"": ""Algorithms process unstructured inputs and convert them into usable signals for downstream analytics."",
+      ""raw_excerpt"": ""• Modeling structured and unstructured data"",
+      ""explanation"": ""‘Unstructured data’ implies text, images, or other free-form inputs that the AI system must autonomously interpret—an explicit capability separate from structured-data modelling.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Perform text-mining to automatically extract entities, topics, or sentiment from textual sources."",
+      ""brief_description"": ""The tool scans text and delivers structured outputs such as key phrases or sentiment scores."",
+      ""raw_excerpt"": ""• Text mining"",
+      ""explanation"": ""The ad names ‘Text mining’ as a standalone function, signaling an AI workflow that transforms raw text into analytical insights without manual parsing.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Serve real-time or batch predictions through operationalized machine-learning models."",
+      ""brief_description"": ""Once deployed, the models provide inference results that can be consumed by banking applications or reports."",
+      ""raw_excerpt"": ""• Developing and enhancing machine learning models, operationalizing them, ..."",
+      ""explanation"": ""‘Operationalizing’ indicates the models will run in production, automatically producing outputs for end-users or systems.""
+    },
+    {
+      ""task_id"": 5,
+      ""ai_capability"": ""Continuously monitor model performance and surface metrics or alerts when accuracy drifts."",
+      ""brief_description"": ""An automated monitoring layer tracks KPIs (e.g., prediction error) and flags degradation."",
+      ""raw_excerpt"": ""• ... operationalizing them, and monitoring their performance"",
+      ""explanation"": ""The monitoring of deployed models is an automated AI/ML-enabled workflow that evaluates live predictions, not a manual spreadsheet check by engineers.""
+    }
+  ]
+}
+"
+5fddd7d2-eea7-44a8-9bdb-db67c532abaf,Java Developer,Locatee AG,Kleinstunternehmen,8047 Zürich,en,en,"Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Open and supportive culture on a flat organisational structure. Make your efforts and engagement count!
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich
+
+The ability to choose your own work devices
+
+The chance to work in a young, energetic and talented team that cares for each other: we live diversity and speak 10 different languages (English being our company language)
+
+Weekly team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea & coffee
+
+We're really much looking forward to being in touch with you!","Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+These will be your tasks:
+
+Maintain and further develop the backend of Locatee Analytics
+
+Implement data analytics and aggregations
+
+Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+Ensure the software we ship runs stable and meets our customer’s quality standards
+
+Employ simple design and pragmatic implementation techniques to drive business value
+
+Code reviews to verify that the implementation meets specifications and designs using best practices
+
+Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+Contribute your own ideas in our agile development process
+
+You're offering these qualifications:
+
+Java: Advanced skills with Java and JEE
+
+Experience with Spring Framework, Messaging, Security, Web
+
+Spring Data, Hibernate, JPA, transaction management
+
+SQL and MySQL/MariaDB
+
+Experience working with Git
+
+Willing to learn and continuously working on improving your skills
+
+Team player, entrepreneurial mindset
+
+Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+Experience with performance tuning, both in Java and SQL
+
+Experience with messaging frameworks
+
+Background in statistics and machine learning
+
+Experience with networks (Switching, Routing, Wireless, SNMP)
+
+Linux administration experience
+
+We're offering these benefits:
+
+Be part of a dynamic, fast-paced and internationally growing startup
+
+Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+A real scale-up adventure with great rewards
+
+Open and supportive culture on a flat organisational structure. Make your efforts and engagement count!
+
+A lot of independence and responsibility
+
+An inspiring and modern working environment in Zurich
+
+The ability to choose your own work devices
+
+The chance to work in a young, energetic and talented team that cares for each other: we live diversity and speak 10 different languages (English being our company language)
+
+Weekly team events, after-work beers and much more, we never miss out on fun!
+
+Fresh fruits basket, homemade cakes, free tea & coffee
+
+We're really much looking forward to being in touch with you!","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Continuously augment office-building workspaces with real-time data streams so that the environment can be understood and acted upon moment-by-moment."",
+      ""brief_description"": ""The platform augments the physical workspace with real-time data to create smart, people-oriented office buildings."",
+      ""raw_excerpt"": ""Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings."",
+      ""explanation"": ""This sentence explicitly states that the system ingests and processes real-time data to enrich (i.e., instrument) the physical workspace, which is a discrete AI/analytics function delivered by the product itself.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Generate data-driven recommendations that intelligently optimize office-space utilization and influence how people interact with their workplace."",
+      ""brief_description"": ""Locatee enables large organisations to intelligently optimize their office buildings and shape the way people interact with their workspace."",
+      ""raw_excerpt"": ""Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace."",
+      ""explanation"": ""The excerpt shows that the product not only measures but also provides optimization logic—i.e., analytics that drive concrete space-usage improvements—thus constituting a distinct AI-enabled task.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Automatically ingest and harmonize heterogeneous enterprise data sources (e.g., Microsoft Exchange calendar data) into a unified workspace-analytics pipeline."",
+      ""brief_description"": ""The system includes integrations for different data sources such as the Exchange Web API for workspace analytics."",
+      ""raw_excerpt"": ""Develop integrations for different data sources, for example Exchange Web API for the workspace analytics"",
+      ""explanation"": ""Although phrased as a developer activity, the excerpt reveals that the product itself must support automated data-source connectors and fusion logic, a functional requirement of the AI/analytics stack.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Provide large-scale big-data analytics that deliver actionable insights on workspace usage to multinational enterprises."",
+      ""brief_description"": ""Employees work on cutting-edge big data analytics technology for the largest organisations worldwide."",
+      ""raw_excerpt"": ""Work on cutting-edge big data analytics technology for the largest organisations worldwide"",
+      ""explanation"": ""This line indicates that the system’s analytics layer is designed to operate at enterprise scale, implying advanced data processing and insight extraction capabilities that are core to the product’s value proposition.""
+    }
+  ]
+}
+"
+324c77e0-65c5-4eb4-b078-cf84de6dd996,Data Scientist mit Schwerpunkt Data Engineering (w/m) 80% - 100%,Basler Kantonalbank,Mittelunternehmen,Basel,de,de,"Data Scientist mit Schwerpunkt Data Engineering (w/m)
+
+Motiviert, leistungsfähig und veränderungsbereit. So sind die Mitarbeiterinnen und Mitarbeiter der Basler Kantonalbank. Die Basler Kantonalbank, die untrennbar mit Basel verbunden ist und sich für eine lebenswerte und wirtschaftlich erfolgreiche Region engagiert.
+Die neugeschaffene Gruppe ""Data Analytics"" innerhalb des Bereichs Digitale Marktleistungen verantwortet die Entwicklung und Umsetzung der strategischen Data Analytics Roadmap im Konzern Basler Kantonalbank. Zur Ergänzung des Teams suchen wir eine initiative, innovationsfreudige und versierte Persönlichkeit als Data Scientist mit Schwerpunkt Data Engineering (w/m). In dieser spannenden und vielseitigen Funktion liegt der Fokus auf der Bereitstellung von unstrukturierten und strukturierten Daten für die analytische Auswertung und Modellierung durch interne und externe Analysten. Dabei sind Sie für die folgenden Hauptaufgaben zuständig:
+
+Anforderungsmanagement in Bezug auf die Datenbereitstellung:
+Verantwortlich für das Zieldatenmodell (""Change and Run""); Konsolidierung und Priorisierung der Datenanforderungen bezüglich Datenintegration, Datentransformation und Datenmanagement sowie zur Operationalisierung analytischer Resultate; Prüfung der Umsetzung
+
+System-Owner für Systeme zur Verarbeitung unstrukturierter Daten sowie für Analytics-Instrumente: Bereitstellung und Unterhalt von Datenverarbeitungssystemen als Grundlage für die Analyse strukturierter und unstrukturierter Daten
+
+Analyse von Daten in Quellsystemen
+
+Operationalisierung von Machine Learning Modellen
+
+Begleitung von externen Data Scientisten sowie enge Zusammenarbeit mit der IT und mit anderen internen Schnittstellen
+
+Projektmitarbeit und fachliche Verantwortung für Data Science Projekte
+
+Anforderungsprofil
+
+Abgeschlossener Hoch- oder Fachhochschulabschluss mit technischer Ausrichtung
+
+Breites Data Science Know-how mit mindestens drei Jahren Berufserfahrung im Bereich Data Engineering
+
+Erfahrung mit Data Warehousing- und Datenbankprojekten sowie ETL- und SQL-Kenntnisse
+
+Programmierkenntnisse in Python und/oder R
+
+Bereitschaft neue Technologien zu lernen und umzusetzen
+
+Vernetzte Denk- und pragmatische, wirkungsorientierte Vorgehensweise sowie zuverlässige, flexible und selbständige Arbeitsweise
+
+Hohe Eigeninitiative, Kreativität und Freude an der Zusammenarbeit im Team
+
+Stilsicheres Deutsch und gute Sprachkenntnisse in Englisch
+
+Fachliche Auskünfte
+Herr Pascal Freudiger, Fachspezialist Zielkundenmanagement, Tel. 061 266 32 89
+Kontakt","Data Scientist with a Focus on Data Engineering (m/f/d)
+
+Motivated, high-performing, and open to change. These are the qualities of the employees at Basler Kantonalbank. The Basler Kantonalbank, which is inextricably linked to Basel, is committed to a livable and economically successful region.
+The newly created ""Data Analytics"" group within the Digital Market Services division is responsible for developing and implementing the strategic Data Analytics roadmap across the Basler Kantonalbank group. To complement the team, we are seeking an initiative-taking, innovative, and experienced individual as a Data Scientist with a focus on Data Engineering (m/f/d). In this exciting and diverse role, the primary focus is on providing unstructured and structured data for analytical evaluation and modeling by internal and external analysts. You will be responsible for the following main tasks:
+
+Requirements management regarding data provision:
+Responsible for the target data model (""Change and Run""); consolidating and prioritizing data requirements related to data integration, data transformation, and data management, as well as operationalizing analytical results; reviewing implementation
+
+System owner for systems processing unstructured data and for analytics tools:
+Providing and maintaining data processing systems as a foundation for analyzing structured and unstructured data
+
+Analysis of data in source systems
+
+Operationalization of machine learning models
+
+Supporting external data scientists and working closely with IT and other internal interfaces
+
+Project participation and professional responsibility for data science projects
+
+Candidate Profile
+
+Completed university or technical college degree with a technical focus
+
+Broad Data Science expertise with at least three years of professional experience in Data Engineering
+
+Experience with data warehousing and database projects, as well as ETL and SQL skills
+
+Programming skills in Python and/or R
+
+Willingness to learn and implement new technologies
+
+Connected thinking and pragmatic, impact-oriented approach, as well as reliable, flexible, and independent working style
+
+High initiative, creativity, and enjoyment of teamwork
+
+Proficiency in German and good knowledge of English
+
+Professional Inquiries
+Mr. Pascal Freudiger, Specialist in Target Customer Management, Tel. 061 266 32 89
+Contact","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Automatically ingest and process unstructured data to convert it into structured, analyzable formats."",
+      ""brief_description"": ""Systems for unstructured-data processing transform raw text and other unstructured inputs so they can be analysed."",
+      ""raw_excerpt"": ""System-Owner für Systeme zur Verarbeitung unstrukturierter Daten sowie für Analytics-Instrumente: Bereitstellung und Unterhalt von Datenverarbeitungssystemen als Grundlage für die Analyse strukturierter und unstrukturierter Daten"",
+      ""explanation"": ""The excerpt describes dedicated systems that handle unstructured data; this implies an automated capability—typically NLP or related ML techniques—that prepares such data for analytics without manual intervention.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Carry out automated analysis of both structured and unstructured data residing in source systems to extract insights."",
+      ""brief_description"": ""Analytics tools analyse data directly in source systems to provide actionable findings."",
+      ""raw_excerpt"": ""Analyse von Daten in Quellsystemen"",
+      ""explanation"": ""Because the job refers to analysing data in source systems, AI-enabled analytics tools are expected to run computations and pattern-finding autonomously, replacing manual data exploration.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Generate operational predictions or classifications by executing machine-learning models in production environments."",
+      ""brief_description"": ""Deployed ML models run automatically to deliver analytical results that can be embedded in business processes."",
+      ""raw_excerpt"": ""Operationalisierung von Machine Learning Modellen"",
+      ""explanation"": ""‘Operationalisation’ means the models are put into day-to-day use; once live, the ML system itself produces predictions whenever new data arrives, automating decision-support tasks.""
+    }
+  ]
+}
+"
+2fb2601e-395f-4913-b5ee-645888e72e37,Java Developer/Engineer,Locatee AG,Kleinstunternehmen,CH-8045 Zürich,en,en,"Java Developer/Engineer
+
+Zürich,SchweizFull-time
+
+Are you a Java Developer looking for interesting and challenging problems to solve? Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend? Are you ready to take on a new challenge in developing an innovative business to business software solution?
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. With our big data platform Locatee Analytics, we augment the physical workspace with real-time data to create smart and occupant-oriented office buildings. Our solution helps the largest organisations in Switzerland and abroad to optimise their office buildings and shape the way how people interact with their workspace.
+
+Apply now and join us on our mission to revolutionize the way how Corporate Real Estate is managed.
+
+YOUR TASK
+
+- Implement data analytics and aggregations
+- Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+- Maintain and further develop the architecture of Locatee Analytics
+- Ensure the software we ship runs stable and meets our customer's quality standards
+- Analyze indoor location data to help our customers understand how their office space is used
+- Implement and apply Machine Learning and Statistics algorithms
+- Come up with ideas how to present the gained insights
+
+YOUR SKILLS
+
+- Experience with Java 7 and 8
+- Spring DI, Messaging
+- Spring Data, Hibernate, transaction management
+- SQL and MySQL/MariaDB
+- Spring MVC is a plus
+- Experience with performance tuning, both in Java and SQL, is a plus
+- Background in statistics and machine learning is a plus
+- Smart mind with a sense for great products and engineering
+- You like to take responsibility and work independently
+- Willing to learn and continuously working on improving your skills
+- Team player
+- Fluent in English
+- Linux or Windows system administration experience is a plus
+- German is a plus
+
+WHAT WE OFFER
+
+- Work on an innovative product for real estate managers of the biggest organizations
+- The chance to work with an energetic, young and skilled team, with extremely flat hierarchies
+- Take on responsibility and challenges from the first day on
+- Great office in Zurich Altstetten
+- Regular team events
+- Be part of Locatee, a dynamic, fast-paced, and rapidly growing startup company
+
+CONTACT
+
+Do you want to become part of Locatee's mission and grow together with us? Apply now with your CV and reference project. Please include links to your recent projects (links, code samples e.g. on Github or as attachment). We are looking forward to hearing from you.
+
+Locatee AG
+Baslerstrasse 60
+8048 Zürich
+
++41 43 508 51 23
+
+Apply for this opening
+
+Apply for this opening athttp://locatee.recruiterbox.com/jobs/fk0mcw2?apply=true
+
+Other openings at Locatee AG
+
+See all the jobs at Locatee AG here:http://locatee.recruiterbox.com/jobs
+
+Fetching your Linkedin profile ...
+
+Application Form
+
+First Name *Last NameEmail *Phone *Resume *
+
+Thanks for your time
+
+Apply for this opening
+
+share this opening with friends
+
+Other openings at Locatee AG
+
+See all the jobs at Locatee AG here:http://locatee.recruiterbox.com/jobs","Java Developer/Engineer
+
+Zürich,SchweizFull-time
+
+Are you a Java Developer looking for interesting and challenging problems to solve? Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend? Are you ready to take on a new challenge in developing an innovative business to business software solution?
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. With our big data platform Locatee Analytics, we augment the physical workspace with real-time data to create smart and occupant-oriented office buildings. Our solution helps the largest organisations in Switzerland and abroad to optimise their office buildings and shape the way how people interact with their workspace.
+
+Apply now and join us on our mission to revolutionize the way how Corporate Real Estate is managed.
+
+YOUR TASK
+
+- Implement data analytics and aggregations
+- Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+- Maintain and further develop the architecture of Locatee Analytics
+- Ensure the software we ship runs stable and meets our customer's quality standards
+- Analyze indoor location data to help our customers understand how their office space is used
+- Implement and apply Machine Learning and Statistics algorithms
+- Come up with ideas how to present the gained insights
+
+YOUR SKILLS
+
+- Experience with Java 7 and 8
+- Spring DI, Messaging
+- Spring Data, Hibernate, transaction management
+- SQL and MySQL/MariaDB
+- Spring MVC is a plus
+- Experience with performance tuning, both in Java and SQL, is a plus
+- Background in statistics and machine learning is a plus
+- Smart mind with a sense for great products and engineering
+- You like to take responsibility and work independently
+- Willing to learn and continuously working on improving your skills
+- Team player
+- Fluent in English
+- Linux or Windows system administration experience is a plus
+- German is a plus
+
+WHAT WE OFFER
+
+- Work on an innovative product for real estate managers of the biggest organizations
+- The chance to work with an energetic, young and skilled team, with extremely flat hierarchies
+- Take on responsibility and challenges from the first day on
+- Great office in Zurich Altstetten
+- Regular team events
+- Be part of Locatee, a dynamic, fast-paced, and rapidly growing startup company
+
+CONTACT
+
+Do you want to become part of Locatee's mission and grow together with us? Apply now with your CV and reference project. Please include links to your recent projects (links, code samples e.g. on Github or as attachment). We are looking forward to hearing from you.
+
+Locatee AG
+Baslerstrasse 60
+8048 Zürich
+
++41 43 508 51 23
+
+Apply for this opening
+
+Apply for this opening athttp://locatee.recruiterbox.com/jobs/fk0mcw2?apply=true
+
+Other openings at Locatee AG
+
+See all the jobs at Locatee AG here:http://locatee.recruiterbox.com/jobs
+
+Fetching your Linkedin profile ...
+
+Application Form
+
+First Name *Last NameEmail *Phone *Resume *
+
+Thanks for your time
+
+Apply for this opening
+
+share this opening with friends
+
+Other openings at Locatee AG
+
+See all the jobs at Locatee AG here:http://locatee.recruiterbox.com/jobs","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Continuously detect and quantify real-time occupancy patterns within office buildings using indoor-location signals."",
+      ""brief_description"": ""The platform ingests live location data to show how each area of an office is actually being used at any moment."",
+      ""raw_excerpt"": ""“augment the physical workspace with real-time data …” and “Analyze indoor location data to help our customers understand how their office space is used”"",
+      ""explanation"": ""These lines describe an automated system that captures live spatial data and turns it into actionable knowledge about workspace utilization—work performed by the AI, not by human engineers.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Aggregate heterogeneous workspace-related data streams and fuse them into a single analytics model."",
+      ""brief_description"": ""Locatee Analytics automatically combines signals such as Exchange calendar data with sensor/location feeds for unified analysis."",
+      ""raw_excerpt"": ""“Develop integrations for different data sources, for example Exchange Web API for the workspace analytics”"",
+      ""explanation"": ""The excerpt shows the product’s ability to ingest multiple external data sources; the automated fusion of those feeds is an AI-enabled workflow rather than a manual task.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Generate descriptive and summary statistics that reveal trends and anomalies in workspace usage."",
+      ""brief_description"": ""Built-in analytics modules compute aggregations that highlight how often, when, and where office areas are occupied."",
+      ""raw_excerpt"": ""“Implement data analytics and aggregations”"",
+      ""explanation"": ""‘Data analytics and aggregations’ denote automated computations executed by the system to turn raw data into higher-level metrics.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Apply machine-learning and statistical algorithms to predict or optimize office-space allocation and performance."",
+      ""brief_description"": ""ML models surface patterns that help corporate real-estate teams decide how to resize or reconfigure space."",
+      ""raw_excerpt"": ""“Implement and apply Machine Learning and Statistics algorithms”"",
+      ""explanation"": ""Because the platform embeds ML/statistical methods, it can autonomously uncover usage patterns and optimization opportunities beyond simple reporting.""
+    },
+    {
+      ""task_id"": 5,
+      ""ai_capability"": ""Automatically create and deliver visual insights and dashboards for corporate real-estate stakeholders."",
+      ""brief_description"": ""The software turns analytical results into consumable visualizations that explain findings to end users."",
+      ""raw_excerpt"": ""“Come up with ideas how to present the gained insights”"",
+      ""explanation"": ""Presenting insights implies the system formats its analytical output into human-readable visuals, a task executed by the product rather than by engineers once deployed.""
+    }
+  ]
+}
+"
+ba873264-23e8-4049-8630-fbd395887b24,Java Developer,Locatee AG,Kleinstunternehmen,8045 Zürich,en,en,"Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+YOUR TASKS
+
+- Maintain and further develop the backend of Locatee Analytics
+
+- Implement data analytics and aggregations
+
+- Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+- Ensure the software we ship runs stable and meets our customer’s quality standards
+
+- Employ simple design and pragmatic implementation techniques to drive business value
+
+- Code reviews to verify that the implementation meets specifications and designs using best practices
+
+- Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+- Contribute your own ideas in our agile development process
+
+WHAT WE EXPECT
+
+- Java: Advanced skills with Java and JEE
+
+- Experience with Spring Framework, Messaging, Security, Web
+
+- Spring Data, Hibernate, JPA, transaction management
+
+- SQL and MySQL/MariaDB
+
+- Experience working with Git
+
+- Willing to learn and continuously working on improving your skills
+
+- Team player, entrepreneurial mindset
+
+- Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+- Experience with performance tuning, both in Java and SQL
+
+- Experience with messaging frameworks
+
+- Background in statistics and machine learning
+
+- Experience with networks (Switching, Routing, Wireless, SNMP)
+
+- Linux administration experience
+
+WHY YOU SHOULD WORK WITH US
+
+- Be part of a dynamic, fast-paced and internationally growing startup
+
+- Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+- A real scale-up adventure with great rewards
+
+- Your chance to make a difference and be valued for that
+
+- A lot of independence and responsibility
+
+- An inspiring and modern work environment in Zurich Altstetten
+
+- Work in a flat hierarchy
+
+- The chance to work with an awesome, energetic and talented team of professional fun-havers with regular team events
+
+- We live diversity!
+
+CONTACT
+
+Do you want to become part of Locatee’s mission and grow together with us? Apply now with your CV via https://lct.ee/2JFamjY. Please include links to your recent projects (links, code samples, e.g. on Github or as attachment). We are looking forward to hearing from you.","Are you excited to keep up-to-date with new algorithms and care about implementing them as efficiently as possible? Do you like to integrate different data sources in a Java application with a SQL database backend and to develop an innovative B2B software solution? Are you ready to take on a new challenge and join a fast growing and leading Swiss PropTech startup with ambitious plans to grow internationally? Then apply now and join us on our mission to improve the place where employees spend most of their days – the workspace.
+
+WHO WE ARE
+
+We are Locatee, a Zurich-based startup creating the future of office buildings. Our big data platform “Locatee Analytics” augments the physical workspace with real-time data to create smart and people-oriented office buildings. Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.
+
+YOUR TASKS
+
+- Maintain and further develop the backend of Locatee Analytics
+
+- Implement data analytics and aggregations
+
+- Develop integrations for different data sources, for example Exchange Web API for the workspace analytics
+
+- Ensure the software we ship runs stable and meets our customer’s quality standards
+
+- Employ simple design and pragmatic implementation techniques to drive business value
+
+- Code reviews to verify that the implementation meets specifications and designs using best practices
+
+- Mentor junior team members to progress their technical and profession skills. Be open and actively seek learning opportunities from senior team members.
+
+- Contribute your own ideas in our agile development process
+
+WHAT WE EXPECT
+
+- Java: Advanced skills with Java and JEE
+
+- Experience with Spring Framework, Messaging, Security, Web
+
+- Spring Data, Hibernate, JPA, transaction management
+
+- SQL and MySQL/MariaDB
+
+- Experience working with Git
+
+- Willing to learn and continuously working on improving your skills
+
+- Team player, entrepreneurial mindset
+
+- Excellent communications skills in English (written and spoken)
+
+Additional skills are welcome, such as:
+
+- Experience with performance tuning, both in Java and SQL
+
+- Experience with messaging frameworks
+
+- Background in statistics and machine learning
+
+- Experience with networks (Switching, Routing, Wireless, SNMP)
+
+- Linux administration experience
+
+WHY YOU SHOULD WORK WITH US
+
+- Be part of a dynamic, fast-paced and internationally growing startup
+
+- Work on cutting-edge big data analytics technology for the largest organisations worldwide
+
+- A real scale-up adventure with great rewards
+
+- Your chance to make a difference and be valued for that
+
+- A lot of independence and responsibility
+
+- An inspiring and modern work environment in Zurich Altstetten
+
+- Work in a flat hierarchy
+
+- The chance to work with an awesome, energetic and talented team of professional fun-havers with regular team events
+
+- We live diversity!
+
+CONTACT
+
+Do you want to become part of Locatee’s mission and grow together with us? Apply now with your CV via https://lct.ee/2JFamjY. Please include links to your recent projects (links, code samples, e.g. on Github or as attachment). We are looking forward to hearing from you.","{
+  ""ai_application_tasks"": [
+    {
+      ""task_id"": 1,
+      ""ai_capability"": ""Continuously collect and fuse real-time data from the physical workspace to enrich digital building models."",
+      ""brief_description"": ""Locatee Analytics augments offices with live data to make them ‘smart and people-oriented’."",
+      ""raw_excerpt"": ""“Our big data platform ‘Locatee Analytics’ augments the physical workspace with real-time data to create smart and people-oriented office buildings.”"",
+      ""explanation"": ""The phrase describes an AI-enabled platform that ingests live streams (e.g., sensors, calendars) and enriches building representations, an autonomous data-fusion task performed by the system rather than by developers.""
+    },
+    {
+      ""task_id"": 2,
+      ""ai_capability"": ""Generate analytics and aggregated metrics on workspace utilisation and employee interaction patterns."",
+      ""brief_description"": ""The system ‘implements data analytics and aggregations’ to produce workspace insights."",
+      ""raw_excerpt"": ""“Implement data analytics and aggregations”"",
+      ""explanation"": ""Analytics and aggregation are automated computational functions of the platform that transform raw data into higher-level occupancy and usage metrics.""
+    },
+    {
+      ""task_id"": 3,
+      ""ai_capability"": ""Integrate heterogeneous enterprise data sources—such as Exchange calendar data—into a unified workspace-analytics pipeline."",
+      ""brief_description"": ""Locatee builds ‘integrations for different data sources, for example Exchange Web API’."",
+      ""raw_excerpt"": ""“Develop integrations for different data sources, for example Exchange Web API for the workspace analytics”"",
+      ""explanation"": ""Automated ingestion connectors enable the AI system to pull occupancy signals from third-party systems; this is an ongoing machine-executed workflow once configured.""
+    },
+    {
+      ""task_id"": 4,
+      ""ai_capability"": ""Deliver optimisation recommendations that help large organisations intelligently reconfigure or downsize office space."",
+      ""brief_description"": ""Customers ‘intelligently optimize their office buildings’ using Locatee’s outputs."",
+      ""raw_excerpt"": ""“Thanks to Locatee some of the largest organisations worldwide are able to intelligently optimize their office buildings and shape the way how people interact with their workspace.”"",
+      ""explanation"": ""‘Intelligently optimize’ implies the platform’s algorithms analyse aggregated data and surface recommendations (e.g., capacity right-sizing), an autonomous decision-support task distinct from human coding work.""
+    }
+  ]
+}
+"
