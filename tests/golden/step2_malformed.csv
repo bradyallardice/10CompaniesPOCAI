@@ -1,0 +1,2 @@
+uid,company_id,title,ai_applications_raw,error_reason,step,attempt
+205,1,Analyst,not-json,json_parse_error,2,1

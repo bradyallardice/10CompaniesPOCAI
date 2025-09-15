@@ -1,0 +1,6 @@
+company_id,company_name,title,x28_occupations,tst_created,tst_deleted
+1,Alpha AG,Data Scientist,"['1110001','2220002']",2020-05-01,
+1,Alpha AG,Data Scientist,"['2220002']",2022-01-01,2022-12-31
+1,Alpha AG,ML Engineer,"['3330003']",2021-12-31,2022-01-01
+2,Beta SA,BI Analyst,"['9999999']",2021-01-01,
+3,Gamma GmbH,DevOps Engineer,,2020-01-01,

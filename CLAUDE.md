@@ -6,271 +6,193 @@ This methodology follows a three-stage approach to identify AI applications and 
 
 ## Overview
 
-The approach consists of three main stages:
+The approach consists of two main stages:
 
-1. **Simple keyword-matching** ("AI keywords") - Focus on AI development roles
-2. **Tasks related to AI development** ("AI applications") - Identify AI use cases affecting broader workforce
-3. **Classify AI exposure at task level** - Map all occupational tasks to exposure levels
-
----
-
-## Stage 1: Simple Keyword-Matching ("AI Keywords") of Subset
-
-### Rationale
-Collect job ads concerned with active AI development, focusing on "AI workers."
-
-### Empirical Approach
-
-#### Data Processing:
-1. Load 100 company sample from PostgreSQL database of Swiss jobs, credentials in config.env. 
-2. Clean text to remove any special characters
-3. Develop multilingual keyword list
-3. Search text for multilingual keywords for AI
-
-Use multilingual keyword list based on Hamptone et al. keywords to catch German/French/Italian in addition to English.
-
-### Multilingual Keywords List
-
-```
-ai_development_keywords = [
-        # ------------------------------------------------------------------
-        # 0. UNIVERSAL ABBREVIATIONS & PROPER NAMES
-        # ------------------------------------------------------------------
-        "ai", "ml", "dl", "rl", "nlp", "nlu", "llm", "mlops",
-        # libraries & clouds
-        "pytorch", "tensorflow", "keras", "mxnet", "theano", "torch",
-        "torch7", "caffe", "caffe2", "cntk", "deeplearning4j", "lasagne", "chainer",
-        "scikit-learn", "sklearn", "weka", "mahout", "spark mllib", "h2o",
-        "sagemaker", "vertex ai", "amazon machine learning", "google cloud ml",
-        "azure ml", "ibm watson", "huggingface", "hugging face",
-        # big-data / infra
-        "hadoop", "spark", "mapreduce", "kafka", "storm", "flink",
-        "mlflow", "kubeflow",
-        "onnx", "onnxruntime",
-        "gpu", "cuda", "cudnn", "opencl", "fpga",
-
-        # ------------------------------------------------------------------
-        # 1. ENGLISH CORE CONCEPTS, MODELS & ROLES
-        # ------------------------------------------------------------------
-        "artificial intelligence", "machine learning", "deep learning",
-        "neural network", "neural networks", "convolutional neural network",
-        "large language model", "language model",
-        "computer vision", "natural language processing",
-        "generative ai", "transformer", "transformers",
-        "gpt", "bert", "clip",
-        "cnn", "rnn", "lstm", "gru",
-        "gan", "generative adversarial network", "vae", "autoencoder",
-        "diffusion model", "stable diffusion", "Next Best Action",
-        # roles & titles
-        "ai engineer", "ai developer", "ai programmer",
-        "machine learning engineer", "ml engineer", "deep learning engineer",
-        "data scientist", "ml scientist", "research scientist", "applied scientist",
-        "data mining engineer", "predictive modeler", "statistical modeler",
-        "computer vision engineer", "nlp engineer", "mlops engineer",
-        "model ops engineer", "cognitive computing engineer", "watson engineer",
-
-        # ------------------------------------------------------------------
-        # 2. LEARNING PARADIGMS
-        # ------------------------------------------------------------------
-        "supervised learning", "unsupervised learning", "semi-supervised learning",
-        "self-supervised learning", "reinforcement learning",
-        "few-shot learning", "zero-shot learning",
-        "transfer learning", "meta learning",
-        "active learning", "online learning",
-
-        # ------------------------------------------------------------------
-        # 3. CLASSICAL ML ALGORITHMS
-        #  (English first – then German / IT / FR forms that recruiters use)
-        # ------------------------------------------------------------------
-        "logistic regression", "logistische regression", "regressione logistica",
-        "régression logistique",
-        "linear regression", "lineare regression", "regressione lineare",
-        "régression linéaire",
-        "decision tree", "entscheidungsbaum", "albero decisionale",
-        "arbre de décision",
-        "random forest", "zufallswald", "forêt aléatoire",
-        "gradient boosting",
-        "gboost", "xgboost", "lightgbm", "catboost", "adaboost", "bagging",
-        "support vector machine", "svm", "machine à vecteurs de support",
-        "naive bayes", "naiver bayes", "naïve bayes",
-        "knn", "k-nearest neighbors", "k-nächste nachbarn",
-        "k-means", "clustering",
-        "principal component analysis", "pca",
-        "hauptkomponentenanalyse", "analisi delle componenti principali",
-        "analyse en composantes principales",
-        "hidden markov model", "hmm",
-        "verstecktes markov-modell", "modello di markov nascosto",
-        "modèle de markov caché",
-        "latent dirichlet allocation", "lda",
-        "genetic algorithm", 
-        "genetischer algorithmus", "algoritmo genetico", "algorithme génétique",
-
-        # ------------------------------------------------------------------
-        # 4. EARLY DEEP-LEARNING BUZZ (2010-2016)
-        # ------------------------------------------------------------------
-        "deep belief network", "dbn",
-        "restricted boltzmann machine", "rbm",
-        "self-organizing map", "som", "selbstorganisierende karte",
-        "mappa auto-organizzante", "carte auto-organisatrice",
-
-        # ------------------------------------------------------------------
-        # 5. DEPLOYMENT / MLOps KEYWORDS
-        # ------------------------------------------------------------------
-        "model deployment", "modellbereitstellung",
-        "deploy del modello", "déploiement de modèle",
-        "model serving", "serving del modello", "serving de modèle",
-        "model monitoring", "modellüberwachung",
-        "monitoraggio del modello", "surveillance du modèle",
-
-        # ------------------------------------------------------------------
-        # 6. DOMAIN-SPECIFIC TASKS
-        # ------------------------------------------------------------------
-        "speech recognition", "spracherkennung",
-        "riconoscimento vocale", "reconnaissance vocale",
-        "asr",
-        "audio processing", "audioverarbeitung",
-        "elaborazione audio", "traitement audio",
-        "text mining", "fouille de texte",
-        "sentiment analysis", "sentiment-analyse",
-        "analisi del sentiment", "analyse de sentiment",
-        "information extraction", "informationsextraktion",
-        "estrazione di informazioni", "extraction d'information",
-        "recommendation system", "recommender",
-        "empfehlungssystem", "sistema di raccomandazione",
-        "système de recommandation",
-        "predictive analytics", "prädiktive analytik",
-        "analisi predittiva", "analytique prédictive",
-        "object detection", "objekterkennung",
-        "rilevamento oggetti", "détection d'objets",
-        "image segmentation", "bildsegmentierung",
-        "segmentazione delle immagini", "segmentation d'image",
-        "hyperparameter tuning", "hyperparameteroptimierung",
-        "ottimizzazione degli iperparametri",
-        "optimisation des hyperparamètres",
-
-        # ------------------------------------------------------------------
-        # 7. RESPONSIBLE & TRUSTWORTHY AI 
-        # ------------------------------------------------------------------
-        "explainable ai", "xai", "interpretability",
-        "responsible ai", "ethical ai", "fairness", "model governance",
-        "erklärbare ki", "erklärbare künstliche intelligenz",
-        "verantwortungsvolle ki", "ki-ethik",
-        "intelligenza artificiale spiegabile", "ia spiegabile",
-        "ia responsabile", "etica ia", "governance dei modelli",
-        "intelligence artificielle explicable", "ia explicable",
-        "ia responsable", "éthique de l'ia", "gouvernance des modèles",
-
-        # ------------------------------------------------------------------
-        # 8. LEGACY / MARKETING BUZZWORDS
-        # ------------------------------------------------------------------
-        "cognitive computing", "kognitives computing",
-        "computing cognitivo", "informatique cognitive",
-        "expert system", "expertensystem", "sistema esperto", "système expert",
-        "knowledge engineering", "wissensengineering",
-        "ingegneria della conoscenza", "ingénierie des connaissances",
-        "predictive modeling", "prädiktive modellierung",
-        "modellazione predittiva", "modélisation prédictive",
-        "pattern recognition", "mustererkennung",
-        "riconoscimento di pattern", "reconnaissance de formes"
-    ]
-
-```
-
-### Caveat
-"ai" in Italian creates many false positives ("assicurare il monitoraggio delle acque ai fini della sostenibilità..."). Need simple solution to drop these cases early.
-
-### Expected Outcome
-Identifies small subsample of job ads (~1%, depending on final keyword list). Most jobs are tech-intensive roles in IT development and similar fields. 
+1. **AI keyword extraction and task identification** - Extract AI-related job postings and identify AI applications  
+2. **AI exposure classification** - Map AI applications to O*NET occupational tasks for exposure analysis
 
 ---
 
-## Stage 2: Hand-Code Selected Job ads 
+## CURRENT IMPLEMENTED WORKFLOW (September 2025)
 
-### Rationale
-Create an evaluation set for future use
+The following documents the current optimized workflow with batched processing, database normalization, and comprehensive evaluation systems:
 
-### Empirical Approach
-1. Load in subsample of jobs from prior step
-2. Deduplicate Jobs
-3. Translate Raw text from source language to English
-4. Output file for hand-coding that includes the Raw translated text and the raw untranslated text
-5. Hand-code job ads based on the same instructions to be given to the LLM in the next phase.
+### Stage 0: Batched Keyword Extraction (stage_0_get_job_ads.py)
+**Function**: `extract_keyword_matching_jobs_batched()` - **PREFERRED METHOD**
+- **Input**: 14.7M jobs in PostgreSQL database
+- **Process**: Uses predefined multilingual keyword list to search normalized text (`content_norm`) of job postings, then extracts the original non-normalized text and other columns for matching jobs
+- **Keywords**: Multilingual keyword list from `Data/ai_keywords_multilingual_v3.csv` including AI/ML terms in English, German, French, and Italian
+- **Output**: `Data/batched_ai_jobs.csv` (~1.5M jobs) containing original text and metadata
+- **Optimization**: Date-based batched SQL queries (6-month chunks) for memory efficiency
+- **Command**: `python3 stage_0_get_job_ads.py --extract-keywords-batched`
 
-### Expected Outcome
-An file of hand-coded job tasks to be used as an evaluation for the next step
+### Stage 2: Deduplication and Translation (stage_2_deduplicate_translate.py)
+**Function**: Multi-level deduplication pipeline
+- **Input**: 1.5M jobs from Stage 0
+- **Process**: 
+  1. Remove exact duplicates
+  2. Remove false positives 
+  3. Remove near duplicates based on content similarity
+- **Output**: 
+  - `Data/similar_duplicates_removed.csv` (752K jobs, ~50% reduction)
+  - Mapping file of all duplicates removed for later reintegration
+- **Translation**: Optional automatic language detection and translation to English (not normally used)
 
-## Stage 3: Extract AI Tasks from Selected Job Ads 
+---
 
-Tasks Related to AI Development ("AI Applications")
+## Stage 3: AI Application Extraction Pipeline
 
+### Overview
+Stage 3 provides a **clean, modular extraction pipeline** with independent steps that can be chained together. Each step is runnable independently with malformed response handling and reprocessing capabilities.
 
-### Rationale
-Identify roles where AI may be utilized and applied, shifting focus from AI development to AI use cases affecting broader "non-AI workers."
+### Production Pipeline (Custom Processing - Default Method)
 
-### Empirical Approach
-1. Use LLM-based identification and cleaning of relevant tasks (multi-step prompt adapted from Hamptone et al.) in 3 steps:
-1. Extract AI applications and translate to English
-2. Filter and Clean Applications
-3. Filter once more
+**Purpose**: Main production pipeline for extracting AI tasks from custom datasets
 
+#### **Step-by-Step Extraction**
 
-### Expected Outcome
-List of AI applications in harmonized format. Average ~2 tasks per AI-developing job ad (range 1-5). Rough estimation: 150,000 unique tasks (11M job ads, <1% AI-developing jobs, average 2 tasks each, not all unique).
+Each step runs independently and produces chainable outputs:
 
-## Stage 4: Evaluate
+**Step 1: AI Application Extraction**
+```bash
+python3 stage_3_extract_ai_tasks.py custom --input-file FILE.csv --step 1 \
+  --content-column content_clean --model o3 --reasoning-effort medium
+```
+- **Input**: Raw job advertisements
+- **Output**: `ai_applications_raw` column with extracted AI applications
+- **Best Model**: O3 (F1=0.7817 on training set)
 
-### Rationale
-Ensure that the model is performing well on the evaluation set
+**Step 2: Task Separation**  
+```bash
+python3 stage_3_extract_ai_tasks.py custom --input-file STEP1_OUTPUT.csv --step 2 \
+  --content-column ai_applications_raw --model gpt-5-mini
+```
+- **Input**: AI applications from Step 1
+- **Output**: `step2_output` column with separated individual tasks
+- **Best Model**: GPT-5-mini (F1=0.8442, cost-effective)
 
-### Empirical Approach
-1. Compare the number of tasks extracted from each job ad to the manual approach
-2. Compare the overall similarity of the tasks extracted from each job to the manual approach
-3. Manually inspect the differences between the manual and LLM approach
+**Step 3: Final Filtering**
+```bash
+python3 stage_3_extract_ai_tasks.py custom --input-file STEP2_OUTPUT.csv --step 3 \
+  --content-column step2_output --model o3 --reasoning-effort low
+```
+- **Input**: Separated tasks from Step 2
+- **Output**: `step3_output` column with filtered, O*NET-style tasks
+- **Best Model**: O3 with low reasoning effort
 
-## Stage 5: Iterate Stages 3-4 Until Happy with Results
+#### **Malformed Response Handling**
 
-## Stage 6: Classify AI Exposure at Task Level
+The system automatically:
+- **Detects malformed responses** (empty, invalid JSON, parsing failures)
+- **Saves malformed data** to separate CSV files (`custom_step{N}_{filename}_malformed.csv`)
+- **Supports reprocessing**: Fix malformed file and rerun same command
+- **Auto-cleanup**: Deletes resolved malformed files after successful reprocessing
 
-### Rationale
-Classify all occupational tasks (regardless of AI relation) into exposed or not-exposed categories on this sample.
+#### **Reprocessing Workflow**
+```bash
+# If malformed responses found:
+# 1. Fix issues in: Data/custom_step2_{filename}_malformed.csv  
+# 2. Rerun same command - automatically detects and processes only malformed items
+python3 stage_3_extract_ai_tasks.py custom --input-file FILE.csv --step 2 \
+  --content-column ai_applications_raw --model gpt-5-mini
+```
 
-### Empirical Approach
-- **Method**: Word embeddings, cosine similarity between identified "AI applications" and O*NET tasks
-- **Benchmark**: Below/above 95th percentile similarity (following Hamptone approach)
+### Evaluation System (For Model Testing)
+**Purpose**: Iterative testing and optimization of extraction steps using hand-coded ground truth
+**Process**: 
+- Use hand-coded ground truth files for each step
+- Run different models against ground truth to compare performance
+- Save results to performance history and prompt history for comparison
+- Iterate on model parameters based on results
 
-### Expected Outcome
-Every O*NET task classified as exposed or not-exposed. Enables calculation of exposure probability across:
-- **Occupations** (bundle of tasks from O*NET, weighted by importance)
-- **Firms** (within-occupation variation due to firm-level "AI applications")  
-- **Time** (temporal variation in exposure)
+#### Current Evaluation Results:
+- **Step 1**: O3 low reasoning: F1 = 0.7817
+- **Step 2**: GPT-5-mini: F1 = 0.8442 (best performance)  
+- **Step 3**: O3 low reasoning with JSON fix: F1 = 0.9194
+- **Evaluation Method**: Semantic similarity using BGE embeddings (threshold: 0.70)
 
-### Key Equations
+### Ground Truth Files
+- **Step 2 Ground Truth**: `Data/manual_coding_evaluation/step_2_ground_truth_28082025.csv`
+  - Contains 199 manually coded AI capabilities with separated tasks
+  - Ground truth data in `ground_truth_separated_tasks` column (JSON format)
+  - Used for evaluating task separation performance with semantic similarity matching
 
-#### Equation 23: Firm-Level AI Application Similarity
-Number of AI applications present in a given firm that are similar to a specific O*NET task.
+---
 
-#### Equation 24: Weighted Average Exposure  
-Weighted average exposure across bundle of tasks relevant for specific occupation (in given firm, at given time).
+## Stage 4: AI Task Deduplication and O*NET Similarity Analysis
 
-#### Equation 26: AI Exposure Average
-Multiply Equation 24 with logged number of AI applications by firm to get "AI Exposure Average" varying at occupationXfirmXtime level.
+### Purpose
+Deduplicate AI applications and calculate similarity to O*NET occupational tasks for AI exposure analysis.
 
-## Stage 7: Evaluate Results and Make Changes Accordingly
+### Process
+1. **Deduplicate AI Applications**: Remove duplicate tasks from Stage 3 output, saving mapping file
+2. **Create Text Embeddings**: Generate embeddings for all deduplicated AI tasks and O*NET tasks  
+3. **Calculate Similarities**: Compare AI task embeddings to O*NET task embeddings
+4. **Determine Exposure Threshold**: Tasks above 95th percentile similarity (default) are considered AI-exposed
+5. **Optional Cross Encoder**: Run subset through cross encoder for refined results
+6. **Output**: CSV file mapping AI tasks to O*NET tasks for Stage 5
 
-### Rationale
-Before scaling up, we need to see if our results have face validity
+---
 
-## Stage 8: Repeat with Full Dataset
+## Stage 5: Firm and Occupation AI Exposure Calculation
 
-### Rationale 
-The full dataset is what we are interested in, so once we are happy with the small results, we can scale it up further
+### Purpose  
+Create AI exposure measures at firm, firm×occupation, and occupation levels following Hampole et al. (2025) methodology.
+
+### 4-Step Process
+
+#### Step 1: Load Task-Application Matches
+- Import Stage 4 similarity results (AI applications matched to O*NET tasks above 95th percentile)
+- Creates binary exposure indicators: I^95_{j,i} = 1 if AI application *i* is similar to O*NET task *j*
+
+#### Step 2: Calculate Firm-Level Task Exposure  
+- **Reintegrate duplicates**: Map AI applications back to ALL original job postings (not just deduplicated subset)
+- **Link applications to firms**: Each AI application gets mapped to specific companies and years
+- **Calculate firm-task exposure**: For each firm-task-year combination:
+  - **Hampole method**: Share of firm's AI applications that match the task 
+  - **Binary method**: 1 if firm uses ANY application that matches the task, 0 otherwise
+- **Key principle**: A task is only considered "exposed" at a company if that exact company posted a job using the corresponding AI application
+
+#### Step 3: Aggregate to Occupation×Firm Level
+- **Map tasks to occupations**: Use O*NET Task Statements to link each task to occupation codes
+- **Weight by importance**: Apply O*NET task importance ratings as weights
+- **Calculate weighted exposure**: For each firm-occupation-year:
+  - Weighted average of task exposures within that occupation
+  - Formula: Σ(task_exposure × importance_weight) / Σ(importance_weight)
+
+#### Step 4: AI Intensity Adjustment
+- **Scale by firm AI usage**: Multiply exposure scores by log(1 + N_applications)
+- **Rationale**: Firms with more AI applications should have higher exposure scores
+- **Final output**: "AI Exposure Average" varying at occupation×firm×time level
+
+### Cross-walk to ISCO-08
+- Maps O*NET occupations to ISCO-08 codes using ESCO crosswalk
+- Enables integration with Swiss survey data (which uses ISCO classifications)
+- Aggregates multiple O*NET codes to single ISCO codes using weighted averaging
+
+### Output Files
+- **Firm-level exposure**: Total AI intensity by firm×year
+- **Occupation-firm exposure**: AI exposure by occupation×firm×year  
+- **ISCO exposure**: Final exposure scores mapped to ISCO-08 for survey linking
+- **Time variants**: Both time-invariant (firm exposed to all its apps across years) and time-variant (yearly exposure) versions
+
+### Key Innovation
+Unlike typical occupation-level AI exposure measures, this approach captures **within-occupation, between-firm variation** in AI usage, enabling analysis of how the same occupation can have different AI exposure depending on which specific company the worker is employed at.
+
+---
+
+## Cost Optimization Features
+- **Flex Processing**: 50% cost reduction on GPT-5, O3, O4-mini models
+- **Intelligent Retries**: Exponential backoff for rate-limited operations
+- **Model Selection**: Automatic fallback from flex to standard processing when needed
+- **Batched Operations**: Memory-efficient processing of large datasets
 
 ---
 
 ## Applications and Analysis
 
 ### Data Integration
-Merge "AI Exposure Average" with Swiss Household Panel individual respondents at occupationXfirmXtime level.
+Merge AI exposure scores with Swiss Household Panel individual respondents at occupation×firm×time level.
 
 ### Analysis Dimensions
 
@@ -289,19 +211,10 @@ Merge "AI Exposure Average" with Swiss Household Panel individual respondents at
 
 ---
 
-## Implementation Notes
+## Implementation Guidelines
 
-- Use PostgreSQL database for Swiss jobs 
-- Implement multilingual text processing
-- Create labeled evaluation dataset (100 companies, ~302 jobs)
-- Apply three-step LLM processing pipeline
-- Calculate embeddings and similarity measures for O*NET integration
-- Merge with Swiss Household Panel for individual-level analysis
-
-## Important Implementation Guidelines
-
-### Keyword List Authority
-**CRITICAL**: The `ai_development_keywords` list in `step_1_keyword_match.py` is the ONLY authoritative keyword list for this project. No other keyword files (Data/keywords/*.txt) should be used or considered. The ai_development_keywords list contains the complete multilingual keyword set based on Hamptone et al. methodology.
+## Coding practices
+**MANDATORY**: All code created should be written so that errors in processing stop the process and throw errors, rather than trying to find workarounds to ensure the code completes it run successfully. Any code that explicitly attempts to find workarounds, or auto-detect, etc. must be approved.
 
 ### Code Execution and Changes
 **MANDATORY**: All code execution and changes must be approved by the user before implementation. This includes:
@@ -315,23 +228,22 @@ Always consult with the user before proceeding with any code execution or modifi
 
 ### File Management
 **CRITICAL**: Never create new files. Always modify existing files instead. When improving functionality:
-- Edit the original file (e.g., `step_1_keyword_match.py`)
+- Edit the original file (e.g., `stage_1_keyword_match.py`)
 - Do not create new versions or variations
 - Make incremental improvements to existing code
 - Preserve the original file structure and naming
 
-**CRITICAL**: Never rerun step 0 in a way that would overwrite the sample of jobs from 100 companies. Always just use the already saved .csv instead.
+**CRITICAL**: Always ask before running any code that calls any API to avoid accidental costs.
 
-### Chat‑Model Interaction Efficiency
-**MANDATORY**: When requesting code edits from Claude (or any chat LLM), enforce an *efficient‑diff* workflow to avoid unnecessary token usage.
-
-1. **Diff‑Only Output** – Claude must return a unified diff (`--- a/… +++ b/…`) showing *only* the modified lines and their immediate context. Unchanged code blocks are never re‑printed.  
-2. **Minimal Prompts** – After each diff, the model should ask a single yes/no question (“Apply? (y/n)”) with no additional commentary unless explicitly requested.  
-3. **Batch Identical Edits** – If the same change is needed in multiple locations, Claude must aggregate them into one combined diff and ask for approval once.  
-4. **No File Re‑Inlining** – Once the source file has been uploaded or previously shown, Claude must reference it by path or name rather than re‑sending its full contents.  
-5. **Patch‑Only Workflow** – Upon approval, Claude supplies a standalone patch that applies cleanly with `git apply`, and does **not** resend the full updated file.
+### Recent Improvements (September 2025)
+- **Batched Processing**: Memory-efficient extraction of large datasets
+- **Database Optimization**: Trigram GIN indexing for faster searches
+- **Flex Processing**: 50% cost reduction on supported OpenAI models
+- **Comprehensive Evaluation**: Semantic similarity with BGE embeddings
+- **Multi-Model Support**: O3, GPT-5-mini, Claude-3.5-Sonnet with reasoning controls
+- **Automated Retries**: Robust error handling with exponential backoff
 
 ---
 
-**Version**: Updated methodology based on Hamptone et al. approach
-**Date**: July 2025
+**Version**: Optimized workflow with batched processing and comprehensive evaluation
+**Date**: September 2025

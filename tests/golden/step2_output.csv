@@ -1,0 +1,4 @@
+uid,company_id,title,ai_applications_raw,step2_output
+201,1,Data Scientist,"[""model training with TensorFlow"",""deployment on SageMaker"",""mlops pipelines""]","[""train model using TensorFlow"",""deploy model on SageMaker"",""monitor pipeline runs""]"
+202,1,ML Engineer,"[""fine-tune BERT"",""use Vertex AI"",""deploy with MLflow""]","[""fine-tune BERT"",""use Vertex AI pipelines"",""package and track with MLflow""]"
+205,1,Analyst,not-json,
