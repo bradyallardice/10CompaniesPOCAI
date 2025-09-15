@@ -1,0 +1,5 @@
+company_id,company_name,year,title,isco_code,exposure_score
+1,Alpha AG,2020,Data Scientist,2521,0.60
+1,Alpha AG,2020,Data Scientist,2523,0.20
+1,Alpha AG,2021,ML Engineer,2512,0.90
+1,Alpha AG,2022,Data Scientist,2521,0.75

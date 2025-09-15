@@ -1,0 +1,4 @@
+uid,company_id,title,step2_output,step3_output
+301,1,Data Scientist,"[""train model using TensorFlow"",""deploy model on SageMaker"",""monitor pipeline runs""]","[""Train a supervised learning model using TensorFlow on labeled datasets."",""Deploy the trained model to an AWS SageMaker real-time endpoint."",""Monitor, evaluate, and retrain models through an MLOps pipeline.""]"
+302,1,ML Engineer,"[""fine-tune BERT"",""use Vertex AI pipelines"",""package and track with MLflow""]","[""Fine-tune a BERT language model on domain-specific text."",""Orchestrate training and evaluation using Vertex AI Pipelines."",""Track runs and metrics with MLflow for reproducible deployments.""]"
+306,1,Analyst,"[""analyze data""]",

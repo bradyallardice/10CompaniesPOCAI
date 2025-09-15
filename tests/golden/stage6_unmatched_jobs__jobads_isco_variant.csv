@@ -1,0 +1,3 @@
+company_id,company_name,year,title,isco_code,reason
+2,Beta SA,2021,BI Analyst,9999999,unmapped_x28_code
+3,Gamma GmbH,2020,DevOps Engineer,,empty_x28_occupations

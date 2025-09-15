@@ -1,0 +1,4 @@
+uid,company_id,title,content_clean,ai_applications_raw,num_applications
+101,1,Data Scientist,"We use Python, TensorFlow and AWS SageMaker to train models and deploy MLOps pipelines.","""[\""model training with TensorFlow\"",\""deployment on SageMaker\"",\""mlops pipelines\""]""",78
+102,1,People Ops,"We seek great communicators and team players.",[],0
+103,1,ML Engineer,"We fine-tune BERT models on Vertex AI and track runs with MLflow.","""[\""fine-tune BERT\"",\""use Vertex AI\"",\""deploy with MLflow\""]""",55

@@ -1,0 +1,4 @@
+company_id,company_name,year,title,onet_soc,exposure_score
+1,Alpha AG,2020,Data Scientist,15-2041.00,0.70
+1,Alpha AG,2020,Data Scientist,15-1252.00,0.30
+1,Alpha AG,2021,ML Engineer,15-1253.00,0.85

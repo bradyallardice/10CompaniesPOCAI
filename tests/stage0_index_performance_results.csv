@@ -1,0 +1,12 @@
+query_id,exec_time_ms,buffer_hit_pct,has_seq_scan,has_bitmap_index,has_bitmap_and
+ILIKE_machine_learning,21840.419,99.99970680075646,False,True,False
+regex_ai_boundary,58.132,100.0,False,True,False
+regex_spaced_ai,93.293,100.0,False,True,False
+date_batch_rare,584.607,100.0,False,True,True
+date_batch_common,4730.225,99.18475158139924,False,True,True
+content_only_full_table,14450.855,99.99953875177005,False,True,False
+content_date_batched,2033.699,99.06310188358958,False,True,True
+ai_word_boundary,56.916,100.0,False,True,False
+ai_spaced_letters,92.048,100.0,False,True,False
+ml_word_boundary,4.965,100.0,False,True,False
+multi_short_keywords,48.797,100.0,False,True,True
