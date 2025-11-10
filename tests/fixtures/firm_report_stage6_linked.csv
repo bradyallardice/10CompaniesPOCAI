@@ -1,0 +1,9 @@
+company_id,company_name,year,title,onet_soc,n_ai_apps_firm_year,hampole_ai_exposure_avg,total_onet_tasks
+1,Alpha Tech AG,2019,Data Scientist,15-2051.00,2,0.15,12
+1,Alpha Tech AG,2019,Data Scientist,15-2051.01,2,0.0,8
+1,Alpha Tech AG,2021,ML Engineer,15-2051.00,2,0.22,12
+1,Alpha Tech AG,2021,ML Engineer,15-2051.02,2,0.18,10
+1,Alpha Tech AG,2023,AI Research Scientist,15-2051.00,1,0.35,12
+2,Beta Solutions SA,2020,BI Analyst,15-2041.00,1,0.08,15
+2,Beta Solutions SA,2022,Data Engineer,15-2051.00,2,0.12,12
+2,Beta Solutions SA,2022,Data Engineer,15-1142.00,2,0.0,18

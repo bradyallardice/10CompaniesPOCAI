@@ -820,54 +820,64 @@ class ONETSimilarityMatcher:
         logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique app-task pairs")
         logger.info(f"Created job mapping for {len(job_mapping)} unique applications (temporal ordering preserved)")
         
+        # Save the pre-cross-encoder top n% matches FIRST (before cross-encoder filtering)
+        output_file_csv = os.path.join(output_dir, f"top_{int(self.top_n_percent)}_matches.csv")
+        deduplicated_similarities.to_csv(output_file_csv, index=False)
+        logger.info(f"Saved pre-cross-encoder top {int(self.top_n_percent)}% matches to: {output_file_csv}")
+
         # Phase E: Cross-encoder validation (optional)
         cross_encoder_report = None
+        cross_encoder_validated_similarities = None
         if use_cross_encoder:
-            deduplicated_similarities, cross_encoder_report = self.validate_with_cross_encoder(
-                similarity_df=deduplicated_similarities,
+            cross_encoder_validated_similarities, cross_encoder_report = self.validate_with_cross_encoder(
+                similarity_df=deduplicated_similarities.copy(),  # Use copy to preserve original
                 cross_encoder_model=cross_encoder_model,
                 threshold=cross_encoder_threshold,
                 batch_size=cross_encoder_batch_size
             )
-            
-            # Update results_df to match the validated deduplicated_similarities
+
+            # Save separate cross-encoder validated matches
+            ce_output_file = os.path.join(output_dir, "matches_cross_encoder.csv")
+            cross_encoder_validated_similarities.to_csv(ce_output_file, index=False)
+            logger.info(f"Saved cross-encoder validated matches to: {ce_output_file}")
+
+            # Update results_df to match the validated cross_encoder_validated_similarities
             # Keep only rows that survived cross-encoder filtering
-            app_task_pairs = set(zip(deduplicated_similarities['app_text'], 
-                                   deduplicated_similarities['onet_task_id']))
+            app_task_pairs = set(zip(cross_encoder_validated_similarities['app_text'],
+                                   cross_encoder_validated_similarities['onet_task_id']))
             results_df = results_df[
                 results_df.apply(lambda row: (row['app_text'], row['onet_task_id']) in app_task_pairs, axis=1)
             ].copy()
-            
+
             # Sort results_df by cross_encoder_score if available
-            if 'cross_encoder_score' in deduplicated_similarities.columns:
+            if 'cross_encoder_score' in cross_encoder_validated_similarities.columns:
                 # Add cross_encoder_score to results_df by merging
                 merge_cols = ['app_text', 'onet_task_id']
                 results_df = results_df.merge(
-                    deduplicated_similarities[merge_cols + ['cross_encoder_score']], 
-                    on=merge_cols, 
+                    cross_encoder_validated_similarities[merge_cols + ['cross_encoder_score']],
+                    on=merge_cols,
                     how='left'
                 )
                 results_df = results_df.sort_values('cross_encoder_score', ascending=False)
         
         # Save final results in multiple formats
         # 1. Parquet format (for programmatic use) - original format with duplicates
+        # Note: If cross-encoder was used, this contains only validated matches
         output_file_parquet = os.path.join(output_dir, f"ai_app_onet_top{int(self.top_n_percent)}.parquet")
         results_df.to_parquet(output_file_parquet, index=False)
-        logger.info(f"Saved final results (parquet) to: {output_file_parquet}")
+        if use_cross_encoder and cross_encoder_validated_similarities is not None:
+            logger.info(f"Saved cross-encoder validated results (parquet) to: {output_file_parquet}")
+        else:
+            logger.info(f"Saved top {int(self.top_n_percent)}% results (parquet) to: {output_file_parquet}")
         
-        # 2. CSV format for top n% matches - DEDUPLICATED (for manual review)
-        output_file_csv = os.path.join(output_dir, f"top_{int(self.top_n_percent)}_matches.csv")
-        deduplicated_similarities.to_csv(output_file_csv, index=False)
-        logger.info(f"Saved deduplicated top {int(self.top_n_percent)}% matches (CSV) to: {output_file_csv}")
-        
-        # 3. Job mapping file (to link back to original job ads)
+        # 2. Job mapping file (to link back to original job ads)
         # This preserves temporal ordering: each app_text shows first occurrence timestamp
         # and all job_uids that contain this text (for use in step 5)
         job_mapping_file = os.path.join(output_dir, "job_app_mapping.csv")
         job_mapping.to_csv(job_mapping_file, index=False)
         logger.info(f"Saved job-application mapping to: {job_mapping_file}")
         
-        # 4. CSV format for ALL similarity scores (comprehensive analysis)
+        # 3. CSV format for ALL similarity scores (comprehensive analysis)
         if all_similarities_df is not None:
             # Create deduplicated version of all similarities too
             all_deduplicated = all_similarities_df.drop_duplicates(
@@ -881,7 +891,7 @@ class ONETSimilarityMatcher:
             all_deduplicated.to_csv(all_similarities_file, index=False)
             logger.info(f"Saved deduplicated all similarity scores (CSV) to: {all_similarities_file}")
         
-        # 5. Save validation metrics (including cross-encoder report if available)
+        # 4. Save validation metrics (including cross-encoder report if available)
         if cross_encoder_report is not None:
             validation_metrics['cross_encoder_validation'] = cross_encoder_report
         
@@ -891,7 +901,7 @@ class ONETSimilarityMatcher:
             json.dump(validation_metrics, f, indent=2)
         logger.info(f"Saved validation metrics to: {metrics_file}")
         
-        # 6. Save separate cross-encoder validation report if available
+        # 5. Save separate cross-encoder validation report if available
         if cross_encoder_report is not None:
             ce_report_file = os.path.join(output_dir, f"cross_encoder_validation_report.json")
             with open(ce_report_file, 'w') as f:

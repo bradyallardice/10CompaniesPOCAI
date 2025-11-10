@@ -176,6 +176,134 @@ Create AI exposure measures at firm, firm×occupation, and occupation levels fol
 - **ISCO exposure**: Final exposure scores mapped to ISCO-08 for survey linking
 - **Time variants**: Both time-invariant (firm exposed to all its apps across years) and time-variant (yearly exposure) versions
 
+
+---
+
+## Stage 6: Link Exposure to Actually Existing Jobs
+
+### Purpose
+Link Stage 5 exposure measures to jobs that actually exist at each firm and year, producing an analysis-ready table keyed by `(company_id, year, title, occ_code)`. Optionally, generate a firm-level summary report combining AI job counts, AI application counts, and Stage 6 exposure metrics. 
+
+Notes: Just like in Stage 5, there are holes in the crosswalk and everything does not line up 1:1. For now that is okay because we will eventually be patching those, as long as the holes in the crosswalk are causing the missing values rather than errors in the code. 
+
+### Inputs
+- Database table `job_postings_unified` (via `config.env` for DB creds)
+- Crosswalks in `Data/`:
+  - `240711_occupation_to_ch_isco_19.csv` (X28 → ISCO)
+  - `ESCO_to_ONET-SOC.xlsx` (ISCO → O*NET, only if `--occ_code onet`)
+- Stage 5 exposure file in `Data/` auto-detected by pattern:
+  - ISCO: `isco_firm_occupation[_year]_exposure.csv`
+  - O*NET: `onet_firm_occupation[_year]_exposure.csv`
+- Optional (for firm report):
+  - `llm_output/ai_development*step1_extracted_step2_step3.csv` (AI applications, all)
+  - `ai_development_deduplicated_custom.csv` (unique AI jobs)
+
+### Process
+1. Build job list from DB and extend through time
+   - Extract `(company_id, company_name, title, x28_occupations, year)`
+   - For each unique `(company_id, title)`, extend from first year to `--year_max` (default 2025)
+   - Parse and explode `x28_occupations` into individual X28 codes
+   - Uses cache `Data/stage6_job_cache_max{year_max}.parquet` if present
+2. Crosswalk job occupations
+   - Map X28 → ISCO (report mapping coverage and gaps)
+   - If `--occ_code onet`, map ISCO → O*NET using base 4-digit ISCO codes
+3. Load Stage 5 exposures
+   - Auto-detect file by `--occ_code` and `--time_var` (time-variant by default)
+4. Link jobs to exposures
+   - Inner join on `(company_id, year, occ_code)`; deduplicate results
+   - Produce diagnostics for unmatched jobs and unmatched exposures
+5. Optional firm summary report (`--generate_firm_report`)
+   - Deduplicate jobs within companies and extend through time
+   - Compute per firm-year: total unique job ads, total unique AI jobs, total AI applications (all), linked AI apps, O*NET task totals, AI-exposed tasks
+   - Derive metrics: `pct_ai_ads_yearly`, `pct_ai_ads_cumulative`, `firm_ai_exposure`
+
+### CLI
+- Basic ISCO linking
+```bash
+python3 stage_6_link_exposure_to_jobs.py \
+  --occ_code isco \
+  --in_dir Data \
+  --out Data/stage6_jobs_linked.csv
+```
+
+- O*NET variant (requires ISCO→O*NET crosswalk)
+```bash
+python3 stage_6_link_exposure_to_jobs.py \
+  --occ_code onet \
+  --in_dir Data \
+  --out Data/stage6_jobs_linked_onet.csv
+```
+
+- Generate firm summary report
+```bash
+python3 stage_6_link_exposure_to_jobs.py \
+  --occ_code isco \
+  --in_dir Data \
+  --generate_firm_report \
+  --firm_report_out Data/firm_ai_summary_report.csv
+```
+
+Key flags:
+- `--job_list`: `job_ads` (default). `shp` not implemented yet.
+- `--time_var`: Use time-variant Stage 5 exposures (default True)
+- `--year_max`: Upper bound for job-year expansion (default 2025)
+- `--unmatched_jobs` / `--unmatched_exposures`: Paths for diagnostics CSVs
+
+### Outputs
+- Main linked file: `Data/stage6_jobs_linked.csv`
+  - Keys: `company_id`, `company_name`, `year`, `title`, `isco_code` or `onet_soc`
+  - Includes Stage 5 exposure fields (e.g., `hampole_ai_exposure_avg`, `total_tasks_occupation`, `n_ai_apps_firm_year`)
+- Diagnostics: 
+  - `Data/stage6_unmatched_jobs.csv`
+  - `Data/stage6_unmatched_exposures.csv`
+- Optional firm report: `Data/firm_ai_summary_report.csv`
+  - Columns: `company_id`, `company_name`, `year`, `total_unique_job_ads`, `total_unique_ai_jobs`, `pct_ai_ads_yearly`, `pct_ai_ads_cumulative`, `total_ai_apps_all`, `total_ai_apps_linked`, `total_onet_tasks`, `ai_exposed_tasks`, `firm_ai_exposure`
+
+### Notes and Validation
+- Ensures join-key types align and trims occupation code strings before joining
+- Logs mapping coverage for each crosswalk and samples missing codes
+- Caches job list for faster subsequent runs
+- Deduplicates to one row per `(company_id, year, occ_code)` after join
+
+### Output Columns
+
+– Linked file: `stage6_jobs_linked.csv`
+- `company_id`: Integer firm identifier from DB.
+- `company_name`: Firm name string (jobs side preferred on merge).
+- `year`: Posting year used for exposure linkage.
+- `title`: Job title for traceability (deduplicated/time-extended).
+- `isco08_4d` or `onet_soc`: Occupation code used as join key (depends on `--occ_code`).
+- `isco08_title` or `onet_title`: Human-readable occupation title (from Stage 5, if present).
+- `hampole_occupation_exposure`: Weighted within-occupation task exposure for firm×occupation×year (pre-intensity).
+- `binary_occupation_exposure`: Binary method analogue of occupation exposure (pre-intensity).
+- `total_tasks_occupation`: Number of O*NET tasks considered for the occupation.
+- `total_importance_weight`: Sum of O*NET importance weights used for weighting.
+- `n_ai_apps_firm_year`: Count of AI applications attributed to the firm in that year (per Stage 5 mode).
+- `log_ai_intensity`: `log(1 + n_ai_apps_firm_year)`; AI usage intensity scaler.
+- `hampole_ai_exposure_avg`: Intensity-adjusted exposure score (higher = more exposed).
+- `binary_ai_exposure_avg`: Intensity-adjusted exposure score using binary task exposure.
+
+– Diagnostics: `stage6_unmatched_jobs.csv`
+- Same schema as the jobs mapping used for join: `company_id`, `company_name`, `year`, `title`, and `isco08_4d` or `onet_soc`. Rows here had no matching exposure in Stage 5.
+
+– Diagnostics: `stage6_unmatched_exposures.csv`
+- Same schema as Stage 5 exposure file: `company_id`, `year`, occupation code/title (`isco08_4d`/`onet_soc` and `isco08_title`/`onet_title`), plus exposure fields (`hampole_occupation_exposure`, `binary_occupation_exposure`, `total_tasks_occupation`, `total_importance_weight`, `n_ai_apps_firm_year`, `log_ai_intensity`, `hampole_ai_exposure_avg`, `binary_ai_exposure_avg`). Rows here had no matching job in Stage 6.
+
+– Firm report: `firm_ai_summary_report.csv`
+- `company_id`: Integer firm identifier.
+- `company_name`: Firm name.
+- `year`: Year.
+- `total_unique_job_ads`: Count of unique job ads after within-firm deduplication and time extension.
+- `total_unique_ai_jobs`: Count of unique AI job ads per firm-year (from `ai_development_deduplicated_custom.csv`).
+- `pct_ai_ads_yearly`: Share of AI job ads in that year = `total_unique_ai_jobs / total_unique_job_ads × 100`.
+- `pct_ai_ads_cumulative`: Cumulative share through that year across firm history.
+- `total_ai_apps_all`: Total AI applications (all apps detected in LLM pipeline) per firm-year.
+- `total_ai_apps_linked`: AI applications per firm-year linked via Stage 6 join (subset used in exposures).
+- `total_onet_tasks`: Sum of `total_tasks_occupation` across all occupations at the firm-year.
+- `ai_exposed_tasks`: Count of occupations’ tasks flagged as AI-exposed at the firm-year.
+- `firm_ai_exposure`: `ai_exposed_tasks / total_onet_tasks` (ratio in [0,1], 2 decimals; 0 when denominator is 0).
+
+
 ### Key Innovation
 Unlike typical occupation-level AI exposure measures, this approach captures **within-occupation, between-firm variation** in AI usage, enabling analysis of how the same occupation can have different AI exposure depending on which specific company the worker is employed at.
 

@@ -1,0 +1,6 @@
+uid,company_id,tst_created,title,company_name
+job1_comp1,1,2019-06-01 00:00:00,Data Scientist,Alpha Tech AG
+job2_comp1,1,2021-03-15 00:00:00,ML Engineer,Alpha Tech AG
+job3_comp1,1,2023-08-10 00:00:00,AI Research Scientist,Alpha Tech AG
+job4_comp2,2,2020-11-01 00:00:00,BI Analyst,Beta Solutions SA
+job5_comp2,2,2022-01-15 00:00:00,Data Engineer,Beta Solutions SA

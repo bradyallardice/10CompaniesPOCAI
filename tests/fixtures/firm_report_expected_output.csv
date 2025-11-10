@@ -1,0 +1,30 @@
+company_id,company_name,year,total_unique_job_ads,total_unique_ai_jobs,total_ai_apps_all,total_ai_apps_linked,total_onet_tasks,ai_exposed_tasks
+1,Alpha Tech AG,2019,2,1,2,2,2,1
+1,Alpha Tech AG,2020,2,1,2,2,0,0
+1,Alpha Tech AG,2021,3,2,2,2,2,2
+1,Alpha Tech AG,2022,3,2,2,2,0,0
+1,Alpha Tech AG,2023,4,3,1,1,1,1
+1,Alpha Tech AG,2024,4,3,1,0,0,0
+1,Alpha Tech AG,2025,4,3,1,0,0,0
+2,Beta Solutions SA,2020,1,1,1,1,1,1
+2,Beta Solutions SA,2021,1,1,1,0,0,0
+2,Beta Solutions SA,2022,2,2,2,2,2,1
+2,Beta Solutions SA,2023,2,2,2,0,0,0
+2,Beta Solutions SA,2024,2,2,2,0,0,0
+2,Beta Solutions SA,2025,2,2,2,0,0,0
+3,Gamma Corp GmbH,2019,1,0,0,0,0,0
+3,Gamma Corp GmbH,2020,1,0,0,0,0,0
+3,Gamma Corp GmbH,2021,2,0,0,0,0,0
+3,Gamma Corp GmbH,2022,2,0,0,0,0,0
+3,Gamma Corp GmbH,2023,2,0,0,0,0,0
+3,Gamma Corp GmbH,2024,2,0,0,0,0,0
+3,Gamma Corp GmbH,2025,2,0,0,0,0,0
+4,Delta Innovations Ltd,2023,2,0,2,0,0,0
+4,Delta Innovations Ltd,2024,2,0,2,0,0,0
+4,Delta Innovations Ltd,2025,2,0,2,0,0,0
+5,Epsilon Systems,2020,1,0,0,0,0,0
+5,Epsilon Systems,2021,1,0,0,0,0,0
+5,Epsilon Systems,2022,1,0,0,0,0,0
+5,Epsilon Systems,2023,1,0,0,0,0,0
+5,Epsilon Systems,2024,1,0,0,0,0,0
+5,Epsilon Systems,2025,1,0,0,0,0,0
