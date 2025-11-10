@@ -15,23 +15,39 @@ import numpy as np
 import os
 import json
 import time
+import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from collections import deque
 import openai
 from tqdm import tqdm
 
 class AITaskExtractor:
     """Extract AI tasks from job advertisements using 3-step LLM prompting"""
     
-    def __init__(self, model_name="gpt-4.1-mini", use_batch=False, use_flex=False, reasoning_effort="low", verbosity="medium"):
+    def __init__(self, model_name="gpt-4.1-mini", use_batch=False, use_flex=False, reasoning_effort="low", verbosity="medium",
+                 max_attempts=2, max_new_calls=None, cost_budget=None, failure_rate_threshold=0.5, failure_window_size=10):
         self.project_root = Path(__file__).parent
         self.data_dir = self.project_root / "Data"
         self.llm_output_dir = self.data_dir / "llm_output"
         self.llm_output_dir.mkdir(exist_ok=True)
-        
+
+        # Create cache directory
+        self.cache_dir = self.data_dir / "llm_cache"
+        self.cache_dir.mkdir(exist_ok=True)
+
         # Load environment variables
         load_dotenv('config.env')
+
+        # Cost control and retry settings
+        self.max_attempts = max_attempts
+        self.max_new_calls = max_new_calls
+        self.cost_budget = cost_budget
+        self.failure_rate_threshold = failure_rate_threshold
+        self.failure_window = deque(maxlen=failure_window_size)
+        self.new_calls_count = 0
         
         # Set up OpenAI client and model configuration
         # Increase timeout for flex processing (up to 15 minutes as recommended)
@@ -566,7 +582,146 @@ class AITaskExtractor:
             print(f"Average tokens per call: {self.total_tokens / self.api_calls:.1f}")
             print(f"Average cost per call: ${self.total_cost / self.api_calls:.4f}")
         print(f"==========================\n")
-    
+
+    # ===== CACHE SYSTEM =====
+
+    def _get_cache_key(self, model, system_prompt, user_prompt, params):
+        """Generate deterministic SHA256 cache key from API call parameters"""
+        # Combine all parameters that affect the response
+        cache_input = json.dumps({
+            'model': model,
+            'system': system_prompt,
+            'user': user_prompt,
+            'params': params
+        }, sort_keys=True)
+        return hashlib.sha256(cache_input.encode()).hexdigest()
+
+    def _read_cache(self, cache_key, step_name):
+        """Read from JSONL cache file for a specific step"""
+        cache_file = self.cache_dir / f"step{step_name}.jsonl"
+        if not cache_file.exists():
+            return None
+
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        entry = json.loads(line)
+                        if entry.get('cache_key') == cache_key:
+                            return entry.get('response')
+        except Exception as e:
+            print(f"  Warning: Cache read error: {e}")
+
+        return None
+
+    def _write_cache(self, cache_key, response, step_name):
+        """Write to JSONL cache file for a specific step"""
+        cache_file = self.cache_dir / f"step{step_name}.jsonl"
+
+        try:
+            entry = {
+                'cache_key': cache_key,
+                'response': response,
+                'timestamp': datetime.now().isoformat()
+            }
+            with open(cache_file, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(entry) + '\n')
+        except Exception as e:
+            print(f"  Warning: Cache write error: {e}")
+
+    def _check_cost_guards(self):
+        """Check if cost/call limits have been exceeded"""
+        # Check max new calls
+        if self.max_new_calls is not None and self.new_calls_count >= self.max_new_calls:
+            raise RuntimeError(f"Maximum new API calls limit reached: {self.max_new_calls}")
+
+        # Check cost budget
+        if self.cost_budget is not None and self.total_cost >= self.cost_budget:
+            raise RuntimeError(f"Cost budget exceeded: ${self.total_cost:.2f} >= ${self.cost_budget:.2f}")
+
+        # Check failure rate
+        if len(self.failure_window) == self.failure_window.maxlen:
+            failure_rate = sum(self.failure_window) / len(self.failure_window)
+            if failure_rate >= self.failure_rate_threshold:
+                raise RuntimeError(
+                    f"Failure rate too high: {failure_rate:.1%} >= {self.failure_rate_threshold:.1%} "
+                    f"over last {len(self.failure_window)} calls"
+                )
+
+    # ===== JSON REPAIR SYSTEM =====
+
+    def _fix_common_json_issues(self, response_text):
+        """
+        Attempt to repair common JSON formatting issues without calling the API.
+
+        Args:
+            response_text: Raw LLM response that may contain malformed JSON
+
+        Returns:
+            tuple: (repaired_json_string or None, was_repaired: bool)
+        """
+        if not response_text:
+            return None, False
+
+        original = response_text.strip()
+
+        # Step 1: Strip code fences (```json ... ``` or ``` ... ```)
+        if '```' in original:
+            # Find content between code fences
+            matches = re.findall(r'```(?:json)?\s*(.*?)\s*```', original, re.DOTALL)
+            if matches:
+                original = matches[0].strip()
+
+        # Step 2: Extract JSON by bracket/brace counting
+        # Find the first { or [
+        start_brace = original.find('{')
+        start_bracket = original.find('[')
+
+        if start_brace == -1 and start_bracket == -1:
+            return None, False
+
+        # Determine which comes first
+        if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+            start_char = '{'
+            end_char = '}'
+            start_idx = start_brace
+        else:
+            start_char = '['
+            end_char = ']'
+            start_idx = start_bracket
+
+        # Count braces/brackets to find matching closing
+        count = 0
+        end_idx = -1
+        for i in range(start_idx, len(original)):
+            if original[i] == start_char:
+                count += 1
+            elif original[i] == end_char:
+                count -= 1
+                if count == 0:
+                    end_idx = i
+                    break
+
+        if end_idx != -1:
+            extracted = original[start_idx:end_idx + 1]
+
+            # Step 3: Try to parse the extracted JSON
+            try:
+                json.loads(extracted)
+                return extracted, True
+            except json.JSONDecodeError:
+                # Try fixing common issues
+                # Remove trailing commas
+                fixed = re.sub(r',(\s*[}\]])', r'\1', extracted)
+                try:
+                    json.loads(fixed)
+                    return fixed, True
+                except json.JSONDecodeError:
+                    pass
+
+        # If all repairs failed, return None
+        return None, False
+
     # ===== MALFORMED RESPONSE RECOVERY SYSTEM =====
     
     def _detect_malformed_response(self, response_text, step_name, expected_format="json"):
@@ -640,25 +795,92 @@ class AITaskExtractor:
     
     def _save_malformed_responses(self, malformed_data, step_name, dataset_type="train"):
         """
-        Save malformed responses to a separate CSV for manual fixing.
-        
+        Save malformed responses to a separate CSV with ledger tracking.
+        Merges with existing malformed file, increments attempts, and removes resolved rows.
+
         Args:
             malformed_data: List of dictionaries with malformed response data
+                           Expected keys: uid, error_message, raw_llm_response, etc.
             step_name: Name of the step (step1, step2, step3)
             dataset_type: Dataset type (train/test)
         """
         if not malformed_data:
             return None
-            
+
         malformed_file = self.data_dir / f"{step_name}_malformed.csv"
-        
-        malformed_df = pd.DataFrame(malformed_data)
-        malformed_df.to_csv(malformed_file, index=False)
-        
-        print(f"🚨 CRITICAL: {len(malformed_data)} malformed responses saved to: {malformed_file}")
-        print(f"🛑 Pipeline STOPPED. Please fix the malformed responses and rerun {step_name}.")
-        print(f"📝 Malformed file columns: {list(malformed_df.columns)}")
-        
+        current_timestamp = datetime.now().isoformat()
+
+        # Add ledger fields to new malformed data
+        new_malformed_df = pd.DataFrame(malformed_data)
+
+        # Initialize ledger fields for new entries
+        if 'status' not in new_malformed_df.columns:
+            new_malformed_df['status'] = 'pending'
+        if 'attempts' not in new_malformed_df.columns:
+            new_malformed_df['attempts'] = 1
+        if 'last_error_type' not in new_malformed_df.columns:
+            new_malformed_df['last_error_type'] = new_malformed_df.get('error_type', 'unknown')
+        if 'last_error_message' not in new_malformed_df.columns:
+            new_malformed_df['last_error_message'] = new_malformed_df.get('error_message', '')
+        if 'last_attempt_at' not in new_malformed_df.columns:
+            new_malformed_df['last_attempt_at'] = current_timestamp
+
+        # Load existing malformed file if it exists
+        if malformed_file.exists():
+            existing_df = pd.read_csv(malformed_file)
+
+            # Merge logic: increment attempts for UIDs that are still failing
+            merged_rows = []
+            new_uids = set(new_malformed_df['uid'])
+            existing_uids = set(existing_df['uid'])
+
+            # Process existing rows
+            for _, row in existing_df.iterrows():
+                uid = row['uid']
+                if uid in new_uids:
+                    # Still failing - increment attempts
+                    new_row = new_malformed_df[new_malformed_df['uid'] == uid].iloc[0].to_dict()
+                    attempts = row.get('attempts', 0) + 1
+                    new_row['attempts'] = attempts
+
+                    # Update status based on attempts
+                    if attempts >= self.max_attempts:
+                        new_row['status'] = 'needs_manual'
+                    else:
+                        new_row['status'] = 'failed'
+
+                    new_row['last_attempt_at'] = current_timestamp
+                    merged_rows.append(new_row)
+                else:
+                    # Not in new failures - this row was resolved, don't keep it
+                    pass
+
+            # Add completely new failures (not in existing)
+            for _, row in new_malformed_df.iterrows():
+                if row['uid'] not in existing_uids:
+                    merged_rows.append(row.to_dict())
+
+            final_df = pd.DataFrame(merged_rows)
+        else:
+            # No existing file, just use new data
+            final_df = new_malformed_df
+
+        # Save merged result
+        final_df.to_csv(malformed_file, index=False)
+
+        # Print summary
+        needs_manual = len(final_df[final_df['status'] == 'needs_manual'])
+        failed = len(final_df[final_df['status'] == 'failed'])
+        pending = len(final_df[final_df['status'] == 'pending'])
+
+        print(f"🚨 MALFORMED RESPONSES: {len(final_df)} total")
+        print(f"   📊 Status breakdown: {pending} pending, {failed} failed, {needs_manual} needs_manual")
+        print(f"   💾 Saved to: {malformed_file}")
+        print(f"   📝 Columns: {list(final_df.columns)}")
+
+        if needs_manual > 0:
+            print(f"   ⚠️  {needs_manual} rows need manual intervention (>= {self.max_attempts} attempts)")
+
         return malformed_file
     
     def _detect_reprocessing_mode(self, step_name, dataset_type="train"):
@@ -1226,9 +1448,9 @@ Step‑by‑step instructions
    """
         pass
     
-    def step_1_extract_ai_applications(self, job_ads_text):
+    def step_1_extract_ai_applications(self, job_ads_text, use_cache=True):
         """
-        Step 1: Extract AI applications from job ads
+        Step 1: Extract AI applications from job ads with caching and cost guards
         """
         system_prompt = """
 
@@ -1254,7 +1476,27 @@ Step‑by‑step instructions
 
         user_prompt = job_ads_text
 
+        # Build params dict for cache key
+        params = {
+            "max_tokens": 500,
+            "verbosity": "medium",
+            "temperature": 0,
+            "top_p": 1,
+            "seed": 42,
+            "response_format": {"type": "json_object"}
+        }
+
+        # Check cache first
+        cache_key = self._get_cache_key(self.model_name, system_prompt, f'"""\n{user_prompt}\n"""', params)
+        if use_cache:
+            cached_response = self._read_cache(cache_key, "1")
+            if cached_response:
+                return cached_response
+
         try:
+            # Check cost guards before making call
+            self._check_cost_guards()
+
             response = self._make_api_call(
                 system_prompt=system_prompt,
                 user_prompt=f'"""\n{user_prompt}\n"""',
@@ -1265,17 +1507,26 @@ Step‑by‑step instructions
                 seed=42,
                 response_format={"type": "json_object"}
             )
-            
+
             # Track token usage
             self._track_token_usage(response)
-            
-            return self._extract_response_content(response)
-        
+            self.new_calls_count += 1
+            self.failure_window.append(0)  # Success
+
+            result = self._extract_response_content(response)
+
+            # Write to cache
+            if use_cache:
+                self._write_cache(cache_key, result, "1")
+
+            return result
+
         except Exception as e:
+            self.failure_window.append(1)  # Failure
             print(f"Error in step 1: {e}")
             return None
-    
-    def step_2_separate_tasks(self, step1_output):
+
+    def step_2_separate_tasks(self, step1_output, use_cache=True):
         """
         Step 2: Separate compound tasks into distinct work tasks
         """
@@ -1341,7 +1592,26 @@ Rank leads (e.g., SMB, mid-market, enterprise) using a propensity model.
 
         user_prompt = step1_output
 
+        # Build params dict for cache key
+        params = {
+            "max_tokens": 300,
+            "verbosity": "medium",
+            "temperature": 0,
+            "top_p": 1,
+            "seed": 42
+        }
+
+        # Check cache first
+        cache_key = self._get_cache_key(self.model_name, system_prompt, user_prompt, params)
+        if use_cache:
+            cached_response = self._read_cache(cache_key, "2")
+            if cached_response:
+                return cached_response
+
         try:
+            # Check cost guards before making call
+            self._check_cost_guards()
+
             response = self._make_api_call(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -1351,17 +1621,26 @@ Rank leads (e.g., SMB, mid-market, enterprise) using a propensity model.
                 top_p=1,
                 seed=42
             )
-            
+
             # Track token usage
             self._track_token_usage(response)
-            
-            return self._extract_response_content(response)
-        
+            self.new_calls_count += 1
+            self.failure_window.append(0)  # Success
+
+            result = self._extract_response_content(response)
+
+            # Write to cache
+            if use_cache:
+                self._write_cache(cache_key, result, "2")
+
+            return result
+
         except Exception as e:
+            self.failure_window.append(1)  # Failure
             print(f"Error in step 2: {e}")
             return None
-    
-    def step_3_filter_applications(self, step2_output):
+
+    def step_3_filter_applications(self, step2_output, use_cache=True):
         """
         Step 3: Filter and clean applications
         """
@@ -1377,7 +1656,27 @@ Rewrite it as the **single autonomous deliverable the AI system produces**, phra
 {"ai_task":"<one sentence or N/A>"}"""
         user_prompt = step2_output
 
+        # Build params dict for cache key
+        params = {
+            "max_tokens": 300,
+            "verbosity": "medium",
+            "temperature": 0,
+            "top_p": 1,
+            "seed": 42,
+            "response_format": {"type": "json_object"}
+        }
+
+        # Check cache first
+        cache_key = self._get_cache_key(self.model_name, system_prompt, user_prompt, params)
+        if use_cache:
+            cached_response = self._read_cache(cache_key, "3")
+            if cached_response:
+                return cached_response
+
         try:
+            # Check cost guards before making call
+            self._check_cost_guards()
+
             response = self._make_api_call(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -1388,53 +1687,62 @@ Rewrite it as the **single autonomous deliverable the AI system produces**, phra
                 seed=42,
                 response_format={"type": "json_object"}
             )
-            
+
             # Track token usage
             self._track_token_usage(response)
-            
-            return self._extract_response_content(response)
-        
+            self.new_calls_count += 1
+            self.failure_window.append(0)  # Success
+
+            result = self._extract_response_content(response)
+
+            # Write to cache
+            if use_cache:
+                self._write_cache(cache_key, result, "3")
+
+            return result
+
         except Exception as e:
+            self.failure_window.append(1)  # Failure
             print(f"Error in step 3: {e}")
             return None
-    
-    def step_4_final_filtering(self, step3_output):
-        """
-        Step 4: Final filtering for specificity
-        """
-        system_prompt = """The excerpt below describes how an artificial intelligence technology is being applied. Please determine if the application is very specific. If yes, please summarize the application (without outputing anything else). All references to any type of AI tool (e.g. natural language processing, machine learning, computer vision, generative AI, or any specific AI/ML algorithm) are redundant and should be stripped from the text. Otherwise, respond 'N/A'. Here are some examples:
 
--'Predictive Analytics' should be 'N/A' as it is very broad;
--'Data Visualization' should be 'N/A' as it is very broad;
--'AI-driven NFT Collection Visualization' should be kept as it is a very specific application.
--'Perform exploratory data analysis for invoice anomalies' should be 'invoice anomalies'
--'Provide self-service data access and custom visualization interfaces for the oceanic team' should be 'custom visualization interfaces for the oceanic team' as this is a specific application.
+#     def step_4_final_filtering(self, step3_output):
+#         """
+#         Step 4: Final filtering for specificity
+#         """
+#         system_prompt = """The excerpt below describes how an artificial intelligence technology is being applied. Please determine if the application is very specific. If yes, please summarize the application (without outputing anything else). All references to any type of AI tool (e.g. natural language processing, machine learning, computer vision, generative AI, or any specific AI/ML algorithm) are redundant and should be stripped from the text. Otherwise, respond 'N/A'. Here are some examples:
 
-Please filter the following application and return your response as JSON in this format:
-{"final_application": "your filtered text here or N/A"}"""
+# -'Predictive Analytics' should be 'N/A' as it is very broad;
+# -'Data Visualization' should be 'N/A' as it is very broad;
+# -'AI-driven NFT Collection Visualization' should be kept as it is a very specific application.
+# -'Perform exploratory data analysis for invoice anomalies' should be 'invoice anomalies'
+# -'Provide self-service data access and custom visualization interfaces for the oceanic team' should be 'custom visualization interfaces for the oceanic team' as this is a specific application.
 
-        user_prompt = step3_output
+# Please filter the following application and return your response as JSON in this format:
+# {"final_application": "your filtered text here or N/A"}"""
 
-        try:
-            response = self._make_api_call(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                max_tokens_value=200,
-                verbosity="medium",
-                temperature=0,
-                top_p=1,
-                seed=42,
-                response_format={"type": "json_object"}
-            )
+#         user_prompt = step3_output
+
+#         try:
+#             response = self._make_api_call(
+#                 system_prompt=system_prompt,
+#                 user_prompt=user_prompt,
+#                 max_tokens_value=200,
+#                 verbosity="medium",
+#                 temperature=0,
+#                 top_p=1,
+#                 seed=42,
+#                 response_format={"type": "json_object"}
+#             )
             
-            # Track token usage
-            self._track_token_usage(response)
+#             # Track token usage
+#             self._track_token_usage(response)
             
-            return self._extract_response_content(response)
+#             return self._extract_response_content(response)
         
-        except Exception as e:
-            print(f"Error in step 4: {e}")
-            return None
+#         except Exception as e:
+#             print(f"Error in step 4: {e}")
+#             return None
     
     
     def run_step1_only(self, dataset_type="train"):
@@ -1449,8 +1757,20 @@ Please filter the following application and return your response as JSON in this
         if is_reprocessing:
             # Load malformed file for reprocessing
             malformed_df = pd.read_csv(malformed_file)
-            print(f"🔄 Reprocessing {len(malformed_df)} malformed responses from {malformed_file}")
-            df = malformed_df
+
+            # Filter: only process rows that are pending/failed and haven't exceeded max attempts
+            if 'status' in malformed_df.columns and 'attempts' in malformed_df.columns:
+                processable = malformed_df[
+                    (malformed_df['status'].isin(['pending', 'failed'])) &
+                    (malformed_df['attempts'] < self.max_attempts)
+                ]
+                print(f"🔄 Reprocessing {len(processable)} / {len(malformed_df)} malformed responses")
+                print(f"   Filtered out {len(malformed_df) - len(processable)} rows (needs_manual or max_attempts reached)")
+                df = processable
+            else:
+                # Legacy file without ledger fields - process all
+                print(f"🔄 Reprocessing {len(malformed_df)} malformed responses (legacy format)")
+                df = malformed_df
         else:
             # Load original data
             df = self.load_data(dataset_type)
@@ -1478,18 +1798,44 @@ Please filter the following application and return your response as JSON in this
             
             # Detect malformed responses using the new system
             is_malformed, error_message = self._detect_malformed_response(step1_result, "step1", "json")
-            
+
             if is_malformed:
-                # Add to malformed responses for manual fixing
-                malformed_responses.append({
-                    'uid': job_uid,
-                    'content_clean': job_ads_text,
-                    'company_name': job_row.get('company_name', ''),
-                    'raw_llm_response': step1_result,
-                    'error_message': error_message,
-                    'step': 'step1'
-                })
-                continue
+                # Try automatic JSON repair before giving up
+                repaired_json, was_repaired = self._fix_common_json_issues(step1_result)
+                if was_repaired and repaired_json:
+                    # Validate repaired JSON
+                    is_still_malformed, _ = self._detect_malformed_response(repaired_json, "step1", "json")
+                    if not is_still_malformed:
+                        # Repair successful! Use repaired version
+                        step1_result = repaired_json
+                        is_malformed = False
+                        print(f"  ✅ Auto-repaired JSON for UID {job_uid}")
+                    else:
+                        # Repair didn't fix the issue
+                        error_type = 'json_parse' if 'JSON' in error_message or 'json' in error_message else 'validation'
+                        malformed_responses.append({
+                            'uid': job_uid,
+                            'content_clean': job_ads_text,
+                            'company_name': job_row.get('company_name', ''),
+                            'raw_llm_response': step1_result,
+                            'error_message': error_message,
+                            'error_type': error_type,
+                            'step': 'step1'
+                        })
+                        continue
+                else:
+                    # Could not repair
+                    error_type = 'json_parse' if 'JSON' in error_message or 'json' in error_message else 'validation'
+                    malformed_responses.append({
+                        'uid': job_uid,
+                        'content_clean': job_ads_text,
+                        'company_name': job_row.get('company_name', ''),
+                        'raw_llm_response': step1_result,
+                        'error_message': error_message,
+                        'error_type': error_type,
+                        'step': 'step1'
+                    })
+                    continue
             
             # Parse valid JSON response
             try:
@@ -2549,9 +2895,9 @@ def run_ensemble_test(model_name="gpt-4.1-mini", use_batch=False, use_flex=False
     extractor.print_token_summary()
     print(f"\n✅ Ensemble results: {output_path}")
 
-def run_custom_file(input_file, content_column="content_clean", output_suffix="", model_name="gpt-4.1-mini", use_batch=False, use_flex=False, reasoning_effort="low", verbosity="medium", step=1):
+def run_custom_file(input_file, content_column="content_clean", output_suffix="", model_name="gpt-4.1-mini", use_batch=False, use_flex=False, reasoning_effort="low", verbosity="medium", step=1, max_attempts=2, max_new_calls=None, cost_budget=None):
     """Run specified step extraction on a custom input file"""
-    extractor = AITaskExtractor(model_name, use_batch, use_flex, reasoning_effort, verbosity)
+    extractor = AITaskExtractor(model_name, use_batch, use_flex, reasoning_effort, verbosity, max_attempts, max_new_calls, cost_budget)
     
     if step == 1:
         output_path = extractor.run_custom_file_step1(input_file, content_column, output_suffix)
@@ -2584,7 +2930,24 @@ if __name__ == "__main__":
     parser.add_argument('--content-column', type=str, default='content_clean', help='Column name containing job advertisement content')
     parser.add_argument('--output-suffix', type=str, default='', help='Suffix for output filename')
     parser.add_argument('--step', type=int, choices=[1, 2, 3], default=1, help='Which step to run (1=extract apps, 2=separate tasks, 3=filter tasks)')
-    
+
+    # Cost control and retry arguments
+    parser.add_argument('--max-attempts', type=int, default=2, help='Maximum retry attempts per malformed row (default: 2)')
+    parser.add_argument('--max-new-calls', type=int, help='Hard limit on new API calls per run (prevents runaway costs)')
+    parser.add_argument('--cost-budget', type=float, help='Maximum total cost budget in dollars (aborts if exceeded)')
+    parser.add_argument('--failure-rate-threshold', type=float, default=0.5, help='Abort if failure rate exceeds this (default: 0.5)')
+    parser.add_argument('--failure-window-size', type=int, default=10, help='Window size for failure rate calculation (default: 10)')
+
+    # Reprocessing and targeting arguments
+    parser.add_argument('--retry-failed', action='store_true', help='Use malformed CSV as input and retry only pending/failed rows')
+    parser.add_argument('--only-uids', type=str, help='Process only specific UIDs (comma-separated or path to CSV file)')
+    parser.add_argument('--batch-size', type=int, help='Process in batches of this size (for memory control)')
+    parser.add_argument('--flush-every', type=int, default=100, help='Write results to disk every N rows (default: 100)')
+
+    # Dry run and debugging
+    parser.add_argument('--no-api', action='store_true', help='Dry run: attempt local JSON repair only, no API calls')
+    parser.add_argument('--no-cache', action='store_true', help='Disable cache reads/writes for this run')
+
     # Handle command-line actions that start with --
     args = parser.parse_args()
     
@@ -2650,7 +3013,20 @@ if __name__ == "__main__":
             if not args.input_file:
                 print("Error: --input-file is required for custom file processing")
                 sys.exit(1)
-            run_custom_file(args.input_file, args.content_column, args.output_suffix, model_name, use_batch, use_flex, reasoning_effort, verbosity, args.step)
+            run_custom_file(
+                args.input_file,
+                args.content_column,
+                args.output_suffix,
+                model_name,
+                use_batch,
+                use_flex,
+                reasoning_effort,
+                verbosity,
+                args.step,
+                args.max_attempts,
+                args.max_new_calls,
+                args.cost_budget
+            )
         else:
             print("Usage:")
             print("\n📋 Individual Steps:")
@@ -2672,6 +3048,17 @@ if __name__ == "__main__":
             print("  python3 stage_3_extract_ai_tasks.py custom --input-file FILE.csv --step 1 --model o3 --reasoning-effort medium")
             print("  python3 stage_3_extract_ai_tasks.py custom --input-file FILE.csv --step 2 --content-column ai_applications_raw --model gpt-5-mini")
             print("  python3 stage_3_extract_ai_tasks.py custom --input-file FILE.csv --step 3 --content-column step2_output --model o3 --reasoning-effort low")
+            print("\n💰 Cost Control:")
+            print("  --max-attempts N          # Cap retries per row (default: 2)")
+            print("  --max-new-calls N         # Hard limit on new API calls")
+            print("  --cost-budget DOLLARS     # Abort if budget exceeded")
+            print("\n🔄 Reprocessing:")
+            print("  --retry-failed            # Process malformed CSV only")
+            print("  --only-uids 123,456       # Target specific UIDs")
+            print("  --no-api                  # Dry run: local repair only, no API calls")
+            print("  --no-cache                # Disable cache for this run")
+            print("\n📝 Example with cost controls:")
+            print("  python3 stage_3_extract_ai_tasks.py custom --input-file FILE.csv --step 1 --max-new-calls 200 --cost-budget 10")
     else:
         # Check if input file was provided without action - assume custom processing
         if args.input_file:

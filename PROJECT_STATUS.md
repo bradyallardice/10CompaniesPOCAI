@@ -155,8 +155,40 @@ Merge "AI Exposure Average" with Swiss Household Panel individual respondents at
 
 ### Key Equations
 - **Equation 23:** Firm-Level AI Application Similarity
-- **Equation 24:** Weighted Average Exposure  
+- **Equation 24:** Weighted Average Exposure
 - **Equation 26:** AI Exposure Average (occupation×firm×time)
+
+## Known Issues & TODO Items
+
+### Stage 6: Crosswalk Coverage Deficiencies
+
+#### X28→ISCO Crosswalk Gaps (2.5% job loss)
+- **Status:** 97.5% mapping success, 445,137 jobs unmapped
+- **Root Cause:** 110 missing X28 codes (newer occupational codes not in crosswalk)
+- **High-Impact Missing Codes:**
+  - `11001931`: 93,746 jobs
+  - `11002081`: 77,392 jobs
+  - `11001544`: 72,011 jobs
+  - `11000005`: 55,934 jobs
+  - `11000062`: 38,196 jobs
+- **TODO:** Research and create manual mappings for top 10 missing X28 codes to recover ~75% of lost jobs
+
+#### ISCO→ONET Crosswalk Gaps (8.4% job loss)
+- **Status:** 91.6% mapping success, 1,470,963 jobs unmapped
+- **Root Cause:** 41 broad ISCO codes (major/sub-major groups) not in ESCO crosswalk
+- **High-Impact Missing Categories:**
+  - `2000` (Professionals): 182,040 jobs
+  - `2300` (Teaching professionals): 179,519 jobs
+  - `7200` (Metal/machinery workers): 148,900 jobs
+  - `3000` (Technicians): 138,331 jobs
+  - `8100` (Plant operators): 115,928 jobs
+- **Decision:** Accepted as legitimate limitation - ESCO only covers specific 4-digit unit groups, not broad categories
+- **Note:** Jobs coded at broad levels cannot be mapped to specific O*NET occupations
+
+#### Overall Impact
+- **Combined Coverage:** ~84% of jobs successfully mapped through both crosswalks
+- **Data Quality:** Enhanced validation ensures no specific occupational codes are missing (only broad categories)
+- **Recommendation:** Current coverage acceptable for analysis, but X28 updates could improve completeness
 
 ## Setup Instructions
 

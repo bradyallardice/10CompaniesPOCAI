@@ -1,0 +1,12 @@
+uid,company_id,tst_created,step3_output
+app1_comp1,1,2019-06-01 00:00:00,analyze large datasets to extract predictive insights using machine learning algorithms
+app2_comp1,1,2019-06-01 00:00:00,develop neural network models for pattern recognition in business data
+app3_comp1,1,2021-03-15 00:00:00,implement automated feature selection for machine learning pipelines
+app4_comp1,1,2021-03-15 00:00:00,optimize deep learning models for production deployment
+app5_comp1,1,2023-08-10 00:00:00,design reinforcement learning systems for decision optimization
+app6_comp2,2,2020-11-01 00:00:00,create automated data visualization dashboards using business intelligence tools
+app7_comp2,2,2022-01-15 00:00:00,implement data pipeline automation for ETL processes
+app8_comp2,2,2022-01-15 00:00:00,develop predictive analytics models for customer segmentation
+app9_comp4,4,2023-05-20 00:00:00,utilize AI-powered market analysis tools for strategic planning
+app10_comp4,4,2023-05-20 00:00:00,
+app11_comp5,5,2020-08-01 00:00:00,""

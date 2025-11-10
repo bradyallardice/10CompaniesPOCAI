@@ -99,18 +99,22 @@ class TestStage6CLI:
     
     def test_cli_job_ads_onet_time_variant(self, fixtures_dir, golden_dir, tmp_path):
         """Test CLI with job_ads × onet × time_variant configuration"""
-        
-        pytest.skip("ONET exposure data not available - requires Stage 5 output")
+
+        # Check if ONET exposure files exist in Data directory
+        data_dir = Path(__file__).parent.parent / "Data"
+        onet_files = list(data_dir.glob("onet_firm_year_ai_exposure_*time_variant*.csv"))
+        if not onet_files:
+            pytest.skip("ONET exposure data not available - requires Stage 5 output")
         
         cmd = [
             "python3", "../stage_6_link_exposure_to_jobs.py",
             "--job_list", "job_ads",
             "--occ_code", "onet",
-            "--time_var", "true", 
+            "--time_var", "time_variant",
             "--year_max", "2025",
-            "--in_dir", str(fixtures_dir),
+            "--in_dir", str(data_dir),  # Use actual Data directory with exposure files
             "--out", str(tmp_path / "output.csv"),
-            "--fail_on_warn", "true"
+            "--fail_on_warn"  # This is a flag, no argument needed
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=fixtures_dir.parent)
@@ -130,11 +134,11 @@ class TestStage6CLI:
             "python3", "../stage_6_link_exposure_to_jobs.py",
             "--job_list", "job_ads",
             "--occ_code", "isco",
-            "--time_var", "false",  # Time invariant
+            "--time_var", "time_invariant",
             "--year_max", "2025",
             "--in_dir", str(fixtures_dir),
             "--out", str(tmp_path / "output.csv"),
-            "--fail_on_warn", "true"
+            "--fail_on_warn"
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=fixtures_dir.parent)

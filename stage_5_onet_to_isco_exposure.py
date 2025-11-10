@@ -18,7 +18,6 @@ Date: September 2025
 import pandas as pd
 import numpy as np
 import os
-from datetime import datetime
 import logging
 from typing import List, Tuple, Optional, Dict
 from pathlib import Path
@@ -43,7 +42,7 @@ class TaskFirmExposurePipeline:
         
         Args:
             aggregation_method: Method to aggregate O*NET → ISCO ("mean", "weighted_mean")
-            time_invariant: If True, firms exposed to all their AI apps across all years; if False, only to apps in each specific year
+            time_invariant: If True, firms exposed to all their AI apps across all years; if False, firms exposed to apps from first appearance onwards
             occupation_exposure: Occupation-level exposure mode ("none", "time-invariant", "time-variant")
             data_dir: Directory containing input data files
         """
@@ -382,49 +381,49 @@ class TaskFirmExposurePipeline:
         
         return stage2_mapping
     
-    def expand_job_app_mapping_to_full_dataset(self, job_app_mapping: pd.DataFrame, 
+    def expand_job_app_mapping_to_full_dataset(self, job_app_mapping: pd.DataFrame,
                                            original_jobs: pd.DataFrame,
-                                           stage2_mapping: pd.DataFrame) -> pd.DataFrame:
+                                           stage2_mapping: pd.DataFrame = None) -> pd.DataFrame:
         """
-        Expand the job→app mapping but only JOIN using kept UIDs (Stage-2 canonical IDs).
-        We still keep a provenance column listing all original UIDs that had the app.
+        Expand the job→app mapping using only Stage 4 deduplication.
+        Stage 2 deduplication reintegration has been removed.
         """
-        logger.info("Expanding job-app mapping with Stage-2 UID normalization (kept UIDs only for joins)")
+        logger.info("Expanding job-app mapping using Stage 4 deduplication only")
 
-        # --- Build removed -> kept map
-        if stage2_mapping is not None and {'kept_uid','removed_uid'}.issubset(stage2_mapping.columns):
-            rem2kept = stage2_mapping.set_index('removed_uid')['kept_uid'].to_dict()
-        else:
-            rem2kept = {}
+        # Stage 2 deduplication handling commented out - no longer needed
+        # if stage2_mapping is not None and {'kept_uid','removed_uid'}.issubset(stage2_mapping.columns):
+        #     rem2kept = stage2_mapping.set_index('removed_uid')['kept_uid'].to_dict()
+        # else:
+        #     rem2kept = {}
 
-        def to_kept(uid: str) -> str:
-            return rem2kept.get(uid, uid)
+        # def to_kept(uid: str) -> str:
+        #     return rem2kept.get(uid, uid)
 
-        # --- Parse Stage 4 mapping
+        # Parse Stage 4 mapping - using original job UIDs directly
         jam = job_app_mapping.copy()
         jam['job_uids_list'] = jam['job_uids'].fillna('').astype(str).apply(
             lambda s: [u.strip() for u in s.split('|') if u.strip()]
         )
 
-        # Keep full provenance (removed + kept as Stage 4 saw them)
+        # Keep full provenance (Stage 4 UIDs as they are)
         jam['job_uids_all'] = jam['job_uids_list']
 
-        # Canonical kept UIDs for actual joins
-        jam['job_uids_kept'] = jam['job_uids_list'].apply(lambda L: sorted(set(to_kept(u) for u in L)))
+        # Use original UIDs directly (no Stage 2 mapping needed)
+        jam['job_uids_kept'] = jam['job_uids_list']
 
-        # --- Explode kept uids for join
+        # Explode UIDs for join
         expanded = jam[['app_text', 'job_uids_kept', 'first_occurrence_tst_created']].explode('job_uids_kept')
         expanded = expanded.rename(columns={'job_uids_kept': 'job_uid'})
 
-        # --- Join to (dedupbed) company data using only kept UIDs
+        # Join to company data using original job UIDs
         merged = expanded.merge(
             original_jobs, how='left', on='job_uid', validate='many_to_one'
         )
 
-        # Warn if any KEPT ids are missing from company data
-        missing_kept = merged[merged['company_name'].isna()]['job_uid'].unique().tolist()
-        if missing_kept:
-            logger.warning(f"{len(missing_kept)} kept UIDs not found in company data. First few: {missing_kept[:10]}")
+        # Warn if any UIDs are missing from company data
+        missing_uids = merged[merged['company_name'].isna()]['job_uid'].unique().tolist()
+        if missing_uids:
+            logger.warning(f"{len(missing_uids)} job UIDs not found in company data. First few: {missing_uids[:10]}")
 
         # Attach provenance as a pipe-joined string
         jam['provenance_job_uids'] = jam['job_uids_all'].apply(lambda L: '|'.join(L))
@@ -432,12 +431,12 @@ class TaskFirmExposurePipeline:
 
         merged = merged.merge(prov, on='app_text', how='left')
 
-        # Keep only rows that successfully joined (unchanged)
+        # Keep only rows that successfully joined
         out = merged.dropna(subset=['company_name']).copy()
         out = out[['app_text', 'job_uid', 'company_name', 'x28_occupations', 'x28_industries',
                 'year', 'tst_created', 'first_occurrence_tst_created', 'provenance_job_uids']]
 
-        logger.info(f"Final expansion (kept UIDs only): {out['job_uid'].nunique():,} jobs, {len(out):,} app-job rows")
+        logger.info(f"Final expansion (Stage 4 deduplication only): {out['job_uid'].nunique():,} jobs, {len(out):,} app-job rows")
         return out
 
 
@@ -458,17 +457,18 @@ class TaskFirmExposurePipeline:
             DataFrame with task-firm exposure probabilities (both variants)
         """
         logger.info(f"Step 2: Calculating task exposure at firm level (time_invariant={self.time_invariant}, occupation_exposure={self.occupation_exposure})...")
-        logger.info(f"Using expanded dataset to include all jobs removed by deduplication...")
+        logger.info(f"Using expanded dataset with Stage 4 deduplication only (Stage 2 deduplication temporarily disabled)...")
         
-        # Load Stage 2 deduplication mapping (if available)
-        stage2_mapping = self.load_stage2_deduplication_mapping(stage2_mapping_file)
-        
-        # Always expand job-app mapping to include all original jobs 
-        # The expand method handles both cases: with and without Stage 2 mapping
+        # Stage 2 deduplication reintegration commented out - only using Stage 4 deduplication
+        # stage2_mapping = self.load_stage2_deduplication_mapping(stage2_mapping_file)
+
+        # Only expand job-app mapping using Stage 4 deduplication (already in job_app_mapping)
+        # Stage 2 deduplication reintegration removed per user request
         expanded_job_app_mapping = self.expand_job_app_mapping_to_full_dataset(
-            job_app_mapping, original_jobs, stage2_mapping
+            job_app_mapping, original_jobs, None
         )
-        
+        expanded_job_app_mapping.to_csv('Data/expanded_jobs_matching.csv', index=False)
+        task_app_matches.to_csv('Data/task_app_matches.csv', index=False)
         # Join task-app matches with expanded job mapping
         task_job_matches = task_app_matches.merge(
             expanded_job_app_mapping, 
@@ -481,6 +481,48 @@ class TaskFirmExposurePipeline:
         task_firm_matches = task_job_matches.copy()
         
         logger.info(f"Mapped {len(task_firm_matches):,} task-app-firm relationships")
+
+        # COMPREHENSIVE VALIDATION: Check for UID loss between expanded mapping and task-firm matches
+        expanded_uids = set(expanded_job_app_mapping['job_uid'].unique())
+        task_firm_uids = set(task_firm_matches['job_uid'].unique())
+        if len(expanded_uids) != len(task_firm_uids):
+            missing_in_task_firm = expanded_uids - task_firm_uids
+            logger.warning(f"VALIDATION: {len(missing_in_task_firm)} UIDs lost in task-app matching: {list(missing_in_task_firm)[:10]}")
+
+            # Get all apps from missing UIDs
+            missing_apps_df = expanded_job_app_mapping[expanded_job_app_mapping['job_uid'].isin(missing_in_task_firm)]
+            missing_app_texts = missing_apps_df['app_text'].unique()
+            logger.warning(f"VALIDATION: Missing UIDs had {len(missing_app_texts)} unique AI apps")
+
+            # CRITICAL CHECK 1: Verify these UIDs exist in original_jobs (rules out data source mismatch)
+            original_uids = set(original_jobs['job_uid'].unique()) if 'job_uid' in original_jobs.columns else set()
+            missing_from_original = missing_in_task_firm - original_uids
+            if missing_from_original:
+                logger.error(f"ERROR: {len(missing_from_original)} missing UIDs don't exist in original_jobs! This indicates data source mismatch: {list(missing_from_original)[:5]}")
+            else:
+                logger.info(f"✅ VALIDATION: All {len(missing_in_task_firm)} missing UIDs exist in original_jobs (data source OK)")
+
+            # CRITICAL CHECK 2: Verify NONE of these apps are in task_app_matches (rules out join errors)
+            task_matching_apps = set(task_app_matches['app_text'].unique())
+            apps_that_should_match = set(missing_app_texts) & task_matching_apps
+            if apps_that_should_match:
+                logger.error(f"ERROR: {len(apps_that_should_match)} apps from missing UIDs ARE in task_app_matches! This indicates join error: {list(apps_that_should_match)[:3]}")
+            else:
+                logger.info(f"✅ VALIDATION: None of the {len(missing_app_texts)} apps from missing UIDs are in task_app_matches (legitimate filtering)")
+
+            # DETAILED BREAKDOWN: Show apps per missing UID
+            for uid in list(missing_in_task_firm)[:5]:  # Show first 5
+                uid_apps = missing_apps_df[missing_apps_df['job_uid'] == uid]['app_text'].tolist()
+                logger.info(f"  UID {uid}: {len(uid_apps)} non-matching apps")
+                for app in uid_apps[:2]:  # Show first 2 apps
+                    logger.info(f"    - {app[:80]}...")
+
+            # SUMMARY DIAGNOSIS
+            if not missing_from_original and not apps_that_should_match:
+                logger.info(f"🔍 DIAGNOSIS: Loss is legitimate - {len(missing_in_task_firm)} UIDs contained only AI applications that don't match any O*NET tasks")
+            else:
+                logger.error(f"🚨 DIAGNOSIS: Loss indicates data pipeline error - investigate data source consistency or join logic")
+
         # Only log company info if company_name column exists
         if 'company_name' in task_firm_matches.columns:
             logger.info(f"Unique firms: {task_firm_matches['company_name'].nunique():,}")
@@ -492,21 +534,21 @@ class TaskFirmExposurePipeline:
         logger.info("DATA CONSISTENCY VALIDATION")
         logger.info("="*50)
 
-        # Build removed->kept map again (same as above)
-        if stage2_mapping is not None and {'kept_uid','removed_uid'}.issubset(stage2_mapping.columns):
-            rem2kept = stage2_mapping.set_index('removed_uid')['kept_uid'].to_dict()
-        else:
-            rem2kept = {}
-        to_kept = lambda u: rem2kept.get(u, u)
+        # Stage 2 validation logic commented out since stage2_mapping is disabled
+        # if stage2_mapping is not None and {'kept_uid','removed_uid'}.issubset(stage2_mapping.columns):
+        #     rem2kept = stage2_mapping.set_index('removed_uid')['kept_uid'].to_dict()
+        # else:
+        #     rem2kept = {}
+        # to_kept = lambda u: rem2kept.get(u, u)
 
-        # Normalize Stage-4 UID list to KEPT UIDs for a fair comparison
+        # Use Stage-4 UID list directly (no stage 2 normalization)
         stage4_jobs_kept_set = set()
         for row in job_app_mapping.itertuples():
             for u in str(row.job_uids).split('|'):
                 u = u.strip()
                 if not u:
                     continue
-                stage4_jobs_kept_set.add(to_kept(u))
+                stage4_jobs_kept_set.add(u)  # Use UID directly, no stage2 mapping
 
         stage4_jobs = len(stage4_jobs_kept_set)
 
@@ -520,7 +562,7 @@ class TaskFirmExposurePipeline:
         # Validation checks
         if expanded_jobs < stage4_jobs:
             logger.warning(f"WARNING: Lost {stage4_jobs - expanded_jobs:,} jobs during expansion. "
-                          f"This could indicate missing Stage 2 mappings.")
+                          f"This could indicate missing job UIDs in company data.")
         
         if final_jobs_with_tasks != expanded_jobs:
             logger.warning(f"WARNING: Job count mismatch between expanded mapping ({expanded_jobs:,}) "
@@ -609,34 +651,59 @@ class TaskFirmExposurePipeline:
                             'binary_task_exposure': binary_exposure
                         })
         else:
-            # Time-variant: Original logic - each firm-year only exposed to their own apps
-            for (firm, year), group in task_firm_matches.groupby(['company_name', 'year']):
-                firm_apps = group['app_text'].unique()
-                n_apps_firm_year = len(firm_apps)
-                
-                # Get all unique tasks that have matches with any AI app at this firm-year
-                tasks_at_firm_year = group['onet_task_id'].unique()
-                
-                for task_id in tasks_at_firm_year:
-                    # Count how many AI apps at this firm-year match this task
-                    task_matches_at_firm_year = group[group['onet_task_id'] == task_id]
-                    n_matches = len(task_matches_at_firm_year['app_text'].unique())
-                    
-                    # Hampole variant: share of apps that match this task
-                    hampole_exposure = n_matches / n_apps_firm_year if n_apps_firm_year > 0 else 0
-                    
-                    # Binary variant: 1 if any app matches, 0 otherwise
-                    binary_exposure = 1 if n_matches >= 1 else 0
-                    
-                    task_firm_exposure.append({
-                        'company_name': firm,
-                        'year': year,
-                        'onet_task_id': task_id,
-                        'n_ai_apps_firm_year': n_apps_firm_year,
-                        'n_task_matches_firm_year': n_matches,
-                        'hampole_task_exposure': hampole_exposure,
-                        'binary_task_exposure': binary_exposure
-                    })
+            # Time-variant: Firms exposed to all apps from first appearance onwards
+            # First, find the first appearance year of each app for each firm
+            firm_app_first_year = {}
+            for firm in all_firms:
+                firm_data = task_firm_matches[task_firm_matches['company_name'] == firm]
+                firm_app_first_year[firm] = {}
+                for app in firm_data['app_text'].unique():
+                    app_years = firm_data[firm_data['app_text'] == app]['year']
+                    if len(app_years) > 0:
+                        firm_app_first_year[firm][app] = app_years.min()
+
+            logger.info(f"Time-variant mode: Apps available to firms from first appearance onwards")
+
+            # For each firm-year, include all apps that have appeared by that year for that firm
+            for firm in all_firms:
+                firm_apps_by_first_year = firm_app_first_year[firm]
+                if not firm_apps_by_first_year:
+                    continue  # Skip firms with no AI apps
+
+                for year in all_years:
+                    # Get all apps that have appeared by this year for this firm
+                    available_apps = [app for app, first_year in firm_apps_by_first_year.items()
+                                    if first_year <= year]
+
+                    if not available_apps:
+                        continue  # Skip firm-years with no available apps
+
+                    n_apps_firm_year = len(available_apps)
+
+                    # Get all tasks that match any of the available apps
+                    available_app_matches = task_app_matches[task_app_matches['app_text'].isin(available_apps)]
+                    exposed_tasks = available_app_matches['onet_task_id'].unique()
+
+                    for task_id in exposed_tasks:
+                        # Count how many available apps match this task
+                        task_matches = available_app_matches[available_app_matches['onet_task_id'] == task_id]
+                        n_matches = len(task_matches['app_text'].unique())
+
+                        # Hampole variant: share of available apps that match this task
+                        hampole_exposure = n_matches / n_apps_firm_year if n_apps_firm_year > 0 else 0
+
+                        # Binary variant: 1 if any available app matches, 0 otherwise
+                        binary_exposure = 1 if n_matches >= 1 else 0
+
+                        task_firm_exposure.append({
+                            'company_name': firm,
+                            'year': year,
+                            'onet_task_id': task_id,
+                            'n_ai_apps_firm_year': n_apps_firm_year,
+                            'n_task_matches_firm_year': n_matches,
+                            'hampole_task_exposure': hampole_exposure,
+                            'binary_task_exposure': binary_exposure
+                        })
         
         exposure_df = pd.DataFrame(task_firm_exposure)
         
@@ -654,82 +721,170 @@ class TaskFirmExposurePipeline:
         
         return exposure_df
     
-    def _apply_occupation_exposure(self, firm_exposure_df: pd.DataFrame, 
+    def _apply_occupation_exposure(self, firm_exposure_df: pd.DataFrame,
                                  task_app_matches: pd.DataFrame,
                                  task_firm_matches: pd.DataFrame) -> pd.DataFrame:
         """
-        Apply occupation-level exposure logic, overriding firm-level exposure.
-        
+        Apply occupation-level exposure logic with support for both firm-specific and pure occupation modes.
+
+        This method supports two approaches:
+        1. Firm-specific: Each firm maintains its own AI portfolio within occupation framework
+        2. Pure occupation: All firms get identical exposure patterns for occupation-level analysis
+
         Args:
             firm_exposure_df: Firm-level exposure from previous calculation
             task_app_matches: Task-application matches from Step 1
             task_firm_matches: Task-app-firm relationships with years
-            
+
         Returns:
             DataFrame with occupation-level exposure applied
         """
         logger.info(f"Occupation exposure mode: {self.occupation_exposure}")
-        
+
         # Get all firms and years from the data
         all_firms = task_firm_matches['company_name'].unique()
         all_years = sorted(task_firm_matches['year'].unique())
         all_apps = task_app_matches['app_text'].unique()
         all_tasks = task_app_matches['onet_task_id'].unique()
-        
+
+        # Handle the 3 occupation exposure options: none, additional, only
+        if self.occupation_exposure == "none":
+            logger.info(f"Skipping occupation-level processing (keeping firm-level only)")
+            return firm_exposure_df  # Return original firm-level data unchanged
+        elif self.occupation_exposure == "only":
+            logger.info(f"Using occupation-only exposure (constant across firms, time_invariant={self.time_invariant})")
+            return self._apply_pure_occupation_exposure(
+                task_app_matches, task_firm_matches, all_firms, all_years, all_tasks, all_apps
+            )
+        elif self.occupation_exposure == "additional":
+            logger.info(f"Using occupation×firm exposure (firm-specific within occupations, time_invariant={self.time_invariant})")
+            return self._apply_firm_specific_occupation_exposure(
+                task_app_matches, task_firm_matches, all_firms, all_years, all_tasks
+            )
+        else:
+            # Backward compatibility - default to additional for other values
+            logger.warning(f"Unknown occupation_exposure value '{self.occupation_exposure}'. Defaulting to 'additional'.")
+            return self._apply_firm_specific_occupation_exposure(
+                task_app_matches, task_firm_matches, all_firms, all_years, all_tasks
+            )
+
+    def _apply_firm_specific_occupation_exposure(self, task_app_matches: pd.DataFrame,
+                                               task_firm_matches: pd.DataFrame,
+                                               all_firms: list, all_years: list, all_tasks: list) -> pd.DataFrame:
+        """Apply occupation exposure while maintaining firm-specific AI portfolios."""
+
+        # Build firm-specific app portfolios with first appearance tracking
+        firm_app_first_year = {}
+        for firm in all_firms:
+            firm_data = task_firm_matches[task_firm_matches['company_name'] == firm]
+            firm_app_first_year[firm] = {}
+            for app in firm_data['app_text'].unique():
+                app_years = firm_data[firm_data['app_text'] == app]['year']
+                if len(app_years) > 0:
+                    firm_app_first_year[firm][app] = app_years.min()
+
+        # Create firm-specific occupation-level exposure
+        occupation_task_exposure = []
+
+        for firm in all_firms:
+            firm_apps_by_first_year = firm_app_first_year[firm]
+            if not firm_apps_by_first_year:
+                continue  # Skip firms with no AI apps
+
+            for year in all_years:
+                # Get firm-specific apps available by this year based on time_invariant parameter
+                if self.time_invariant:
+                    available_firm_apps = list(firm_apps_by_first_year.keys())
+                else:  # time-variant
+                    available_firm_apps = [app for app, first_year in firm_apps_by_first_year.items()
+                                         if first_year <= year]
+
+                if not available_firm_apps:
+                    continue
+
+                n_apps_firm_year = len(available_firm_apps)
+
+                # For each task, check if any of this firm's available apps match it
+                for task_id in all_tasks:
+                    task_matches = task_app_matches[
+                        (task_app_matches['onet_task_id'] == task_id) &
+                        (task_app_matches['app_text'].isin(available_firm_apps))
+                    ]
+                    matching_firm_apps = task_matches['app_text'].unique()
+                    n_matches = len(matching_firm_apps)
+
+                    if n_matches > 0:
+                        hampole_exposure = n_matches / n_apps_firm_year if n_apps_firm_year > 0 else 0
+                        binary_exposure = 1 if n_matches >= 1 else 0
+
+                        occupation_task_exposure.append({
+                            'company_name': firm,
+                            'year': year,
+                            'onet_task_id': task_id,
+                            'n_ai_apps_firm_year': n_apps_firm_year,
+                            'n_task_matches_firm_year': n_matches,
+                            'hampole_task_exposure': hampole_exposure,
+                            'binary_task_exposure': binary_exposure
+                        })
+
+        return pd.DataFrame(occupation_task_exposure)
+
+    def _apply_pure_occupation_exposure(self, task_app_matches: pd.DataFrame,
+                                      task_firm_matches: pd.DataFrame,
+                                      all_firms: list, all_years: list, all_tasks: list,
+                                      all_apps: list) -> pd.DataFrame:
+        """Apply pure occupation-level exposure where all firms get identical patterns."""
+
         # Find first appearance year of each AI application (for time-variant mode)
         app_first_year = {}
-        if self.occupation_exposure == "time-variant":
+        if not self.time_invariant:  # time-variant
             for app in all_apps:
                 app_years = task_firm_matches[task_firm_matches['app_text'] == app]['year'].dropna()
                 if len(app_years) > 0:
                     app_first_year[app] = app_years.min()
                 else:
-                    app_first_year[app] = float('inf')  # Never appeared
-        
-        logger.info(f"Occupation exposure: All firms exposed to all {len(all_apps)} AI applications")
-        logger.info(f"Processing {len(all_firms)} firms across {len(all_years)} years")
-        
-        # Create new occupation-level exposure
+                    app_first_year[app] = float('inf')
+
+        logger.info(f"Pure occupation mode: All firms exposed to all {len(all_apps)} AI applications")
+
+        # Create pure occupation-level exposure (all firms identical)
         occupation_task_exposure = []
-        
+
         for firm in all_firms:
             for year in all_years:
                 for task_id in all_tasks:
                     # Count how many apps (across ALL firms) match this task
                     task_matches_global = task_app_matches[task_app_matches['onet_task_id'] == task_id]
                     matching_apps = task_matches_global['app_text'].unique()
-                    
-                    if self.occupation_exposure == "time-invariant":
-                        # Time-invariant: All firms exposed to all apps for all time
+
+                    if self.time_invariant:
                         available_apps = matching_apps
-                        
-                    elif self.occupation_exposure == "time-variant":
-                        # Time-variant: Only apps that have appeared by this year
+                        contextual_app_count = len(all_apps)
+                    else:  # time-variant
                         available_apps = [app for app in matching_apps if app_first_year.get(app, float('inf')) <= year]
-                    
-                    n_available_apps = len(available_apps)
-                    n_matches = len(available_apps)  # All available apps match this task
-                    
-                    if n_matches > 0:  # Only include if there are matching apps
-                        # Hampole variant: share of ALL available apps that match this task
-                        hampole_exposure = n_matches / len(all_apps) if len(all_apps) > 0 else 0
-                        
-                        # Binary variant: 1 if any app matches, 0 otherwise
+                        available_apps_by_year = [app for app in all_apps if app_first_year.get(app, float('inf')) <= year]
+                        contextual_app_count = len(available_apps_by_year)
+
+                    n_matches = len(available_apps)
+
+                    if n_matches > 0:
+                        # Pure occupation mode: exposure based on all available apps
+                        hampole_exposure = n_matches / contextual_app_count if contextual_app_count > 0 else 0
                         binary_exposure = 1 if n_matches >= 1 else 0
-                        
+
                         occupation_task_exposure.append({
                             'company_name': firm,
                             'year': year,
                             'onet_task_id': task_id,
-                            'n_ai_apps_firm_year': len(all_apps),  # Total universe of apps
+                            'n_ai_apps_firm_year': contextual_app_count,  # Same for all firms
                             'n_task_matches_firm_year': n_matches,
                             'hampole_task_exposure': hampole_exposure,
                             'binary_task_exposure': binary_exposure
                         })
-        
+
         new_exposure_df = pd.DataFrame(occupation_task_exposure)
-        logger.info(f"Occupation-level exposure created {len(new_exposure_df):,} task-firm-year combinations")
-        
+        logger.info(f"Pure occupation-level exposure created {len(new_exposure_df):,} task-firm-year combinations")
+
         return new_exposure_df
     
     def step3_calculate_occupation_firm_exposure(self, task_firm_exposure: pd.DataFrame,
@@ -770,9 +925,16 @@ class TaskFirmExposurePipeline:
         else:
             raise ValueError("Task ratings must have either 'importance_weight' or 'Data Value' column")
         task_weights.rename(columns={
-            'O*NET-SOC Code': 'onet_code', 
+            'O*NET-SOC Code': 'onet_code',
             'Task ID': 'onet_task_id'
         }, inplace=True)
+
+        # CRITICAL FIX: Filter task_weights to only include Core tasks (consistent with task_statements)
+        # This ensures total_tasks_occupation counts only Core tasks, matching manual filters
+        core_task_ids = set(task_statements['Task ID'].unique())
+        task_weights_core = task_weights[task_weights['onet_task_id'].isin(core_task_ids)].copy()
+        logger.info(f"Filtered task weights from {len(task_weights):,} to {len(task_weights_core):,} Core tasks only")
+        task_weights = task_weights_core
         
         # Join task exposure with occupation and weight information
         task_exposure_weighted = task_firm_exposure.merge(
@@ -788,21 +950,53 @@ class TaskFirmExposurePipeline:
         
         # Calculate weighted occupation-firm-year exposure scores
         def calc_weighted_occupation_exposure(group):
-            weights = group['importance_weight']
+            # Get the occupation code for this group
+            onet_code = group['onet_code'].iloc[0]
+            company_name = group['company_name'].iloc[0]
+            year = group['year'].iloc[0]
+
+            # Get ALL tasks for this occupation (not just AI-exposed ones)
+            all_occ_tasks = task_weights[task_weights['onet_code'] == onet_code].copy()
+
+            if len(all_occ_tasks) == 0:
+                # Fallback if no tasks found - should not happen but defensive
+                weights = group['importance_weight']
+                total_weight = weights.sum()
+                hampole_weighted = (group['hampole_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
+                binary_weighted = (group['binary_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
+                return pd.Series({
+                    'hampole_occupation_exposure': hampole_weighted,
+                    'binary_occupation_exposure': binary_weighted,
+                    'total_tasks_occupation': len(group),
+                    'total_importance_weight': total_weight,
+                    'n_ai_apps_firm_year': group['n_ai_apps_firm_year'].iloc[0]
+                })
+
+            # Create full task exposure table for this occupation
+            # Start with all tasks (exposure = 0 by default)
+            all_occ_tasks['hampole_task_exposure'] = 0.0
+            all_occ_tasks['binary_task_exposure'] = 0.0
+
+            # Update exposure for AI-exposed tasks
+            for _, exposed_task in group.iterrows():
+                mask = all_occ_tasks['onet_task_id'] == exposed_task['onet_task_id']
+                all_occ_tasks.loc[mask, 'hampole_task_exposure'] = exposed_task['hampole_task_exposure']
+                all_occ_tasks.loc[mask, 'binary_task_exposure'] = exposed_task['binary_task_exposure']
+
+            # Calculate proper weighted averages using ALL tasks
+            weights = all_occ_tasks['importance_weight']
             total_weight = weights.sum()
-            
-            # Hampole variant: weighted average of task exposures
-            hampole_weighted = (group['hampole_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
-            
-            # Binary variant: weighted average of binary task exposures
-            binary_weighted = (group['binary_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
-            
+
+            # Weighted average formula: Σ(task_exposure × importance_weight) / Σ(importance_weight)
+            hampole_weighted = (all_occ_tasks['hampole_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
+            binary_weighted = (all_occ_tasks['binary_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
+
             return pd.Series({
                 'hampole_occupation_exposure': hampole_weighted,
                 'binary_occupation_exposure': binary_weighted,
-                'total_tasks_occupation': len(group),
-                'total_importance_weight': total_weight,
-                'n_ai_apps_firm_year': group['n_ai_apps_firm_year'].iloc[0]  # Same for all tasks at this firm-year
+                'total_tasks_occupation': len(all_occ_tasks),  # Count ALL tasks, not just exposed
+                'total_importance_weight': total_weight,  # Sum ALL importance weights
+                'n_ai_apps_firm_year': group['n_ai_apps_firm_year'].iloc[0]
             })
         
         occupation_firm_exposure = task_exposure_weighted.groupby(['onet_code', 'company_name', 'year']).apply(
@@ -931,17 +1125,29 @@ class TaskFirmExposurePipeline:
         # Add ISCO titles
         isco_firm_exposure = isco_firm_exposure.merge(isco_titles, on='isco08_4d', how='left')
         
-        # Reorder columns
-        cols = ['isco08_4d', 'isco08_title', 'company_name', 'year'] + [col for col in isco_firm_exposure.columns 
-                                                                        if col not in ['isco08_4d', 'isco08_title', 'company_name', 'year']]
+        # Add company_id for Stage 6 compatibility
+        if company_mapping is not None:
+            isco_firm_exposure = isco_firm_exposure.merge(
+                company_mapping[['company_name', 'company_id']],
+                on='company_name',
+                how='left'
+            )
+            missing_companies = isco_firm_exposure['company_id'].isna().sum()
+            if missing_companies > 0:
+                logger.warning(f"{missing_companies} company names could not be mapped to company_ids")
+
+        # Reorder columns (Stage 6 needs company_id and isco_code)
+        base_cols = ['company_id', 'isco08_4d', 'isco08_title', 'company_name', 'year']
+        other_cols = [col for col in isco_firm_exposure.columns if col not in base_cols]
+        cols = [col for col in base_cols if col in isco_firm_exposure.columns] + other_cols
         isco_firm_exposure = isco_firm_exposure[cols]
-        
+
         logger.info(f"Final ISCO-08 firm-year exposure dataset: {len(isco_firm_exposure):,} ISCO-firm-year combinations")
         logger.info(f"  Unique ISCO occupations: {isco_firm_exposure['isco08_4d'].nunique():,}")
         logger.info(f"  Unique firms: {isco_firm_exposure['company_name'].nunique():,}")
         logger.info(f"  Unique years: {sorted(isco_firm_exposure['year'].unique())}")
         logger.info(f"  ISCO titles coverage: {isco_firm_exposure['isco08_title'].notna().sum()}/{len(isco_firm_exposure)} ({isco_firm_exposure['isco08_title'].notna().mean()*100:.1f}%)")
-        
+
         return isco_firm_exposure
     
     def create_task_exposure_table(self, exposed_tasks: pd.DataFrame, 
@@ -1116,36 +1322,55 @@ class TaskFirmExposurePipeline:
         
         return isco_exposure
     
+    def _generate_filename(self, occupation_system: str = "isco") -> str:
+        """
+        Generate output filename following pattern: {isco/onet}_{firm}_{occupation}_{year}_exposure.csv
+
+        Args:
+            occupation_system: Either "isco" or "onet"
+
+        Returns:
+            Complete filename based on configuration
+        """
+        components = [occupation_system]  # Start with isco or onet
+
+        # Add firm if we have firm-level variation (not occupation_exposure="only")
+        if self.occupation_exposure != "only":
+            components.append("firm")
+
+        # Add occupation if occupation processing is enabled
+        if self.occupation_exposure in ["additional", "only"]:
+            components.append("occupation")
+
+        # Add year if time-variant
+        if not self.time_invariant:
+            components.append("year")
+
+        components.append("exposure.csv")
+        return "_".join(components)
+
     def _generate_config_suffix(self) -> str:
         """
-        Generate configuration suffix for output filenames based on pipeline settings.
-        
+        Generate configuration suffix for auxiliary output files (summary, task-level).
+
         Returns:
             String suffix describing the configuration
         """
-        from datetime import datetime
-        
-        suffix_parts = []
-        
-        # Add timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-        suffix_parts.append(timestamp)
-        
-        # Add time invariant setting
-        if self.time_invariant:
-            suffix_parts.append("time_invariant")
-        else:
-            suffix_parts.append("time_variant")
-        
-        # Add occupation exposure mode
-        if self.occupation_exposure != "none":
-            suffix_parts.append(f"occ_{self.occupation_exposure}")
-        
-        # Add aggregation method if not default
-        if self.aggregation_method != "mean":
-            suffix_parts.append(f"agg_{self.aggregation_method}")
-        
-        return "_" + "_".join(suffix_parts) if suffix_parts else ""
+        components = []
+
+        # Add occupation processing mode
+        if self.occupation_exposure == "additional":
+            components.append("firm_occupation")
+        elif self.occupation_exposure == "only":
+            components.append("occupation_only")
+        else:  # "none"
+            components.append("firm_only")
+
+        # Add time variant info
+        if not self.time_invariant:
+            components.append("year")
+
+        return "_" + "_".join(components) if components else ""
     
     def run_full_pipeline(self, 
                          top_matches_file: str = None,
@@ -1269,13 +1494,24 @@ class TaskFirmExposurePipeline:
             onet_titles.rename(columns={'O*NET-SOC Code': 'onet_code', 'Title': 'onet_title'}, inplace=True)
             final_onet_with_titles = final_onet_exposure.merge(onet_titles, on='onet_code', how='left')
             
-            # Reorder columns for better readability
-            cols = ['onet_code', 'onet_title', 'company_name', 'year'] + [col for col in final_onet_with_titles.columns 
-                                                                          if col not in ['onet_code', 'onet_title', 'company_name', 'year']]
+            # Rename onet_code to onet_soc for Stage 6 compatibility
+            final_onet_with_titles.rename(columns={'onet_code': 'onet_soc'}, inplace=True)
+
+            # Ensure company_id is included for Stage 6 compatibility
+            if 'company_id' not in final_onet_with_titles.columns:
+                final_onet_with_titles = final_onet_with_titles.merge(
+                    company_mapping[['company_name', 'company_id']],
+                    on='company_name',
+                    how='left'
+                )
+
+            # Reorder columns for better readability (Stage 6 needs company_id and onet_soc)
+            cols = ['company_id', 'onet_soc', 'onet_title', 'company_name', 'year'] + [col for col in final_onet_with_titles.columns
+                                                                                       if col not in ['company_id', 'onet_soc', 'onet_title', 'company_name', 'year']]
             final_onet_with_titles = final_onet_with_titles[cols]
-            
-            time_suffix = "time_invariant" if self.time_invariant else "time_variant"
-            onet_firm_file = os.path.join(onet_output_dir, f"onet_firm_year_ai_exposure_{time_suffix}{config_suffix}.csv")
+
+            onet_filename = self._generate_filename("onet")
+            onet_firm_file = os.path.join(onet_output_dir, onet_filename)
             final_onet_with_titles.to_csv(onet_firm_file, index=False, encoding='utf-8')
             logger.info(f"✅ Saved O*NET firm-year exposure: {onet_firm_file}")
             
@@ -1303,9 +1539,9 @@ class TaskFirmExposurePipeline:
             logger.info(f"✅ Saved O*NET task exposure: {onet_task_file}")
             
             logger.info(f"📊 O*NET outputs summary:")
-            logger.info(f"  - Firm-year combinations: {len(final_onet_exposure):,}")
-            logger.info(f"  - Unique O*NET occupations: {final_onet_exposure['onet_code'].nunique():,}")
-            logger.info(f"  - Unique firms: {final_onet_exposure['company_name'].nunique():,}")
+            logger.info(f"  - Firm-year combinations: {len(final_onet_with_titles):,}")
+            logger.info(f"  - Unique O*NET occupations: {final_onet_with_titles['onet_soc'].nunique():,}")
+            logger.info(f"  - Unique firms: {final_onet_with_titles['company_name'].nunique():,}")
             logger.info(f"  - Occupation-level summaries: {len(onet_occupation_summary):,}")
             logger.info(f"  - Task-level exposures: {len(task_exposure_table):,}")
         
@@ -1328,8 +1564,8 @@ class TaskFirmExposurePipeline:
         logger.info("="*50)
         
         if output_file is None:
-            time_suffix = "time_invariant" if self.time_invariant else "time_variant"
-            output_file = os.path.join(self.data_dir, f"isco_firm_year_ai_exposure_{time_suffix}.csv")
+            filename = self._generate_filename("isco")
+            output_file = os.path.join(self.data_dir, filename)
         
         isco_firm_exposure.to_csv(output_file, index=False, encoding='utf-8')
         logger.info(f"Saved ISCO-08 occupation-firm-year AI exposure to: {output_file}")
@@ -1584,8 +1820,8 @@ def main():
     parser.add_argument("--time-invariant", action="store_true",
                        help="Use time-invariant exposure (firms exposed to all their AI apps across all years)")
     parser.add_argument("--occupation-exposure", type=str, default="none",
-                       choices=["none", "time-invariant", "time-variant"],
-                       help="Occupation-level exposure mode: 'none' (firm-level), 'time-invariant' (all firms exposed to all apps for all time), 'time-variant' (all firms exposed to all apps from first appearance onwards)")
+                       choices=["none", "additional", "only"],
+                       help="Occupation-level exposure mode: 'none' (firm-level only), 'additional' (occupation×firm with firm-specific portfolios), 'only' (occupation-only, constant across firms)")
     parser.add_argument("--create-sample-report", action="store_true",
                        help="Create detailed ISCO task sample report")
     parser.add_argument("--n-sample", type=int, default=10,
