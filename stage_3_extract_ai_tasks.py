@@ -2317,6 +2317,7 @@ Rewrite it as the **single autonomous deliverable the AI system produces**, phra
         """Run the complete 3-step pipeline"""
         print("🚀 Starting complete AI task extraction pipeline...")
         
+        
         step1_path = self.run_step1_only(dataset_type)
         step2_path = self.run_step2_only(dataset_type)
         step3_path = self.run_step3_only(dataset_type)
@@ -2369,6 +2370,7 @@ Rewrite it as the **single autonomous deliverable the AI system produces**, phra
     def run_custom_file_step1(self, input_file, content_column="content_clean", output_suffix=""):
         """Run step 1 extraction on a custom input file"""
         print(f"🚀 Starting AI task extraction on custom file: {input_file}")
+        print("Env OPENAI_API_KEY:", os.getenv("OPENAI_API_KEY"))
         print(f"Using content column: {content_column}")
         
         # Load custom data

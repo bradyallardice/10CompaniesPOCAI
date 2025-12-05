@@ -917,7 +917,21 @@ def _execute_batched_keyword_search(conn, patterns: dict, start_date, end_date) 
             df = pd.DataFrame(rows, columns=colnames)
             # Add matched keywords column using the same function as regular extraction
             df['matched_keywords'] = df['content_clean'].apply(lambda x: _find_matching_keywords(x, patterns))
-            return df
+
+            # Filter out jobs where no keywords were actually found (SQL false positives)
+            # This matches the filtering logic in _execute_keyword_search()
+            initial_count = len(df)
+            df_filtered = df[df['matched_keywords'].notna() & (df['matched_keywords'] != '')]
+            filtered_count = len(df_filtered)
+            removed_count = initial_count - filtered_count
+
+            if removed_count > 0:
+                print(f"🔍 Filtered batch results:")
+                print(f"  - Initial jobs from SQL: {initial_count:,}")
+                print(f"  - Jobs with valid keywords: {filtered_count:,}")
+                print(f"  - SQL false positives removed: {removed_count:,} ({removed_count/initial_count*100:.1f}%)")
+
+            return df_filtered
         else:
             return pd.DataFrame()
             

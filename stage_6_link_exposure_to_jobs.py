@@ -236,8 +236,8 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
         ai_jobs_file = Path(args.in_dir) / "ai_development_deduplicated_custom.csv"
         df_ai_jobs = load_ai_jobs_data(ai_jobs_file)
 
-        # Step 4: Extract Stage 6 linked data metrics
-        log("📊 Processing Stage 6 exposure data...")
+        # Step 4: Extract Stage 6 linked data metrics for each specification
+        log("📊 Processing Stage 6 exposure data (multi-specification)...")
 
         # Determine which occupation column exists (ISCO or ONET)
         if 'isco08_4d' in df_linked.columns:
@@ -249,39 +249,101 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
         else:
             raise ValueError("Neither 'isco08_4d' nor 'onet_soc' columns found in Stage 6 data")
 
-        # Aggregate Stage 6 linked data by firm-year
-        stage6_agg = df_linked.groupby(['company_id', 'company_name', 'year']).agg({
-            'n_ai_apps_firm_year': 'first',  # This should be consistent within firm-year
-            'total_tasks_occupation': 'sum',  # Sum all tasks across occupations at this firm
-            'hampole_ai_exposure_avg': lambda x: (x > 0).sum()  # Count AI-exposed tasks
-        }).reset_index()
+        # Identify all exposure columns (they follow pattern: *_exposure_avg_p{XX}_ce{YY})
+        exposure_cols = [c for c in df_linked.columns if '_exposure_avg_p' in c and '_ce' in c]
+        log(f"Found {len(exposure_cols)} exposure specifications in linked data")
 
-        stage6_agg.columns = ['company_id', 'company_name', 'year', 'total_ai_apps_linked', 'total_onet_tasks', 'ai_exposed_tasks']
+        # Build specifications list from column names
+        # Extract specs from column names: hampole_ai_exposure_avg_p20_ce08 -> ('p20', 'ce08')
+        specifications = []
+        for col in exposure_cols:
+            if 'hampole' in col:
+                # Extract p{XX}_ce{YY} from column name
+                parts = col.split('_')
+                spec_str = '_'.join(parts[-2:])  # Get 'p20_ce08'
+                if spec_str not in [f"{s[0]}_{s[1]}" for s in specifications]:
+                    # Find corresponding parts
+                    pct_part = [p for p in parts if p.startswith('p')][-1]
+                    ce_part = [p for p in parts if p.startswith('ce')][-1]
+                    specifications.append((pct_part, ce_part))
+
+        log(f"Parsed {len(specifications)} specifications from column names")
+
+        # Aggregate Stage 6 linked data by firm-year-specification
+        # This creates one row per firm-year-specification combination
+        stage6_rows = []
+
+        for firm_year_group, group_data in df_linked.groupby(['company_id', 'company_name', 'year']):
+            company_id, company_name, year = firm_year_group
+
+            for spec_idx, (pct_col, ce_col) in enumerate(specifications):
+                # Build column names for this specification
+                hampole_col = f'hampole_ai_exposure_avg_{pct_col}_{ce_col}'
+                binary_col = f'binary_ai_exposure_avg_{pct_col}_{ce_col}'
+                apps_col = f'n_ai_apps_firm_year_{pct_col}_{ce_col}'
+
+                # Check if columns exist
+                if hampole_col not in group_data.columns:
+                    # Use defaults if not present
+                    total_apps = 0
+                    ai_exposed_tasks = 0
+                else:
+                    # Count firms with this specification present
+                    total_apps = group_data[apps_col].iloc[0] if apps_col in group_data.columns else 0
+                    # Count how many occupations have >0 exposure
+                    if hampole_col in group_data.columns:
+                        ai_exposed_tasks = (group_data[hampole_col] > 0).sum()
+                    else:
+                        ai_exposed_tasks = 0
+
+                # Get total onet tasks (same across specs for a firm-year)
+                total_tasks = group_data['total_tasks_occupation'].sum() if 'total_tasks_occupation' in group_data.columns else 0
+
+                row = {
+                    'company_id': company_id,
+                    'company_name': company_name,
+                    'year': year,
+                    'specification': f'{pct_col}_{ce_col}',
+                    'total_unique_job_ads': group_data['title'].nunique() if 'title' in group_data.columns else 0,
+                    'total_onet_tasks': int(total_tasks),
+                    'total_ai_apps_linked': int(total_apps),
+                    'ai_exposed_tasks': int(ai_exposed_tasks),
+                }
+
+                # Calculate exposure ratio
+                if row['total_onet_tasks'] > 0:
+                    row['firm_exposure'] = round(row['ai_exposed_tasks'] / row['total_onet_tasks'], 4)
+                else:
+                    row['firm_exposure'] = 0.0
+
+                stage6_rows.append(row)
+
+        stage6_agg = pd.DataFrame(stage6_rows)
 
         # Step 5: Merge all data sources
-        log("🔗 Merging data sources...")
+        log("🔗 Merging data sources (long format)...")
 
-        # Start with job counts (this defines our universe of firms)
-        df_report = df_job_counts.copy()
+        # Start with stage6_agg (already in long format: 25 rows per firm-year)
+        df_report = stage6_agg.copy()
 
-        # Merge AI applications (all)
+        # Merge job counts (1 row per firm-year) - will expand to 25 rows per spec
+        df_report = df_report.merge(
+            df_job_counts,
+            on=['company_id', 'company_name', 'year'],
+            how='left'
+        )
+
+        # Merge AI applications (all) (1 row per firm-year) - will expand to 25 rows per spec
         df_report = df_report.merge(
             df_ai_apps_all,
             on=['company_id', 'year'],
             how='left'
         )
 
-        # Merge AI jobs
+        # Merge AI jobs (1 row per firm-year) - will expand to 25 rows per spec
         df_report = df_report.merge(
             df_ai_jobs,
             on=['company_id', 'year'],
-            how='left'
-        )
-
-        # Merge Stage 6 data
-        df_report = df_report.merge(
-            stage6_agg,
-            on=['company_id', 'company_name', 'year'],
             how='left'
         )
 
@@ -317,37 +379,40 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
         df_report = df_report.drop(columns=['cumulative_ai_jobs', 'cumulative_total_jobs'])
 
         # Step 7: Final report formatting and validation
-        log("✅ Finalizing report...")
+        log("✅ Finalizing report (long format with 25 specifications)...")
 
         # Ensure we have all required columns in the right order
         final_columns = [
-            'company_id', 'company_name', 'year',
+            'company_id', 'company_name', 'year', 'specification',
             'total_unique_job_ads', 'total_unique_ai_jobs',
             'pct_ai_ads_yearly', 'pct_ai_ads_cumulative',
             'total_ai_apps_all', 'total_ai_apps_linked',
-            'total_onet_tasks', 'ai_exposed_tasks', 'firm_ai_exposure'
+            'total_onet_tasks', 'ai_exposed_tasks', 'firm_exposure'
         ]
 
+        # Only keep columns that exist in the dataframe
+        final_columns = [c for c in final_columns if c in df_report.columns]
         df_report = df_report[final_columns]
 
-        # Sort by company_id and year
-        df_report = df_report.sort_values(['company_id', 'year']).reset_index(drop=True)
+        # Sort by company_id, year, and specification
+        df_report = df_report.sort_values(['company_id', 'year', 'specification']).reset_index(drop=True)
 
         # Save the report
         df_report.to_csv(args.firm_report_out, index=False)
 
-        log(f"✅ Firm summary report generated successfully!")
+        log(f"✅ Firm summary report generated successfully (long format)!")
         log(f"   Report saved: {args.firm_report_out}")
         log(f"   Firms covered: {df_report['company_id'].nunique():,}")
-        log(f"   Total firm-year records: {len(df_report):,}")
+        log(f"   Total firm-year-specification records: {len(df_report):,}")
+        log(f"   Specifications per firm-year: 25 (5 BGE percentiles × 5 CE thresholds)")
         log(f"   Year range: {df_report['year'].min()}-{df_report['year'].max()}")
 
         # Show summary statistics
-        log("📊 Summary statistics:")
-        log(f"   Firms with AI jobs: {(df_report['total_unique_ai_jobs'] > 0).sum():,}")
+        log("📊 Summary statistics (aggregated across all specifications):")
+        log(f"   Firms with AI jobs: {df_report['total_unique_ai_jobs'].nunique():,}")
         log(f"   Firms with AI applications (all): {(df_report['total_ai_apps_all'] > 0).sum():,}")
-        log(f"   Firms with linked AI applications: {(df_report['total_ai_apps_linked'] > 0).sum():,}")
-        log(f"   Firms with AI-exposed O*NET tasks: {(df_report['ai_exposed_tasks'] > 0).sum():,}")
+        log(f"   Total spec-rows with linked AI apps: {(df_report['total_ai_apps_linked'] > 0).sum():,}")
+        log(f"   Total spec-rows with AI-exposed O*NET tasks: {(df_report['ai_exposed_tasks'] > 0).sum():,}")
 
         return df_report
 
@@ -884,14 +949,33 @@ def link_jobs_to_exposures(df_jobs_mapped, df_exposures):
         log(f"🔧 Deduplicated output: {initial_count:,} → {len(df_linked):,} records ({initial_count - len(df_linked):,} duplicates removed)")
 
     log(f"✅ Successfully linked {len(df_linked):,} unique job-exposure records")
-    
+
+    # Log exposure columns for transparency
+    exposure_cols = [c for c in df_linked.columns if '_exposure_avg_p' in c and '_ce' in c]
+    if exposure_cols:
+        log(f"\n📊 Exposure specifications in linked data:")
+        # Extract unique specifications from column names
+        specs = set()
+        for col in exposure_cols:
+            if 'hampole' in col:
+                parts = col.split('_')
+                pct_part = [p for p in parts if p.startswith('p')][-1]
+                ce_part = [p for p in parts if p.startswith('ce')][-1]
+                specs.add((pct_part, ce_part))
+
+        for pct, ce in sorted(specs):
+            hampole_col = f'hampole_ai_exposure_avg_{pct}_{ce}'
+            if hampole_col in df_linked.columns:
+                non_zero = (df_linked[hampole_col] > 0).sum()
+                log(f"  {pct}_{ce}: {non_zero:,} non-zero Hampole exposures")
+
     # Generate unmatched jobs diagnostic
     df_unmatched_jobs = df_jobs_mapped[
         ~df_jobs_mapped.set_index(join_keys).index.isin(
             df_linked.set_index(join_keys).index
         )
     ].copy()
-    
+
     log(f"📊 Unmatched jobs: {len(df_unmatched_jobs):,} records")
     
     # Generate unmatched exposures diagnostic  

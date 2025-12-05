@@ -13,6 +13,30 @@ The approach consists of two main stages:
 
 ---
 
+## File Flow Reference
+
+```
+PostgreSQL Database (14.7M jobs)
+    ↓
+Stage 0: stage_0_get_job_ads.py
+    ↓
+Data/ai_development_deduplicated.csv (107,524 rows, 351 NaN)
+    ↓
+Stage 2: stage_2_deduplicate_translate.py
+    ↓
+Data/ai_development_deduplicated_custom.csv (56,942 rows, 300 NaN)
+    ↓
+Stage 3: stage_3_extract_ai_tasks.py (custom pipeline)
+    ↓
+Data/llm_output/* (AI applications extracted)
+    ↓
+Stage 4: stage_4_onet_similarity.py
+Stage 5: stage_5_firm_exposure.py
+Stage 6: stage_6_link_exposure_to_jobs.py
+```
+
+---
+
 ## CURRENT IMPLEMENTED WORKFLOW (September 2025)
 
 The following documents the current optimized workflow with batched processing, database normalization, and comprehensive evaluation systems:
@@ -22,21 +46,23 @@ The following documents the current optimized workflow with batched processing, 
 - **Input**: 14.7M jobs in PostgreSQL database
 - **Process**: Uses predefined multilingual keyword list to search normalized text (`content_norm`) of job postings, then extracts the original non-normalized text and other columns for matching jobs
 - **Keywords**: Multilingual keyword list from `Data/ai_keywords_multilingual_v3.csv` including AI/ML terms in English, German, French, and Italian
-- **Output**: `Data/batched_ai_jobs.csv` (~1.5M jobs) containing original text and metadata
+- **Output**: `Data/ai_development_deduplicated.csv` (~107K jobs) containing original text and metadata
 - **Optimization**: Date-based batched SQL queries (6-month chunks) for memory efficiency
+- **Filtering**: Removes SQL false positives (rows with no actual AI keywords matched)
 - **Command**: `python3 stage_0_get_job_ads.py --extract-keywords-batched`
 
 ### Stage 2: Deduplication and Translation (stage_2_deduplicate_translate.py)
 **Function**: Multi-level deduplication pipeline
-- **Input**: 1.5M jobs from Stage 0
-- **Process**: 
+- **Input**: `Data/ai_development_deduplicated.csv` from Stage 0 (passed as custom_file parameter)
+- **Process**:
   1. Remove exact duplicates
-  2. Remove false positives 
-  3. Remove near duplicates based on content similarity
-- **Output**: 
-  - `Data/similar_duplicates_removed.csv` (752K jobs, ~50% reduction)
-  - Mapping file of all duplicates removed for later reintegration
+  2. Remove false positives (AI/KI/IA occurrence-level classification)
+  3. Remove near duplicates based on content similarity (TF-IDF)
+- **Output**:
+  - `Data/ai_development_deduplicated_custom.csv` (~57K jobs, ~53% reduction from Stage 0)
+  - Contains deduped and filtered AI job postings with clean data
 - **Translation**: Optional automatic language detection and translation to English (not normally used)
+- **Command**: `python3 stage_2_deduplicate_translate.py --custom-file Data/ai_development_deduplicated.csv`
 
 ---
 
@@ -362,6 +388,35 @@ Always consult with the user before proceeding with any code execution or modifi
 - Preserve the original file structure and naming
 
 **CRITICAL**: Always ask before running any code that calls any API to avoid accidental costs.
+
+---
+
+## Known Issues and Data Quality Notes
+
+### ✅ FIXED: Stage 0 - NaN in matched_keywords
+**Status**: RESOLVED (December 2025)
+
+**Original Problem**: ~351 rows (0.33%) in `Data/ai_development_deduplicated.csv` had NaN values in the `matched_keywords` column.
+
+**Root Cause**: The batched extraction function `_execute_batched_keyword_search()` was missing the filtering logic that exists in the regular `_execute_keyword_search()` function. Specifically:
+- SQL query returns rows matching keyword patterns (including false positives)
+- `_find_matching_keywords()` is applied to each row, returning `""` (empty string) for rows with no actual keywords
+- The filtering step that should remove rows with empty/NaN `matched_keywords` was missing in the batched version
+- Result: ~351 SQL false positives slipped through with empty `matched_keywords`, later becoming NaN
+
+**Solution Applied**:
+1. **Code Fix**: Added filtering logic to `_execute_batched_keyword_search()` (lines 921-934 in stage_0_get_job_ads.py)
+   ```python
+   df_filtered = df[df['matched_keywords'].notna() & (df['matched_keywords'] != '')]
+   return df_filtered
+   ```
+2. **Data Cleanup**: Removed all NaN rows from existing pipeline outputs (December 2025):
+   - `ai_development_deduplicated_custom.csv`: Removed 300 NaN rows (56,942 → 56,642)
+   - `final_output_1000_sample.csv`: Removed 47 NaN rows (15,592 → 15,545)
+
+**Future Runs**: Stage 0 will now produce clean output with no NaN values in `matched_keywords`
+
+---
 
 ### Recent Improvements (September 2025)
 - **Batched Processing**: Memory-efficient extraction of large datasets

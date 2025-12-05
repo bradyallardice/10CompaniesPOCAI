@@ -32,48 +32,81 @@ class TaskFirmExposurePipeline:
     Main class for calculating task → occupation × firm AI exposure following Hampole et al. (2025).
     """
     
-    def __init__(self, 
+    def __init__(self,
                  aggregation_method: str = "mean",
                  time_invariant: bool = False,
                  occupation_exposure: str = "none",
-                 data_dir: str = "Data/"):
+                 data_dir: str = "Data/",
+                 bge_percentiles: List[int] = None,
+                 ce_thresholds: List[float] = None):
         """
-        Initialize the 4-step exposure pipeline.
-        
+        Initialize the multi-specification exposure pipeline.
+
         Args:
             aggregation_method: Method to aggregate O*NET → ISCO ("mean", "weighted_mean")
             time_invariant: If True, firms exposed to all their AI apps across all years; if False, firms exposed to apps from first appearance onwards
             occupation_exposure: Occupation-level exposure mode ("none", "time-invariant", "time-variant")
             data_dir: Directory containing input data files
+            bge_percentiles: List of BGE percentile cutoffs (default: [20, 15, 10, 5, 1])
+            ce_thresholds: List of cross-encoder thresholds (default: [0.8, 0.6, 0.4, 0.2, 0.0])
         """
         self.aggregation_method = aggregation_method
         self.time_invariant = time_invariant
         self.occupation_exposure = occupation_exposure
         self.data_dir = data_dir
-        
-        logger.info(f"Initialized Task → Occupation × Firm AI exposure pipeline")
+
+        # Set default thresholds if not provided
+        if bge_percentiles is None:
+            bge_percentiles = [20, 15, 10, 5, 1]
+        if ce_thresholds is None:
+            ce_thresholds = [0.8, 0.6, 0.4, 0.2, 0.0]
+
+        self.bge_percentiles = bge_percentiles
+        self.ce_thresholds = ce_thresholds
+
+        logger.info(f"Initialized Multi-Specification Task → Occupation × Firm AI exposure pipeline")
         logger.info(f"  Aggregation method: {aggregation_method}")
         logger.info(f"  Firm time invariant exposure: {time_invariant}")
         logger.info(f"  Occupation exposure mode: {occupation_exposure}")
+        logger.info(f"  BGE percentiles: {bge_percentiles}")
+        logger.info(f"  CE thresholds: {ce_thresholds}")
     
     def step1_load_task_application_matches(self, top_matches_file: str) -> pd.DataFrame:
         """
-        Step 1: Load task-application matches from Stage 4 top matches results.
-        
+        Step 1: Load task-application matches from Stage 4 unified multi-threshold file.
+
         Args:
-            top_matches_file: Path to top_5_matches.csv file
-            
+            top_matches_file: Path to task_exposure_matches_all_thresholds.csv file
+
         Returns:
-            DataFrame with exposed task-app matches (I^95_j,i indicators)
+            DataFrame with all threshold columns (15 boolean columns for filtering)
         """
-        logger.info(f"Step 1: Loading exposed task-application matches from: {top_matches_file}")
-        
-        matches_df = pd.read_csv(top_matches_file)
-        logger.info(f"Loaded {len(matches_df):,} exposed task-application pairs")
-        
+        logger.info(f"Step 1: Loading task-application matches from: {top_matches_file}")
+
+        # Read parquet format
+        matches_df = pd.read_parquet(top_matches_file)
+        logger.info(f"Loaded {len(matches_df):,} task-application pairs")
+
+        # Validate required columns
+        required_cols = ['app_text', 'onet_task_id', 'onet_task', 'similarity', 'cross_encoder_score']
+        missing_cols = [c for c in required_cols if c not in matches_df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing required columns: {missing_cols}")
+
+        # Check for threshold columns
+        bge_cols = [c for c in matches_df.columns if c.startswith('pct_')]
+        ce_cols = [c for c in matches_df.columns if c.startswith('ce_')]
+
+        if bge_cols and ce_cols:
+            logger.info(f"✓ Found all threshold columns:")
+            logger.info(f"  BGE percentiles: {sorted(bge_cols)}")
+            logger.info(f"  CE thresholds: {sorted(ce_cols)}")
+        else:
+            raise ValueError(f"Threshold columns incomplete or missing: BGE={len(bge_cols)}, CE={len(ce_cols)}")
+
         logger.info(f"  Unique tasks matched: {matches_df['onet_task_id'].nunique():,}")
         logger.info(f"  Unique AI applications: {matches_df['app_text'].nunique():,}")
-        
+
         return matches_df
     
     def load_task_statements(self, task_statements_file: str, core_only: bool = True) -> pd.DataFrame:
@@ -205,15 +238,15 @@ class TaskFirmExposurePipeline:
     def load_job_app_mapping(self) -> pd.DataFrame:
         """
         Load job-application mapping file to connect AI apps to specific jobs.
-        
+
         Returns:
             DataFrame with app_text → job_uids mapping
         """
         logger.info("Loading job-application mapping...")
-        
-        mapping_file = os.path.join(self.data_dir, "job_app_mapping.csv")
-        mapping_df = pd.read_csv(mapping_file)
-        
+
+        mapping_file = os.path.join(self.data_dir, "job_app_mapping.parquet")
+        mapping_df = pd.read_parquet(mapping_file)
+
         logger.info(f"Loaded {len(mapping_df):,} application-job mappings")
         logger.info(f"Unique AI applications: {mapping_df['app_text'].nunique():,}")
         logger.info(f"Unique job UIDs: {mapping_df['job_uids'].nunique():,}")
@@ -439,6 +472,41 @@ class TaskFirmExposurePipeline:
         logger.info(f"Final expansion (Stage 4 deduplication only): {out['job_uid'].nunique():,} jobs, {len(out):,} app-job rows")
         return out
 
+    def _add_spec_suffix_to_columns(self, df: pd.DataFrame, bge_col: str, ce_col: str) -> pd.DataFrame:
+        """
+        Add specification suffix to exposure columns before merging.
+
+        Args:
+            df: DataFrame with exposure columns
+            bge_col: BGE percentile column name (e.g., 'pct_20')
+            ce_col: CE threshold column name (e.g., 'ce_0.8')
+
+        Returns:
+            DataFrame with renamed exposure columns
+        """
+        # Extract spec identifiers: 'pct_20' -> 'p20', 'ce_0.8' -> 'ce08'
+        pct_id = bge_col.replace('pct_', 'p')
+        ce_id = ce_col.replace('ce_', 'ce').replace('.', '')
+        suffix = f"_{pct_id}_{ce_id}"
+
+        # Columns to rename (exposure metrics that vary by specification)
+        exposure_columns = [
+            'hampole_occupation_exposure',
+            'binary_occupation_exposure',
+            'log_ai_intensity',
+            'n_ai_apps_firm_year',
+            'hampole_ai_exposure_avg',
+            'binary_ai_exposure_avg'
+        ]
+
+        # Build rename mapping
+        rename_map = {col: f"{col}{suffix}" for col in exposure_columns if col in df.columns}
+
+        # Apply renaming
+        df_renamed = df.rename(columns=rename_map)
+
+        logger.debug(f"  Renamed {len(rename_map)} columns with suffix {suffix}")
+        return df_renamed
 
     def step2_calculate_firm_task_exposure(self, task_app_matches: pd.DataFrame, 
                                          job_app_mapping: pd.DataFrame,
@@ -1401,10 +1469,14 @@ class TaskFirmExposurePipeline:
         if onet_output_dir is None:
             onet_output_dir = self.data_dir
         
-        # Auto-detect top matches file if not provided
+        # Set top matches file (must be the unified multi-threshold file from Stage 4)
         if top_matches_file is None:
-            top_matches_file = os.path.join(self.data_dir, "top_5_matches.csv")
-            logger.info(f"Using top matches file: {top_matches_file}")
+            top_matches_file = os.path.join(self.data_dir, "task_exposure_matches_all_thresholds.csv")
+            logger.info(f"Using unified matches file: {top_matches_file}")
+
+        # Validate file exists
+        if not os.path.exists(top_matches_file):
+            raise FileNotFoundError(f"Top matches file not found: {top_matches_file}")
         
         # Auto-detect company file if not provided
         if company_file is None:
@@ -1441,33 +1513,95 @@ class TaskFirmExposurePipeline:
         company_mapping = self.load_company_mapping()
         
         # ================================================================
-        # 4-STEP HAMPOLE PIPELINE
+        # MULTI-SPECIFICATION 4-STEP HAMPOLE PIPELINE
         # ================================================================
-        
-        # Step 2: Task exposure at firm level
-        logger.info("\n" + "="*50)
-        logger.info("STEP 2: TASK EXPOSURE AT FIRM LEVEL")
-        logger.info("="*50)
-        
-        task_firm_exposure = self.step2_calculate_firm_task_exposure(
-            task_app_matches, job_app_mapping, original_jobs, stage2_mapping_file
-        )
-        
-        # Step 3: Occupation × Firm exposure aggregation
-        logger.info("\n" + "="*50)
-        logger.info("STEP 3: OCCUPATION × FIRM EXPOSURE AGGREGATION")
-        logger.info("="*50)
-        
-        occupation_firm_exposure = self.step3_calculate_occupation_firm_exposure(
-            task_firm_exposure, task_statements, task_ratings
-        )
-        
-        # Step 4: AI intensity adjustment
-        logger.info("\n" + "="*50)
-        logger.info("STEP 4: AI INTENSITY ADJUSTMENT")
-        logger.info("="*50)
-        
-        final_onet_exposure = self.step4_apply_ai_intensity_adjustment(occupation_firm_exposure)
+        logger.info("\n" + "="*80)
+        logger.info("PROCESSING MULTIPLE SPECIFICATIONS")
+        logger.info("="*80)
+
+        # Generate column names for BGE percentiles and CE thresholds
+        bge_cols = [f'pct_{p:02d}' for p in self.bge_percentiles]
+        ce_cols = [f'ce_{c:.1f}' for c in self.ce_thresholds]
+        specifications = [(p, c) for p in bge_cols for c in ce_cols]
+
+        logger.info(f"Total specifications to process: {len(specifications)}")
+        logger.info(f"  BGE percentiles: {bge_cols}")
+        logger.info(f"  CE thresholds: {ce_cols}")
+
+        # Process all specifications and collect results
+        results_by_spec = {}
+        for spec_idx, (bge_col, ce_col) in enumerate(specifications, 1):
+            logger.info(f"\n[{spec_idx}/{len(specifications)}] {bge_col} × {ce_col}")
+
+            # Filter matches for this specification
+            spec_matches = task_app_matches[
+                task_app_matches[bge_col] & task_app_matches[ce_col]
+            ].copy()
+            match_count = len(spec_matches)
+            logger.info(f"  Matches: {match_count:,}")
+
+            if match_count == 0:
+                logger.warning(f"  ⚠️ No matches for this specification")
+                results_by_spec[(bge_col, ce_col)] = None
+            else:
+                try:
+                    # Run 4-step pipeline for this spec
+                    task_firm_exposure = self.step2_calculate_firm_task_exposure(
+                        spec_matches, job_app_mapping, original_jobs, stage2_mapping_file
+                    )
+                    occupation_firm_exposure = self.step3_calculate_occupation_firm_exposure(
+                        task_firm_exposure, task_statements, task_ratings
+                    )
+                    spec_result = self.step4_apply_ai_intensity_adjustment(occupation_firm_exposure)
+                    # Add spec suffix to exposure columns before storing
+                    spec_result = self._add_spec_suffix_to_columns(spec_result, bge_col, ce_col)
+                    results_by_spec[(bge_col, ce_col)] = spec_result
+                    logger.info(f"  ✓ Spec {spec_idx}/{len(specifications)} complete")
+                except Exception as e:
+                    logger.error(f"  ✗ Error processing spec {spec_idx}: {e}")
+                    results_by_spec[(bge_col, ce_col)] = None
+
+        # Merge all specifications with outer join
+        logger.info("\n" + "="*80)
+        logger.info("MERGING SPECIFICATIONS")
+        logger.info("="*80)
+
+        # Remove None entries
+        valid_results = {k: v for k, v in results_by_spec.items() if v is not None}
+        logger.info(f"Valid specifications: {len(valid_results)}/{len(specifications)}")
+
+        if not valid_results:
+            raise ValueError("All specifications produced empty results!")
+
+        # Merge all valid results with outer join
+        final_onet_exposure = None
+        merge_keys = ['company_id', 'company_name', 'year', 'onet_code']
+
+        for (bge_col, ce_col), result_df in valid_results.items():
+            if final_onet_exposure is None:
+                final_onet_exposure = result_df.copy()
+                logger.info(f"Initialized with {bge_col}×{ce_col}: {len(result_df):,} rows")
+            else:
+                # Merge with outer join
+                final_onet_exposure = final_onet_exposure.merge(
+                    result_df,
+                    on=merge_keys,
+                    how='outer',
+                    suffixes=('', '_dup')
+                )
+                # Drop duplicate metadata
+                dup_cols = [c for c in final_onet_exposure.columns if c.endswith('_dup')]
+                if dup_cols:
+                    final_onet_exposure.drop(columns=dup_cols, inplace=True)
+
+                logger.info(f"Merged {bge_col}×{ce_col}: {len(final_onet_exposure):,} rows")
+
+        # Fill NaN exposures with 0
+        exposure_cols = [c for c in final_onet_exposure.columns if 'exposure' in c.lower()]
+        for col in exposure_cols:
+            final_onet_exposure[col] = final_onet_exposure[col].fillna(0)
+
+        logger.info(f"\n✓ Merge complete: {len(final_onet_exposure):,} rows, {len(final_onet_exposure.columns)} columns")
         
         # Add company names to ONET exposure for output compatibility
         if 'company_name' not in final_onet_exposure.columns:
@@ -1808,15 +1942,19 @@ def main():
     """Command line interface for the O*NET → ISCO exposure pipeline."""
     parser = argparse.ArgumentParser(description="O*NET Task Exposure → ISCO-08 Occupation Exposure Pipeline")
     
-    parser.add_argument("--top-matches-file", type=str, 
-                       help="Path to top_5_matches.csv file (auto-detect if not provided)")
+    parser.add_argument("--top-matches-file", type=str, default="Data/task_exposure_matches_all_thresholds.csv",
+                       help="Path to unified task_exposure_matches_all_thresholds.csv file (default: Data/task_exposure_matches_all_thresholds.csv)")
     parser.add_argument("--output-file", type=str,
                        help="Output CSV file path (auto-generate if not provided)")
-    parser.add_argument("--aggregation", type=str, default="mean", 
+    parser.add_argument("--aggregation", type=str, default="mean",
                        choices=["mean"],
                        help="Aggregation method for O*NET → ISCO (default: mean)")
     parser.add_argument("--data-dir", type=str, default="Data/",
                        help="Directory containing input data files (default: Data/)")
+    parser.add_argument("--bge-percentiles", type=int, nargs='+', default=[20, 15, 10, 5, 1],
+                       help="BGE percentile cutoffs to process (default: 20 15 10 5 1)")
+    parser.add_argument("--ce-thresholds", type=float, nargs='+', default=[0.8, 0.6, 0.4, 0.2, 0.0],
+                       help="Cross-encoder thresholds to process (default: 0.8 0.6 0.4 0.2 0.0)")
     parser.add_argument("--time-invariant", action="store_true",
                        help="Use time-invariant exposure (firms exposed to all their AI apps across all years)")
     parser.add_argument("--occupation-exposure", type=str, default="none",
@@ -1888,7 +2026,9 @@ def main():
             aggregation_method=args.aggregation,
             time_invariant=args.time_invariant,
             occupation_exposure=args.occupation_exposure,
-            data_dir=args.data_dir
+            data_dir=args.data_dir,
+            bge_percentiles=args.bge_percentiles,
+            ce_thresholds=args.ce_thresholds
         )
         
         result_df = pipeline.run_full_pipeline(

@@ -1,0 +1,16 @@
+🚀 Starting full database AI keyword extraction...
+============================================================
+EXTRACTING AI KEYWORD MATCHING JOBS FROM FULL DATABASE
+============================================================
+SQL patterns prepared (matching step_1 logic with flexible phrases):
+  - Short keywords: 43
+  - Dotted abbreviations: 0
+  - Long spaced keywords: 211
+  - Flexible phrases: 167
+Connected to database: kurerallardice2024
+Processing keywords: 254 total
+Starting keyword pattern preparation...
+Executing keyword search on 13,785,774 total job postings...
+Executing keyword search query...
+Query length: 10489 characters
+Parameters: 422 values
