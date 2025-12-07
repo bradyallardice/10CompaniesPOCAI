@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 import argparse
 import pickle
+import gc
 
 # Embedding and ML libraries
 try:
@@ -678,7 +679,7 @@ class ONETSimilarityMatcher:
                                       apps_embeddings: np.ndarray,
                                       onet_df: pd.DataFrame,
                                       onet_embeddings: np.ndarray,
-                                      save_all_similarities: bool = True,
+                                      save_all_similarities: bool = False,
                                       use_cache: bool = True,
                                       bge_percentiles: Optional[List[int]] = None) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
         """
@@ -1412,6 +1413,7 @@ class ONETSimilarityMatcher:
         logger.info(f"Using GLOBAL {max_bge_percentile}% percentile threshold: {ce_percentile_threshold:.4f}")
 
         # Phase E: Cross-encoder validation (optional)
+        cross_encoder_report = None  # Initialize to None (will be set if cross-encoder is used)
         if skip_cross_encoder:
             logger.info("Phase E: Skipping cross-encoder validation (using BGE scores only)")
             unified_matches = deduplicated_similarities.copy()
@@ -1462,7 +1464,14 @@ class ONETSimilarityMatcher:
         logger.info("Using GLOBAL percentile thresholds (calculated on ALL similarity pairs)")
         for p in bge_percentiles:
             threshold = self.global_percentile_thresholds[p]
-            bge_thresholds[f'pct_{p:02d}'] = threshold
+            # Format percentile name: handle both integers (20) and floats (0.1)
+            if isinstance(p, int) or p == int(p):
+                pct_name = f'pct_{int(p):02d}'
+            else:
+                # For floats like 0.1, format as pct_0p1
+                pct_str = f'{p:.1f}'.replace('.', 'p')
+                pct_name = f'pct_{pct_str}'
+            bge_thresholds[pct_name] = threshold
             logger.info(f"  {p}% percentile (top {p}%): {threshold:.4f}")
 
         # Add BGE boolean columns
@@ -1492,7 +1501,13 @@ class ONETSimilarityMatcher:
         # Validation: Enforce CE <= BGE for each specification
         logger.info("Validating CE <= BGE monotonicity...")
         validation_errors = []
-        bge_cols = [f'pct_{p:02d}' for p in bge_percentiles]
+        bge_cols = []
+        for p in bge_percentiles:
+            if isinstance(p, int) or p == int(p):
+                bge_cols.append(f'pct_{int(p):02d}')
+            else:
+                pct_str = f'{p:.1f}'.replace('.', 'p')
+                bge_cols.append(f'pct_{pct_str}')
         ce_cols = [f'ce_{c:.1f}' for c in ce_thresholds if c > 0.0]  # Exclude ce_0.0 from validation
         for bge_col in bge_cols:
             for ce_col in ce_cols:
@@ -1519,20 +1534,11 @@ class ONETSimilarityMatcher:
         # top_20_ce06 = df[df['pct_20'] & df['ce_0.6']]
         logger.info("Skipping individual specification files (use main parquet file with boolean columns instead)")
 
-        # Update results_df for compatibility (use BGE default: top 5%)
-        results_df = results_df.merge(
-            unified_matches[['app_text', 'onet_task_id', 'cross_encoder_score']],
-            on=['app_text', 'onet_task_id'],
-            how='left'
-        )
-        
-        # Save final results in multiple formats
-        # 1. Parquet format (for programmatic use) - original format with duplicates
-        # Note: All results include cross-encoder scores from Phase E
-        output_file_parquet = os.path.join(output_dir, f"ai_app_onet_minimum_sim_{self.minimum_similarity}.parquet")
-        results_df.to_parquet(output_file_parquet, index=False)
-        logger.info(f"Saved similarity matching results (parquet) to: {output_file_parquet}")
-        
+        # Free memory - results_df is no longer needed
+        # (unified_matches is the primary output with all threshold combinations and will be returned)
+        del results_df
+        gc.collect()
+
         # 2. Job mapping file (to link back to original job ads)
         # This preserves temporal ordering: each app_text shows first occurrence timestamp
         # and all job_uids that contain this text (for use in step 5)
@@ -1553,7 +1559,11 @@ class ONETSimilarityMatcher:
             all_similarities_file = os.path.join(output_dir, f"all_similarity_scores.parquet")
             all_deduplicated.to_parquet(all_similarities_file, index=False, compression='snappy')
             logger.info(f"Saved deduplicated all similarity scores (Parquet) to: {all_similarities_file}")
-        
+
+            # Free memory
+            del all_similarities_df, all_deduplicated
+            gc.collect()
+
         # 4. Save validation metrics (including cross-encoder report if available)
         if cross_encoder_report is not None:
             validation_metrics['cross_encoder_validation'] = cross_encoder_report
@@ -1573,7 +1583,7 @@ class ONETSimilarityMatcher:
         
         logger.info("Step 4 pipeline completed successfully!")
 
-        return results_df, validation_metrics
+        return unified_matches, validation_metrics
 
 
 def _cross_encoder_worker_function(worker_id: int,
@@ -1695,7 +1705,7 @@ def parse_arguments():
     parser.add_argument("--no-similarities-cache", action="store_true",
                        help="Disable similarity computation caching (forces recomputation)")
 
-    parser.add_argument("--bge-percentiles", type=int, nargs='+', default=[20, 15, 10, 5, 1],
+    parser.add_argument("--bge-percentiles", type=float, nargs='+', default=[20, 15, 10, 5, 1],
                        help="BGE similarity percentile cutoffs (default: 20 15 10 5 1)")
 
     parser.add_argument("--ce-thresholds", type=float, nargs='+', default=[0.8, 0.6, 0.4, 0.2, 0.0],

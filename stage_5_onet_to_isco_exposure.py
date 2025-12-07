@@ -37,7 +37,7 @@ class TaskFirmExposurePipeline:
                  time_invariant: bool = False,
                  occupation_exposure: str = "none",
                  data_dir: str = "Data/",
-                 bge_percentiles: List[int] = None,
+                 bge_percentiles: List[float] = None,
                  ce_thresholds: List[float] = None):
         """
         Initialize the multi-specification exposure pipeline.
@@ -1520,7 +1520,16 @@ class TaskFirmExposurePipeline:
         logger.info("="*80)
 
         # Generate column names for BGE percentiles and CE thresholds
-        bge_cols = [f'pct_{p:02d}' for p in self.bge_percentiles]
+        bge_cols = []
+        for p in self.bge_percentiles:
+            # Format percentile name: handle both integers (20) and floats (0.1)
+            if isinstance(p, int) or p == int(p):
+                bge_cols.append(f'pct_{int(p):02d}')
+            else:
+                # For floats like 0.1, format as pct_0p1
+                pct_str = f'{p:.1f}'.replace('.', 'p')
+                bge_cols.append(f'pct_{pct_str}')
+
         ce_cols = [f'ce_{c:.1f}' for c in self.ce_thresholds]
         specifications = [(p, c) for p in bge_cols for c in ce_cols]
 
@@ -1951,7 +1960,7 @@ def main():
                        help="Aggregation method for O*NET → ISCO (default: mean)")
     parser.add_argument("--data-dir", type=str, default="Data/",
                        help="Directory containing input data files (default: Data/)")
-    parser.add_argument("--bge-percentiles", type=int, nargs='+', default=[20, 15, 10, 5, 1],
+    parser.add_argument("--bge-percentiles", type=float, nargs='+', default=[20, 15, 10, 5, 1],
                        help="BGE percentile cutoffs to process (default: 20 15 10 5 1)")
     parser.add_argument("--ce-thresholds", type=float, nargs='+', default=[0.8, 0.6, 0.4, 0.2, 0.0],
                        help="Cross-encoder thresholds to process (default: 0.8 0.6 0.4 0.2 0.0)")
