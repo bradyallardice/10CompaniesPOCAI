@@ -38,7 +38,8 @@ class TaskFirmExposurePipeline:
                  occupation_exposure: str = "none",
                  data_dir: str = "Data/",
                  bge_percentiles: List[float] = None,
-                 ce_thresholds: List[float] = None):
+                 ce_thresholds: List[float] = None,
+                 task_type: str = 'core'):
         """
         Initialize the multi-specification exposure pipeline.
 
@@ -49,11 +50,13 @@ class TaskFirmExposurePipeline:
             data_dir: Directory containing input data files
             bge_percentiles: List of BGE percentile cutoffs (default: [20, 15, 10, 5, 1])
             ce_thresholds: List of cross-encoder thresholds (default: [0.8, 0.6, 0.4, 0.2, 0.0])
+            task_type: Task type ('core' or 'all')
         """
         self.aggregation_method = aggregation_method
         self.time_invariant = time_invariant
         self.occupation_exposure = occupation_exposure
         self.data_dir = data_dir
+        self.task_type = task_type
 
         # Set default thresholds if not provided
         if bge_percentiles is None:
@@ -68,6 +71,7 @@ class TaskFirmExposurePipeline:
         logger.info(f"  Aggregation method: {aggregation_method}")
         logger.info(f"  Firm time invariant exposure: {time_invariant}")
         logger.info(f"  Occupation exposure mode: {occupation_exposure}")
+        logger.info(f"  Task type: {task_type}")
         logger.info(f"  BGE percentiles: {bge_percentiles}")
         logger.info(f"  CE thresholds: {ce_thresholds}")
     
@@ -537,14 +541,33 @@ class TaskFirmExposurePipeline:
         )
         expanded_job_app_mapping.to_csv('Data/expanded_jobs_matching.csv', index=False)
         task_app_matches.to_csv('Data/task_app_matches.csv', index=False)
+
+        # Explode job_uid array to one row per job
+        # Stage 4 stores job_uid as arrays since multiple jobs can use the same AI app text
+        logger.info(f"Exploding task-app matches: converting job_uid arrays to individual rows")
+        task_app_matches_exploded = task_app_matches.copy()
+
+        # Check if job_uid is an array/list and explode it
+        def extract_job_uid(x):
+            if isinstance(x, (list, np.ndarray)):
+                return list(x) if len(x) > 0 else [np.nan]
+            return [x]
+
+        task_app_matches_exploded['job_uid'] = task_app_matches_exploded['job_uid'].apply(extract_job_uid)
+        task_app_matches_exploded = task_app_matches_exploded.explode('job_uid').reset_index(drop=True)
+        task_app_matches_exploded['job_uid'] = task_app_matches_exploded['job_uid'].astype(str)
+
+        logger.info(f"Exploded task-app matches from {len(task_app_matches):,} to {len(task_app_matches_exploded):,} rows")
+
         # Join task-app matches with expanded job mapping
-        task_job_matches = task_app_matches.merge(
-            expanded_job_app_mapping, 
-            left_on='app_text', 
-            right_on='app_text', 
-            how='left'
+        # Now both have job_uid as strings, so we can join on both keys
+        task_job_matches = task_app_matches_exploded.merge(
+            expanded_job_app_mapping[['app_text', 'job_uid', 'company_name', 'x28_occupations', 'x28_industries', 'year']],
+            on=['app_text', 'job_uid'],
+            how='left',
+            validate='many_to_one'
         )
-        
+
         # The expanded mapping already contains company and time info, so we use it directly
         task_firm_matches = task_job_matches.copy()
         
@@ -1392,7 +1415,7 @@ class TaskFirmExposurePipeline:
     
     def _generate_filename(self, occupation_system: str = "isco") -> str:
         """
-        Generate output filename following pattern: {isco/onet}_{firm}_{occupation}_{year}_exposure.csv
+        Generate output filename following pattern: {isco/onet}_{firm}_{occupation}_{year}_exposure_{task_type}.csv
 
         Args:
             occupation_system: Either "isco" or "onet"
@@ -1414,8 +1437,32 @@ class TaskFirmExposurePipeline:
         if not self.time_invariant:
             components.append("year")
 
-        components.append("exposure.csv")
+        # Add exposure and task type
+        components.append(f"exposure_{self.task_type}_tasks.csv")
         return "_".join(components)
+
+    def _find_stage4_file(self, task_type: str = 'core') -> str:
+        """
+        Auto-detect Stage 4 output file based on task type.
+
+        Args:
+            task_type: 'core' or 'all'
+
+        Returns:
+            Path to Stage 4 file
+        """
+        suffix = f"_{task_type}_tasks"
+        filename = f"task_exposure_matches_all_thresholds{suffix}.parquet"
+        filepath = os.path.join(self.data_dir, filename)
+
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(
+                f"Stage 4 file not found: {filepath}\n"
+                f"Expected for task_type='{task_type}': {filename}"
+            )
+
+        logger.info(f"Using Stage 4 file: {filename}")
+        return filepath
 
     def _generate_config_suffix(self) -> str:
         """
@@ -1439,14 +1486,21 @@ class TaskFirmExposurePipeline:
             components.append("year")
 
         return "_" + "_".join(components) if components else ""
-    
-    def run_full_pipeline(self, 
+
+    def _ensure_output_directory(self, dir_path: str) -> None:
+        """Create output directory if it doesn't exist."""
+        os.makedirs(dir_path, exist_ok=True)
+        logger.info(f"Output directory: {dir_path}")
+
+    def run_full_pipeline(self,
                          top_matches_file: str = None,
                          company_file: str = None,
                          output_file: str = None,
                          stage2_mapping_file: str = None,
                          save_onet_outputs: bool = False,
-                         onet_output_dir: str = None) -> pd.DataFrame:
+                         onet_output_dir: str = None,
+                         task_type: str = 'core',
+                         onet_version: int = 20) -> pd.DataFrame:
         """
         Run the complete 4-step Task → Occupation × Firm AI Exposure pipeline.
         
@@ -1471,8 +1525,9 @@ class TaskFirmExposurePipeline:
         
         # Set top matches file (must be the unified multi-threshold file from Stage 4)
         if top_matches_file is None:
-            top_matches_file = os.path.join(self.data_dir, "task_exposure_matches_all_thresholds.csv")
-            logger.info(f"Using unified matches file: {top_matches_file}")
+            # Auto-detect based on task type
+            top_matches_file = self._find_stage4_file(task_type)
+            logger.info(f"Auto-detected Stage 4 file: {top_matches_file}")
 
         # Validate file exists
         if not os.path.exists(top_matches_file):
@@ -1486,10 +1541,14 @@ class TaskFirmExposurePipeline:
         if save_onet_outputs:
             logger.info(f"O*NET outputs will be saved to: {onet_output_dir}")
         
-        # Define other input files
-        task_statements_file = os.path.join(self.data_dir, "Task Statements.xlsx")
-        task_ratings_file = os.path.join(self.data_dir, "Task Ratings.xlsx")
+        # Define other input files (using O*NET version)
+        task_statements_file = os.path.join(self.data_dir, f"task_statements_{onet_version}.xlsx")
+        task_ratings_file = os.path.join(self.data_dir, f"task_ratings_{onet_version}.xlsx")
         esco_onet_file = os.path.join(self.data_dir, "ESCO_to_ONET-SOC.xlsx")
+
+        logger.info(f"Using O*NET version {onet_version} files:")
+        logger.info(f"  Task statements: {task_statements_file}")
+        logger.info(f"  Task ratings: {task_ratings_file}")
         
         # ================================================================
         # DATA LOADING
@@ -1500,7 +1559,52 @@ class TaskFirmExposurePipeline:
         
         # Step 1: Load exposed task-application matches
         task_app_matches = self.step1_load_task_application_matches(top_matches_file)
-        
+
+        # Auto-detect BGE percentiles from Stage 4 output columns
+        pct_cols = [col for col in task_app_matches.columns if col.startswith('pct_')]
+        logger.info(f"Found percentile columns in Stage 4 output: {sorted(pct_cols)}")
+
+        detected_percentiles = []
+
+        # Parse each percentile column to extract numeric value
+        for col in pct_cols:
+            # Parse pct_XX or pct_Xp1 format
+            if 'p' in col:
+                # Format: pct_Xp1 means X.1
+                num_str = col.replace('pct_', '').replace('p', '.')
+                detected_percentiles.append(float(num_str))
+            else:
+                # Format: pct_XX means integer
+                num_str = col.replace('pct_', '')
+                detected_percentiles.append(int(num_str))
+
+        # Sort in descending order (largest percentiles first, like [20, 15, 10, 5, 1, 0.1])
+        detected_percentiles.sort(reverse=True)
+        logger.info(f"Detected percentiles from columns: {detected_percentiles}")
+        logger.info(f"Current initialized percentiles: {self.bge_percentiles}")
+
+        # Check if detected percentiles differ from current ones
+        if detected_percentiles and detected_percentiles != self.bge_percentiles:
+            logger.warning("="*80)
+            logger.warning("BGE PERCENTILE AUTO-DETECTION")
+            logger.warning("="*80)
+            logger.warning(f"Stage 4 output percentiles: {detected_percentiles}")
+            logger.warning(f"Stage 5 was initialized with: {self.bge_percentiles}")
+            logger.warning(f"Updating Stage 5 to match Stage 4")
+            logger.warning("="*80)
+            self.bge_percentiles = detected_percentiles
+            logger.info(f"✓ Updated BGE percentiles to: {self.bge_percentiles}")
+
+        # Detect if cross-encoder scores are available
+        ce_scores_exist = task_app_matches['cross_encoder_score'].notna().any()
+        if not ce_scores_exist:
+            logger.warning("="*80)
+            logger.warning("NO CROSS-ENCODER SCORES DETECTED")
+            logger.warning("="*80)
+            logger.warning("Stage 4 was likely run with --skip-cross-encoder")
+            logger.warning("Processing BGE-only specifications without CE filtering")
+            logger.warning("="*80)
+
         # Load supporting data
         task_statements = self.load_task_statements(task_statements_file, core_only=True)
         task_ratings = self.load_task_ratings(task_ratings_file)
@@ -1530,7 +1634,14 @@ class TaskFirmExposurePipeline:
                 pct_str = f'{p:.1f}'.replace('.', 'p')
                 bge_cols.append(f'pct_{pct_str}')
 
-        ce_cols = [f'ce_{c:.1f}' for c in self.ce_thresholds]
+        # Conditionally set CE thresholds based on whether CE scores exist
+        if ce_scores_exist:
+            logger.info("✓ Cross-encoder scores available, processing all CE thresholds")
+            ce_cols = [f'ce_{c:.1f}' for c in self.ce_thresholds]
+        else:
+            logger.info("⚠️ Using ce_0.0 (no CE filtering) as only threshold")
+            ce_cols = ['ce_0.0']
+
         specifications = [(p, c) for p in bge_cols for c in ce_cols]
 
         logger.info(f"Total specifications to process: {len(specifications)}")
@@ -1539,13 +1650,20 @@ class TaskFirmExposurePipeline:
 
         # Process all specifications and collect results
         results_by_spec = {}
+        isco_results_by_spec = {}
         for spec_idx, (bge_col, ce_col) in enumerate(specifications, 1):
             logger.info(f"\n[{spec_idx}/{len(specifications)}] {bge_col} × {ce_col}")
 
             # Filter matches for this specification
-            spec_matches = task_app_matches[
-                task_app_matches[bge_col] & task_app_matches[ce_col]
-            ].copy()
+            # When CE is missing and we're using ce_0.0, skip the CE column in the AND logic
+            if ce_col == 'ce_0.0' and not ce_scores_exist:
+                # CE is missing, so use BGE filter only (ce_0.0 is effectively always True)
+                spec_matches = task_app_matches[task_app_matches[bge_col]].copy()
+            else:
+                # Normal case: apply both BGE and CE filters
+                spec_matches = task_app_matches[
+                    task_app_matches[bge_col] & task_app_matches[ce_col]
+                ].copy()
             match_count = len(spec_matches)
             logger.info(f"  Matches: {match_count:,}")
 
@@ -1562,13 +1680,69 @@ class TaskFirmExposurePipeline:
                         task_firm_exposure, task_statements, task_ratings
                     )
                     spec_result = self.step4_apply_ai_intensity_adjustment(occupation_firm_exposure)
-                    # Add spec suffix to exposure columns before storing
+
+                    # Add company_id by merging with company_mapping for merge compatibility
+                    spec_result = spec_result.merge(
+                        company_mapping[['company_name', 'company_id']],
+                        on='company_name',
+                        how='left'
+                    )
+                    missing_companies = spec_result['company_id'].isna().sum()
+                    if missing_companies > 0:
+                        logger.warning(f"  {missing_companies} companies in spec result couldn't be mapped to company_ids")
+
+                    # ================================================================
+                    # SAVE INDIVIDUAL SPEC FILES (without suffixes)
+                    # ================================================================
+                    output_dir = os.path.join(self.data_dir, 'firm_year_exposure')
+                    self._ensure_output_directory(output_dir)
+
+                    # Generate filename for this spec
+                    base_filename = self._generate_filename("onet").replace(".csv", "")
+                    spec_suffix = f"_{bge_col}_{ce_col}.csv"
+
+                    # Save individual O*NET file
+                    onet_spec_file = os.path.join(output_dir, f"{base_filename}{spec_suffix}")
+                    spec_result_with_soc = spec_result.copy()
+                    spec_result_with_soc.rename(columns={'onet_code': 'onet_soc'}, inplace=True)
+
+                    # Add O*NET titles
+                    onet_titles = task_statements[['O*NET-SOC Code', 'Title']].drop_duplicates()
+                    onet_titles.rename(columns={'O*NET-SOC Code': 'onet_soc', 'Title': 'onet_title'}, inplace=True)
+                    spec_result_with_soc = spec_result_with_soc.merge(onet_titles, on='onet_soc', how='left')
+
+                    spec_result_with_soc.to_csv(onet_spec_file, index=False, encoding='utf-8')
+                    logger.info(f"  ✓ Saved O*NET spec file: {os.path.basename(onet_spec_file)}")
+
+                    # Crosswalk individual spec to ISCO
+                    isco_spec_result = self.crosswalk_onet_to_isco(
+                        spec_result, esco_crosswalk, isco_titles, company_mapping
+                    )
+
+                    # ADD SPEC SUFFIXES TO ISCO EXPOSURE COLUMNS (for merged file)
+                    isco_exposure_cols = [c for c in isco_spec_result.columns
+                                          if any(x in c for x in ['exposure', 'intensity', 'n_ai_apps', 'total_tasks', 'total_importance', 'n_onet_codes'])]
+                    isco_suffix = f"_{bge_col}_{ce_col}"
+                    isco_rename_dict = {col: f"{col}{isco_suffix}" for col in isco_exposure_cols}
+                    isco_spec_result_for_merge = isco_spec_result.rename(columns=isco_rename_dict)
+
+                    # Save individual ISCO file (WITHOUT suffixes for standalone use)
+                    isco_base_filename = self._generate_filename("isco").replace(".csv", "")
+                    isco_spec_file = os.path.join(output_dir, f"{isco_base_filename}{spec_suffix}")
+                    isco_spec_result.to_csv(isco_spec_file, index=False, encoding='utf-8')
+                    logger.info(f"  ✓ Saved ISCO spec file: {os.path.basename(isco_spec_file)}")
+
+                    # Store the suffixed version for merging
+                    isco_results_by_spec[(bge_col, ce_col)] = isco_spec_result_for_merge
+
+                    # NOW add spec suffix for merged O*NET files
                     spec_result = self._add_spec_suffix_to_columns(spec_result, bge_col, ce_col)
                     results_by_spec[(bge_col, ce_col)] = spec_result
                     logger.info(f"  ✓ Spec {spec_idx}/{len(specifications)} complete")
                 except Exception as e:
                     logger.error(f"  ✗ Error processing spec {spec_idx}: {e}")
                     results_by_spec[(bge_col, ce_col)] = None
+                    isco_results_by_spec[(bge_col, ce_col)] = None
 
         # Merge all specifications with outer join
         logger.info("\n" + "="*80)
@@ -1653,10 +1827,13 @@ class TaskFirmExposurePipeline:
                                                                                        if col not in ['company_id', 'onet_soc', 'onet_title', 'company_name', 'year']]
             final_onet_with_titles = final_onet_with_titles[cols]
 
-            onet_filename = self._generate_filename("onet")
-            onet_firm_file = os.path.join(onet_output_dir, onet_filename)
+            # Save to firm_year_exposure/ folder (merged all-specs file)
+            output_dir = os.path.join(self.data_dir, 'firm_year_exposure')
+            self._ensure_output_directory(output_dir)
+            base_filename = self._generate_filename("onet").replace(".csv", "")
+            onet_firm_file = os.path.join(output_dir, f"{base_filename}_all_specs.csv")
             final_onet_with_titles.to_csv(onet_firm_file, index=False, encoding='utf-8')
-            logger.info(f"✅ Saved O*NET firm-year exposure: {onet_firm_file}")
+            logger.info(f"✅ Saved merged O*NET firm-year exposure: {onet_firm_file}")
             
             # 2. Save O*NET Occupation-Level Exposure Summary
             task_exposure_table = self.create_task_exposure_table(task_app_matches, task_statements, task_ratings)
@@ -1672,12 +1849,12 @@ class TaskFirmExposurePipeline:
                                                   if col not in ['onet_code', 'onet_title']]
             onet_occupation_summary = onet_occupation_summary[cols]
             
-            onet_summary_file = os.path.join(onet_output_dir, f"onet_occupation_exposure_summary{config_suffix}.csv")
+            onet_summary_file = os.path.join(output_dir, f"onet_occupation_exposure_summary{config_suffix}.csv")
             onet_occupation_summary.to_csv(onet_summary_file, index=False, encoding='utf-8')
             logger.info(f"✅ Saved O*NET occupation summary: {onet_summary_file}")
-            
+
             # 3. Save O*NET Task-Level Exposure Table
-            onet_task_file = os.path.join(onet_output_dir, f"onet_task_exposure{config_suffix}.csv")
+            onet_task_file = os.path.join(output_dir, f"onet_task_exposure{config_suffix}.csv")
             task_exposure_table.to_csv(onet_task_file, index=False, encoding='utf-8')
             logger.info(f"✅ Saved O*NET task exposure: {onet_task_file}")
             
@@ -1689,29 +1866,74 @@ class TaskFirmExposurePipeline:
             logger.info(f"  - Task-level exposures: {len(task_exposure_table):,}")
         
         # ================================================================
-        # CROSSWALK TO ISCO-08
+        # MERGE INDIVIDUAL ISCO FILES (using in-memory suffixed versions)
         # ================================================================
         logger.info("\n" + "="*50)
-        logger.info("CROSSWALKING O*NET → ISCO-08")
+        logger.info("CREATING MERGED ISCO FILE FROM IN-MEMORY SPECS")
         logger.info("="*50)
-        
-        isco_firm_exposure = self.crosswalk_onet_to_isco(
-            final_onet_exposure, esco_crosswalk, isco_titles, company_mapping
-        )
-        
+
+        # Use the pre-suffixed ISCO results stored in memory
+        valid_isco_results = {k: v for k, v in isco_results_by_spec.items() if v is not None}
+        logger.info(f"Valid ISCO specifications: {len(valid_isco_results)}/{len(specifications)}")
+
+        if not valid_isco_results:
+            logger.error("No valid ISCO specifications to merge!")
+            raise ValueError("All ISCO specifications produced empty results!")
+
+        # Merge all valid ISCO results with outer join
+        isco_firm_exposure = None
+        merge_keys = ['company_id', 'company_name', 'year', 'isco08_4d']
+
+        for spec_idx, ((bge_col, ce_col), result_df) in enumerate(valid_isco_results.items(), 1):
+            if isco_firm_exposure is None:
+                isco_firm_exposure = result_df.copy()
+                logger.info(f"  [{spec_idx}] Initialized ISCO merge with {bge_col}×{ce_col}: {len(result_df):,} rows")
+            else:
+                # Merge with outer join
+                before_cols = len(isco_firm_exposure.columns)
+                isco_firm_exposure = isco_firm_exposure.merge(
+                    result_df,
+                    on=merge_keys,
+                    how='outer',
+                    suffixes=('', '_dup')
+                )
+                # Drop duplicate metadata columns
+                dup_cols = [c for c in isco_firm_exposure.columns if c.endswith('_dup')]
+                if dup_cols:
+                    isco_firm_exposure.drop(columns=dup_cols, inplace=True)
+
+                after_cols = len(isco_firm_exposure.columns)
+                added_cols = after_cols - before_cols
+                logger.info(f"  [{spec_idx}] Merged {bge_col}×{ce_col}: {len(isco_firm_exposure):,} rows, +{added_cols} columns (total: {after_cols})")
+
+        # Fill NaN exposures with 0
+        exposure_cols = [c for c in isco_firm_exposure.columns
+                         if 'exposure' in c.lower() or 'intensity' in c.lower() or 'n_ai_apps' in c.lower()]
+        for col in exposure_cols:
+            isco_firm_exposure[col] = isco_firm_exposure[col].fillna(0)
+
+        logger.info(f"\n✓ ISCO merge complete: {len(isco_firm_exposure):,} rows, {len(isco_firm_exposure.columns)} columns")
+
+        # Verify we have spec-suffixed columns
+        spec_cols = [c for c in isco_firm_exposure.columns if '_pct_' in c or '_ce_' in c]
+        logger.info(f"  Spec-suffixed columns: {len(spec_cols)} (expected: ~{len(valid_isco_results) * 6})")
+        if len(spec_cols) < len(valid_isco_results) * 4:
+            logger.warning(f"  WARNING: Expected ~{len(valid_isco_results) * 6} spec columns, only got {len(spec_cols)}")
+
         # ================================================================
         # SAVE RESULTS
         # ================================================================
         logger.info("\n" + "="*50)
         logger.info("SAVING RESULTS")
         logger.info("="*50)
-        
+
         if output_file is None:
-            filename = self._generate_filename("isco")
-            output_file = os.path.join(self.data_dir, filename)
-        
+            self._ensure_output_directory(output_dir)
+            base_filename = self._generate_filename("isco").replace(".csv", "")
+            output_file = os.path.join(output_dir, f"{base_filename}_all_specs.csv")
+
         isco_firm_exposure.to_csv(output_file, index=False, encoding='utf-8')
-        logger.info(f"Saved ISCO-08 occupation-firm-year AI exposure to: {output_file}")
+        logger.info(f"Saved merged ISCO-08 occupation-firm-year AI exposure to: {output_file}")
         
         # ================================================================
         # PIPELINE SUMMARY
@@ -1951,8 +2173,8 @@ def main():
     """Command line interface for the O*NET → ISCO exposure pipeline."""
     parser = argparse.ArgumentParser(description="O*NET Task Exposure → ISCO-08 Occupation Exposure Pipeline")
     
-    parser.add_argument("--top-matches-file", type=str, default="Data/task_exposure_matches_all_thresholds.csv",
-                       help="Path to unified task_exposure_matches_all_thresholds.csv file (default: Data/task_exposure_matches_all_thresholds.csv)")
+    parser.add_argument("--top-matches-file", type=str, default=None,
+                       help="Path to Stage 4 output file (auto-detect from task type if not provided)")
     parser.add_argument("--output-file", type=str,
                        help="Output CSV file path (auto-generate if not provided)")
     parser.add_argument("--aggregation", type=str, default="mean",
@@ -1960,8 +2182,8 @@ def main():
                        help="Aggregation method for O*NET → ISCO (default: mean)")
     parser.add_argument("--data-dir", type=str, default="Data/",
                        help="Directory containing input data files (default: Data/)")
-    parser.add_argument("--bge-percentiles", type=float, nargs='+', default=[20, 15, 10, 5, 1],
-                       help="BGE percentile cutoffs to process (default: 20 15 10 5 1)")
+    parser.add_argument("--bge-percentiles", type=float, nargs='+', default=None,
+                       help="BGE percentile cutoffs to process (auto-detected from Stage 4 if not provided)")
     parser.add_argument("--ce-thresholds", type=float, nargs='+', default=[0.8, 0.6, 0.4, 0.2, 0.0],
                        help="Cross-encoder thresholds to process (default: 0.8 0.6 0.4 0.2 0.0)")
     parser.add_argument("--time-invariant", action="store_true",
@@ -1979,13 +2201,21 @@ def main():
                        help="Cross encoder threshold for exposed tasks (default: 0.6)")
     parser.add_argument("--stage2-mapping-file", type=str,
                        help="Path to Stage 2 deduplication mapping file (auto-detect if not provided)")
-    parser.add_argument("--company-file", type=str,
-                       help="Path to company data CSV file (auto-detect if not provided)")
+    parser.add_argument("--jobs-file", type=str,
+                       help="Path to original jobs CSV file (auto-detect if not provided)")
     parser.add_argument("--save-onet-outputs", action="store_true",
                        help="Save intermediate O*NET exposure files before ISCO crosswalk")
     parser.add_argument("--onet-output-dir", type=str,
                        help="Directory for O*NET output files (defaults to data-dir)")
-    
+
+    parser.add_argument("--task-type", type=str,
+                       choices=['core', 'all'],
+                       default='core',
+                       help="Task type: 'core' (default) or 'all'")
+
+    parser.add_argument("--onet-version", type=int, default=20,
+                       help="O*NET version to use for task statements and ratings (default: 20)")
+
     args = parser.parse_args()
     
     if args.create_sample_report:
@@ -2037,16 +2267,24 @@ def main():
             occupation_exposure=args.occupation_exposure,
             data_dir=args.data_dir,
             bge_percentiles=args.bge_percentiles,
-            ce_thresholds=args.ce_thresholds
+            ce_thresholds=args.ce_thresholds,
+            task_type=args.task_type
         )
-        
+
+        # Auto-detect Stage 4 file based on task type if not provided
+        top_matches_file = args.top_matches_file
+        if top_matches_file is None:
+            top_matches_file = pipeline._find_stage4_file(args.task_type)
+
         result_df = pipeline.run_full_pipeline(
-            top_matches_file=args.top_matches_file,
-            company_file=args.company_file,
+            top_matches_file=top_matches_file,
+            company_file=args.jobs_file,
             output_file=args.output_file,
             stage2_mapping_file=args.stage2_mapping_file,
             save_onet_outputs=args.save_onet_outputs,
-            onet_output_dir=args.onet_output_dir
+            onet_output_dir=args.onet_output_dir,
+            task_type=args.task_type,
+            onet_version=args.onet_version
         )
         
         print(f"\n✅ Pipeline completed successfully!")
