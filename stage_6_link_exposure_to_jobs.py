@@ -663,23 +663,55 @@ def load_crosswalk_isco_to_onet(filepath):
     log(f"✅ Loaded {len(crosswalk):,} ISCO→ONET mappings")
     return crosswalk
 
-def find_stage5_file(in_dir, occ_code, time_var):
-    """Find Stage 5 exposure file with clean naming convention"""
+def find_stage5_file(in_dir, occ_code, time_var, task_type='core'):
+    """Find Stage 5 exposure file with task type and new location support"""
+
+    # Try new location first: Data/firm_year_exposure/
+    new_data_dir = Path(in_dir) / "firm_year_exposure"
+    task_suffix = f"_{task_type}_tasks"
+
+    # New pattern: {occ_code}_firm_year_exposure_{task_type}_tasks_all_specs.csv
+    if new_data_dir.exists():
+        new_pattern = f"{occ_code}_firm_year_exposure{task_suffix}_all_specs.csv"
+        target_file = new_data_dir / new_pattern
+
+        if target_file.exists():
+            log(f"✅ Found Stage 5 merged file: firm_year_exposure/{new_pattern}")
+            return str(target_file)
+
+    # Fallback to legacy location: Data/
     data_dir = Path(in_dir)
     time_setting = "_year" if time_var else ""
 
-    # New clean naming: {occ_code}_firm_occupation{time_setting}_exposure.csv
-    clean_pattern = f"{occ_code}_firm_occupation{time_setting}_exposure.csv"
-    target_file = data_dir / clean_pattern
+    # Legacy pattern with task suffix
+    legacy_pattern = f"{occ_code}_firm_occupation{time_setting}_exposure{task_suffix}.csv"
+    legacy_file = data_dir / legacy_pattern
 
-    # Check if the expected file exists
-    if target_file.exists():
-        log(f"✅ Found Stage 5 file: {clean_pattern}")
-        return str(target_file)
+    if legacy_file.exists():
+        log(f"⚠️  Using legacy file format: {legacy_pattern}")
+        return str(legacy_file)
 
-    # If no matches found, show what files are available for debugging
-    available_files = [f.name for f in data_dir.glob(f"{occ_code}_*exposure*.csv")]
-    raise FileNotFoundError(f"Stage 5 file not found for pattern {clean_pattern}. Available files: {available_files}")
+    # Legacy pattern without task suffix (backward compatibility)
+    old_pattern = f"{occ_code}_firm_occupation{time_setting}_exposure.csv"
+    old_file = data_dir / old_pattern
+
+    if old_file.exists():
+        log(f"⚠️  Using legacy file (no task type suffix): {old_pattern}")
+        return str(old_file)
+
+    # If no matches found, show available files for debugging
+    available_files = []
+    if new_data_dir.exists():
+        available_files.extend([f"firm_year_exposure/{f.name}" for f in new_data_dir.glob(f"{occ_code}_*exposure*.csv")])
+    available_files.extend([f.name for f in data_dir.glob(f"{occ_code}_*exposure*.csv")])
+
+    raise FileNotFoundError(
+        f"Stage 5 file not found. Searched for:\n"
+        f"  - firm_year_exposure/{new_pattern} (new format)\n"
+        f"  - {legacy_pattern} (legacy format)\n"
+        f"  - {old_pattern} (old legacy format)\n"
+        f"Available files: {available_files}"
+    )
 
 def load_stage5_exposures(filepath, occ_code):
     """Load Stage 5 exposure file"""
@@ -1016,11 +1048,23 @@ def main():
     parser.add_argument('--firm_report_out', default='Data/firm_ai_summary_report.csv',
                        help='Output file path for firm report')
 
+    parser.add_argument('--task-type', type=str,
+                       choices=['core', 'all'],
+                       default='core',
+                       help="Task type to process (default: core)")
+
     args = parser.parse_args()
-    
+
+    # Update output filenames with task type suffix if using defaults
+    task_suffix = f"_{args.task_type}_tasks"
+    if args.out == 'Data/stage6_jobs_linked.csv':
+        args.out = f'Data/stage6_jobs_linked{task_suffix}.csv'
+    if args.generate_firm_report and args.firm_report_out == 'Data/firm_ai_summary_report.csv':
+        args.firm_report_out = f'Data/firm_ai_summary_report{task_suffix}.csv'
+
     log("🚀 Starting Stage 6: Link Firm×Year Exposure to Jobs")
     log("=" * 60)
-    
+
     # Load environment and connect to database
     load_dotenv('config.env')
     db_name = os.getenv('DB_NAME')
@@ -1056,7 +1100,7 @@ def main():
         )
         
         # Load Stage 5 exposures
-        stage5_path = find_stage5_file(args.in_dir, args.occ_code, args.time_var)
+        stage5_path = find_stage5_file(args.in_dir, args.occ_code, args.time_var, args.task_type)
         df_exposures = load_stage5_exposures(stage5_path, args.occ_code)
         
         log(f"🔗 Linking jobs to exposures...")
