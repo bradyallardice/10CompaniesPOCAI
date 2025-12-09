@@ -1953,11 +1953,18 @@ class TaskFirmExposurePipeline:
         
         # Show top exposed ISCO-firm-year combinations (Hampole variant)
         logger.info(f"\nTop 10 highest AI exposure combinations (Hampole variant):")
-        top_exposed = isco_firm_exposure.nlargest(10, 'hampole_ai_exposure_avg')
-        for _, row in top_exposed.iterrows():
-            logger.info(f"  {row['isco08_4d']} @ {row['company_name']} ({row['year']:.0f}): "
-                       f"AI Exposure = {row['hampole_ai_exposure_avg']:.3f} "
-                       f"({row['n_ai_apps_firm_year']:.0f} apps)")
+        # Find the hampole exposure column (may have spec suffix)
+        hampole_cols = [c for c in isco_firm_exposure.columns if 'hampole_ai_exposure_avg' in c]
+        if hampole_cols:
+            # Use the first hampole column (or the one without suffix if available)
+            hampole_col = 'hampole_ai_exposure_avg' if 'hampole_ai_exposure_avg' in isco_firm_exposure.columns else hampole_cols[0]
+            top_exposed = isco_firm_exposure.nlargest(10, hampole_col)
+            for _, row in top_exposed.iterrows():
+                logger.info(f"  {row['isco08_4d']} @ {row['company_name']} ({row['year']:.0f}): "
+                           f"AI Exposure = {row[hampole_col]:.3f} "
+                           f"({row['n_ai_apps_firm_year']:.0f} apps)")
+        else:
+            logger.warning("No hampole_ai_exposure_avg column found in merged ISCO data")
         
         return isco_firm_exposure
 
