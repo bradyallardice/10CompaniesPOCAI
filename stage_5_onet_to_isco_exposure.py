@@ -322,23 +322,9 @@ class TaskFirmExposurePipeline:
             DataFrame with all original jobs including those removed by stage 2 deduplication
         """
         if original_file_path is None:
-            # Auto-detect the most recent batched_ai_jobs file
-            # Use the Stage 2 deduplicated output as the "original" dataset 
-            # This ensures we only work with AI jobs that passed false positive filtering
-            dedup_file = os.path.join(self.data_dir, "ai_development_deduplicated.csv")
-            if os.path.exists(dedup_file):
-                original_file_path = dedup_file
-            else:
-                # Fallback to batched files
-                batched_file = os.path.join(self.data_dir, "batched_ai_jobs.csv")
-                if os.path.exists(batched_file):
-                    original_file_path = batched_file
-                else:
-                    # Final fallback to timestamped files
-                    batched_files = list(Path(self.data_dir).glob("batched_ai_jobs_*.csv"))
-                    if not batched_files:
-                        raise FileNotFoundError("Could not find AI jobs file. Please specify original_file_path parameter.")
-                    original_file_path = str(sorted(batched_files)[-1])
+            # Default to ai_development_deduplicated_custom.csv (Stage 2 output)
+            # This is the primary deduplicated dataset used throughout the pipeline
+            original_file_path = os.path.join(self.data_dir, "ai_development_deduplicated_custom.csv")
         
         logger.info(f"Loading original full dataset from: {original_file_path}")
         
@@ -1535,7 +1521,7 @@ class TaskFirmExposurePipeline:
         
         # Auto-detect company file if not provided
         if company_file is None:
-            company_file = os.path.join(self.data_dir, "ai_development_deduplicated.csv")
+            company_file = os.path.join(self.data_dir, "ai_development_deduplicated_custom.csv")
             logger.info(f"Using company data file: {company_file}")
         
         if save_onet_outputs:
