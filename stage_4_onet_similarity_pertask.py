@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """
-Step 4: Deduplicate AI-application strings → Embed with BGE-large → Match to O*NET tasks → Keep top n%
+Step 4 Alternative: Per-Task Filtering - Deduplicate AI-application strings → Embed with BGE-large → Match to O*NET tasks → Keep top N% PER TASK
 
 This step links each AI-application string (output from Step 3) to the most semantically similar
-O*NET task statements, using high-quality embeddings (1024-D BGE-large-en-v1.5) and plain NumPy 
+O*NET task statements, using high-quality embeddings (1024-D BGE-large-en-v1.5) and plain NumPy
 cosine similarity.
 
+KEY DIFFERENCE FROM STANDARD STAGE 4:
+- Standard: Global percentile filtering (e.g., top 20% across all 285M pairs globally)
+- Per-Task: For each O*NET task, keep top N% of its matching AI applications
+  - Results in variable-sized match sets per task
+  - Better captures task-specific AI exposure patterns
+
 Phases:
-A. Deduplicate AI-application strings  
+A. Deduplicate AI-application strings
 B. Embed texts using BGE-large model
-C. Similarity computation and top n% filter
-D. Output formatting with validation checks
+C. Similarity computation with global 0.3 threshold (same as standard)
+   + NEW: Compute per-task percentile rankings
+D. Per-task percentile filtering and cross-encoder validation
+E. Output formatting with validation checks
 """
 
 import pandas as pd
@@ -40,9 +48,17 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class ONETSimilarityMatcher:
+class ONETSimilarityMatcherPerTask:
     """
     Main class for matching AI applications to O*NET tasks via semantic similarity.
+
+    This version implements per-task percentile filtering:
+    - For each O*NET task, compute percentile rank of all matching AI applications
+    - Keep top N% of applications per task (not global percentiles)
+    - Run cross-encoder on all per-task top-N matches
+    - Create boolean columns from stored per-task rankings
+
+    Output maintains same schema as standard Stage 4 for downstream compatibility.
     """
     
     def __init__(self,
@@ -50,8 +66,7 @@ class ONETSimilarityMatcher:
                  minimum_similarity: float = 0.3,
                  similarity_threshold: float = 0.99,
                  batch_size: int = 256,
-                 embeddings_dir: str = "Data/embeddings",
-                 use_openai_embeddings: bool = False):
+                 embeddings_dir: str = "Data/embeddings"):
         """
         Initialize the matcher.
 
@@ -61,50 +76,41 @@ class ONETSimilarityMatcher:
             similarity_threshold: Threshold for fuzzy deduplication clustering
             batch_size: Batch size for embedding computation
             embeddings_dir: Directory to store cached embeddings
-            use_openai_embeddings: If True, load pre-generated OpenAI embeddings instead of BGE
         """
         self.model_name = model_name
         self.minimum_similarity = minimum_similarity
         self.similarity_threshold = similarity_threshold
         self.batch_size = batch_size
         self.embeddings_dir = embeddings_dir
-        self.use_openai_embeddings = use_openai_embeddings
-
+        
         # Create embeddings directory if it doesn't exist
         os.makedirs(embeddings_dir, exist_ok=True)
-
-        # Initialize model only if not using OpenAI embeddings
-        if not use_openai_embeddings:
-            logger.info(f"Loading embedding model: {model_name}")
-            self.model = SentenceTransformer(model_name)
-        else:
-            logger.info("Using pre-generated OpenAI embeddings (cache-only mode)")
-            self.model = None
         
-        # Check if GPU is available (supports CUDA, MPS, and CPU) - only if using BGE
-        if not use_openai_embeddings:
-            if torch.backends.mps.is_available():
-                self.device = "mps"
-                logger.info("Metal Performance Shaders (Apple Silicon GPU) detected")
-            elif torch.cuda.is_available():
-                self.device = "cuda"
-                logger.info("CUDA GPU detected")
-            else:
-                self.device = "cpu"
-                logger.info("No GPU detected, using CPU")
-
-            logger.info(f"Using device: {self.device}")
-
-            # Adjust batch size based on device
-            if self.device == "cpu":
-                self.batch_size = min(self.batch_size, 64)  # Reduce batch size for CPU
-            elif self.device == "mps":
-                # MPS can handle similar batch sizes to CUDA, but may need tuning
-                self.batch_size = min(self.batch_size, 128)
-
-            self.model = self.model.to(self.device)
+        # Initialize model
+        logger.info(f"Loading embedding model: {model_name}")
+        self.model = SentenceTransformer(model_name)
+        
+        # Check if GPU is available (supports CUDA, MPS, and CPU)
+        if torch.backends.mps.is_available():
+            self.device = "mps"
+            logger.info("Metal Performance Shaders (Apple Silicon GPU) detected")
+        elif torch.cuda.is_available():
+            self.device = "cuda"
+            logger.info("CUDA GPU detected")
         else:
-            self.device = None
+            self.device = "cpu"
+            logger.info("No GPU detected, using CPU")
+
+        logger.info(f"Using device: {self.device}")
+
+        # Adjust batch size based on device
+        if self.device == "cpu":
+            self.batch_size = min(self.batch_size, 64)  # Reduce batch size for CPU
+        elif self.device == "mps":
+            # MPS can handle similar batch sizes to CUDA, but may need tuning
+            self.batch_size = min(self.batch_size, 128)
+
+        self.model = self.model.to(self.device)
     
     def clear_embeddings_cache(self, cache_type: str = "all") -> None:
         """
@@ -227,92 +233,36 @@ class ONETSimilarityMatcher:
     def _load_embeddings(self, texts: List[str], prefix: str) -> Optional[np.ndarray]:
         """
         Load embeddings from cache if available.
-
+        
         Args:
             texts: List of texts to find embeddings for
             prefix: Prefix for cache file
-
+            
         Returns:
             Embeddings array if found, None otherwise
         """
         texts_hash = self._compute_texts_hash(texts)
         cache_path = self._get_embedding_cache_path(texts_hash, prefix)
-
+        
         if not os.path.exists(cache_path):
             return None
-
+        
         try:
             with open(cache_path, 'rb') as f:
                 cache_data = pickle.load(f)
-
+            
             # Validate cache
-            if (cache_data['model_name'] != self.model_name or
+            if (cache_data['model_name'] != self.model_name or 
                 cache_data['texts'] != texts):
                 logger.warning(f"Cache validation failed for {cache_path}")
                 return None
-
+            
             logger.info(f"Loaded embeddings from cache: {cache_path}")
             return cache_data['embeddings']
-
+            
         except Exception as e:
             logger.warning(f"Failed to load embeddings from cache {cache_path}: {e}")
             return None
-
-    def _load_openai_embeddings(self, texts: List[str], text_type: str = "apps") -> Optional[np.ndarray]:
-        """
-        Load pre-generated OpenAI embeddings from cache (generated by generate_openai_embeddings.py).
-
-        Args:
-            texts: List of texts to find embeddings for
-            text_type: Either "apps" or "tasks"
-
-        Returns:
-            Embeddings array if found and complete, None otherwise
-
-        Raises:
-            FileNotFoundError: If OpenAI cache file not found
-            ValueError: If embeddings incomplete or mismatch
-        """
-        # Compute hash to find cache file (matches generate_openai_embeddings.py)
-        sorted_texts = ''.join(sorted(texts))
-        texts_hash = hashlib.md5(sorted_texts.encode()).hexdigest()[:8]
-        cache_filename = f"openai_text-embedding-3-large_{text_type}_{texts_hash}.pkl"
-        cache_path = Path(self.embeddings_dir) / cache_filename
-
-        if not cache_path.exists():
-            raise FileNotFoundError(
-                f"OpenAI embeddings cache not found: {cache_path}\n"
-                f"Generate with: python3 generate_openai_embeddings.py --task-type core"
-            )
-
-        try:
-            with open(cache_path, 'rb') as f:
-                cache_data = pickle.load(f)
-
-            embeddings_dict = cache_data.get('embeddings', {})
-            metadata = cache_data.get('metadata', {})
-
-            # Validate that we have embeddings for all texts
-            missing_texts = [t for t in texts if t not in embeddings_dict]
-            if missing_texts:
-                logger.error(f"Missing {len(missing_texts)} embeddings from OpenAI cache")
-                logger.error(f"First 5 missing: {missing_texts[:5]}")
-                raise ValueError(f"OpenAI cache incomplete: missing {len(missing_texts)}/{len(texts)} embeddings")
-
-            # Build embeddings array in correct order
-            embeddings = np.array([embeddings_dict[t] for t in texts], dtype=np.float32)
-
-            logger.info(f"Loaded OpenAI embeddings from cache: {cache_path.name}")
-            logger.info(f"  Model: {metadata.get('model')}, Dimensions: {metadata.get('dimensions')}")
-            logger.info(f"  Texts: {len(texts):,}, Total tokens: {metadata.get('total_tokens', 'unknown'):,}")
-
-            return embeddings
-
-        except FileNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to load OpenAI embeddings from {cache_path}: {e}")
-            raise ValueError(f"Failed to load OpenAI cache: {e}")
 
     def _get_ce_cache_path(self, app_texts: List[str], onet_task_ids: List[str],
                            model_name: str) -> Path:
@@ -516,21 +466,13 @@ class ONETSimilarityMatcher:
         Returns:
             Path to cache file
         """
-        # Get model identifier to include in cache filename (same as embeddings do)
-        if self.use_openai_embeddings:
-            model_identifier = "openai_text-embedding-3-large"
-        else:
-            # Extract model abbreviation from model name (e.g., "BAAI/bge-large-en-v1.5" -> "bge")
-            model_abbr = self.model_name.split("/")[-1].split("-")[0]
-            model_identifier = model_abbr
-
-        # Create stable deterministic hash from counts + threshold + model
-        # This ensures different embedding models have separate caches
+        # Create stable deterministic hash from counts + threshold (not full text lists)
+        # This ensures the same datasets produce the same cache key across runs
         content_hash = hashlib.md5(
-            (str(len(app_texts)) + "|" + str(len(onet_tasks)) + "|" + str(minimum_similarity) + "|" + model_identifier).encode()
+            (str(len(app_texts)) + "|" + str(len(onet_tasks)) + "|" + str(minimum_similarity)).encode()
         ).hexdigest()[:8]
 
-        cache_filename = f"similarities_apps{len(app_texts)}_tasks{len(onet_tasks)}_min{minimum_similarity:.1f}_{model_identifier}_{content_hash}.pkl"
+        cache_filename = f"similarities_apps{len(app_texts)}_tasks{len(onet_tasks)}_min{minimum_similarity:.1f}_{content_hash}.pkl"
         return Path(self.embeddings_dir) / cache_filename
 
     def _load_similarity_cache(self, cache_path: Path) -> Optional[Tuple[pd.DataFrame, Optional[pd.DataFrame]]]:
@@ -761,7 +703,121 @@ class ONETSimilarityMatcher:
         logger.info(f"After fuzzy clustering: {unique_after_fuzzy} unique strings")
         
         return df
-    
+
+    def _compute_per_task_rankings(self, matches_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute per-task similarity percentile rankings.
+
+        For each O*NET task, rank all matching AI applications by similarity.
+        Each task gets its own percentile distribution (0-1 scale).
+
+        Args:
+            matches_df: DataFrame with columns: app_text, onet_task_id, similarity
+
+        Returns:
+            Same DataFrame with added 'per_task_rank_pct' column (0-1 scale)
+        """
+        logger.info("Computing per-task similarity rankings...")
+
+        # Compute rank percentile within each task group
+        # pct=True returns percentile rank (0-1 scale)
+        # ascending=False means higher similarity = lower percentile value
+        # method='min' includes all ties at boundary
+        matches_df['per_task_rank_pct'] = matches_df.groupby('onet_task_id')['similarity'].rank(
+            pct=True,        # Return percentile (0-1)
+            ascending=False, # Higher similarity = lower percentile
+            method='min'     # Include all ties
+        )
+
+        # Log statistics
+        rank_min = matches_df['per_task_rank_pct'].min()
+        rank_max = matches_df['per_task_rank_pct'].max()
+        rank_median = matches_df['per_task_rank_pct'].median()
+
+        logger.info(f"Per-task rank distribution: min={rank_min:.4f}, max={rank_max:.4f}, median={rank_median:.4f}")
+
+        # Log per-task match counts
+        task_counts = matches_df.groupby('onet_task_id').size()
+        logger.info(f"Matches per task: min={task_counts.min()}, max={task_counts.max()}, "
+                    f"mean={task_counts.mean():.1f}, median={task_counts.median():.1f}")
+
+        return matches_df
+
+    def _filter_to_top_per_task_percentile(self, matches_df: pd.DataFrame,
+                                             percentile: float) -> pd.DataFrame:
+        """
+        Filter matches to top N% per task.
+
+        Args:
+            matches_df: DataFrame with 'per_task_rank_pct' column
+            percentile: Top percentile to keep (e.g., 20 for top 20%)
+
+        Returns:
+            Filtered DataFrame
+        """
+        threshold = percentile / 100.0
+
+        filtered_df = matches_df[matches_df['per_task_rank_pct'] <= threshold].copy()
+
+        logger.info(f"Filtered to top {percentile}%:")
+        logger.info(f"  Before: {len(matches_df):,} pairs")
+        logger.info(f"  After: {len(filtered_df):,} pairs ({len(filtered_df)/len(matches_df)*100:.1f}%)")
+        logger.info(f"  Unique tasks: {filtered_df['onet_task_id'].nunique():,}")
+        logger.info(f"  Unique apps: {filtered_df['app_text'].nunique():,}")
+
+        return filtered_df
+
+    def _validate_per_task_monotonicity(self, unified_matches: pd.DataFrame,
+                                         percentiles: List[float]) -> None:
+        """
+        Validate that per-task percentile columns are monotonic.
+
+        Check: pct_20 ⊇ pct_15 ⊇ pct_10 ⊇ pct_05 ⊇ pct_01
+
+        Args:
+            unified_matches: DataFrame with boolean percentile columns
+            percentiles: List of percentile values (e.g., [20, 15, 10, 5, 1])
+
+        Raises:
+            ValueError if monotonicity is violated
+        """
+        logger.info("Validating per-task percentile monotonicity...")
+
+        # Sort percentiles in descending order
+        sorted_pcts = sorted(percentiles, reverse=True)
+
+        for i in range(len(sorted_pcts) - 1):
+            higher_pct = sorted_pcts[i]
+            lower_pct = sorted_pcts[i + 1]
+
+            # Format column names
+            if isinstance(higher_pct, int) or higher_pct == int(higher_pct):
+                higher_col = f'pct_{int(higher_pct):02d}'
+            else:
+                pct_str = f'{higher_pct:.1f}'.replace('.', 'p')
+                higher_col = f'pct_{pct_str}'
+
+            if isinstance(lower_pct, int) or lower_pct == int(lower_pct):
+                lower_col = f'pct_{int(lower_pct):02d}'
+            else:
+                pct_str = f'{lower_pct:.1f}'.replace('.', 'p')
+                lower_col = f'pct_{pct_str}'
+
+            # Check: All lower=True should have higher=True
+            violations = unified_matches[
+                unified_matches[lower_col] & ~unified_matches[higher_col]
+            ]
+
+            if len(violations) > 0:
+                raise ValueError(
+                    f"Monotonicity violation: {len(violations)} rows have {lower_col}=True "
+                    f"but {higher_col}=False"
+                )
+
+            logger.info(f"  ✓ {higher_col} ⊇ {lower_col}")
+
+        logger.info("✓ Per-task percentile monotonicity validated")
+
     def load_onet_tasks(self, onet_file_path: str, include_soc_15: bool = False,
                        filter_supplements: bool = True) -> pd.DataFrame:
         """
@@ -817,43 +873,29 @@ class ONETSimilarityMatcher:
             logger.error(f"Error loading O*NET file: {e}")
             raise
     
-    def embed_texts(self, texts: List[str], description: str = "texts",
-                   cache_prefix: str = "texts", use_cache: bool = True,
-                   text_type: str = "apps") -> np.ndarray:
+    def embed_texts(self, texts: List[str], description: str = "texts", 
+                   cache_prefix: str = "texts", use_cache: bool = True) -> np.ndarray:
         """
-        Phase B: Embed texts using BGE-large model or load pre-generated OpenAI embeddings.
-
+        Phase B: Embed texts using BGE-large model with caching support.
+        
         Args:
             texts: List of text strings to embed
             description: Description for logging
-            cache_prefix: Prefix for cache files (BGE only)
+            cache_prefix: Prefix for cache files
             use_cache: Whether to use cached embeddings
-            text_type: Either "apps" or "tasks" (for OpenAI embeddings)
-
+            
         Returns:
             Normalized embeddings array
         """
         logger.info(f"Phase B: Embedding {len(texts)} {description}")
-
-        # If using OpenAI embeddings, load from pre-generated cache
-        if self.use_openai_embeddings:
-            logger.info("Loading pre-generated OpenAI embeddings from cache")
-            try:
-                embeddings = self._load_openai_embeddings(texts, text_type=text_type)
-                logger.info(f"Embeddings shape: {embeddings.shape}")
-                return embeddings
-            except (FileNotFoundError, ValueError) as e:
-                logger.error(f"Failed to load OpenAI embeddings: {e}")
-                raise
-
-        # Otherwise use BGE embeddings with caching
+        
         # Try to load from cache first
         if use_cache:
             cached_embeddings = self._load_embeddings(texts, cache_prefix)
             if cached_embeddings is not None:
                 logger.info(f"Using cached embeddings for {description}")
                 return cached_embeddings
-
+        
         # Compute embeddings if not cached
         logger.info(f"Computing new embeddings for {description}")
         embeddings = self.model.encode(
@@ -863,11 +905,11 @@ class ONETSimilarityMatcher:
             show_progress_bar=True,
             convert_to_numpy=True
         )
-
+        
         # Save to cache
         if use_cache:
             self._save_embeddings(embeddings, texts, cache_prefix)
-
+        
         logger.info(f"Embeddings shape: {embeddings.shape}")
         return embeddings
     
@@ -1077,6 +1119,12 @@ class ONETSimilarityMatcher:
         # Save to cache
         if use_cache:
             self._save_similarity_cache(cache_path, filtered_results_df, all_results_df, self.minimum_similarity)
+
+        # NEW: Compute per-task percentile rankings
+        # This is the key difference from standard Stage 4
+        logger.info("Computing per-task similarity percentile rankings...")
+        filtered_results_df = self._compute_per_task_rankings(filtered_results_df)
+        logger.info(f"Added per_task_rank_pct column to {len(filtered_results_df):,} matches")
 
         return filtered_results_df, all_results_df
 
@@ -1696,11 +1744,10 @@ class ONETSimilarityMatcher:
                          cross_encoder_batch_size: int = 256,
                          bge_percentiles: Optional[List[float]] = None,
                          ce_thresholds: Optional[List[float]] = None,
-                         task_type: str = 'both',
-                         onet_version: Optional[str] = None) -> Tuple[pd.DataFrame, dict]:
+                         task_type: str = 'both') -> Tuple[pd.DataFrame, dict]:
         """
         Run the complete pipeline from Step 3 output to O*NET similarity matches.
-
+        
         Args:
             step3_file_path: Path to Step 3 filtered tasks CSV
             onet_file_path: Path to O*NET Task Statements Excel file
@@ -1709,8 +1756,7 @@ class ONETSimilarityMatcher:
             use_onet_cache: Whether to use cached O*NET embeddings
             use_apps_cache: Whether to use cached application embeddings
             save_all_similarities: Whether to save all similarity scores (creates large file)
-            onet_version: O*NET version string (e.g., "20" or "30") for filename suffix
-
+            
         Returns:
             Tuple of (results_dataframe, validation_metrics)
         """
@@ -1753,8 +1799,7 @@ class ONETSimilarityMatcher:
             unique_app_texts,
             "application strings",
             cache_prefix="apps",
-            use_cache=use_apps_cache,
-            text_type="apps"
+            use_cache=use_apps_cache
         )
 
         # Embed full O*NET task set (to reuse cache)
@@ -1763,8 +1808,7 @@ class ONETSimilarityMatcher:
             onet_tasks_full,
             "O*NET tasks",
             cache_prefix="onet",
-            use_cache=use_onet_cache,
-            text_type="tasks"
+            use_cache=use_onet_cache
         )
 
         # Now filter O*NET tasks and embeddings if SOC 15 should be excluded
@@ -1797,55 +1841,23 @@ class ONETSimilarityMatcher:
         # This reduces the dataset from 202M rows to ~39M rows before the expensive groupby
         max_bge_percentile = max(bge_percentiles)  # e.g., 20
 
-        # Safety check: ensure global_percentile_thresholds is available
-        if not hasattr(self, 'global_percentile_thresholds') or self.global_percentile_thresholds is None:
-            logger.warning("global_percentile_thresholds not available, computing from results_df")
-            all_similarities_array = results_df['similarity'].values
-            self.global_percentile_thresholds = {}
-            for percentile in sorted(bge_percentiles):
-                threshold = np.percentile(all_similarities_array, 100 - percentile)
-                self.global_percentile_thresholds[percentile] = threshold
-                logger.info(f"  Global {percentile}% percentile (top {percentile}%): {threshold:.4f}")
+        # NOTE: Skip deduplication for memory efficiency - work with all matches directly
+        # For per-task filtering, we don't need to deduplicate first
+        logger.info("Skipping deduplication step for memory efficiency")
 
-        ce_percentile_threshold = self.global_percentile_thresholds[max_bge_percentile]
-        logger.info(f"Filtering to pairs above global {max_bge_percentile}% percentile ({ce_percentile_threshold:.4f})")
+        # Use ALL filtered results (above 0.3 threshold)
+        deduplicated_similarities = results_df.copy()
+        logger.info(f"Using all {len(deduplicated_similarities):,} filtered pairs")
 
-        # Pre-filter before groupby to improve performance
-        filtered_results_df = results_df[results_df['similarity'] >= ce_percentile_threshold].copy()
-        logger.info(f"Filtered from {len(results_df):,} to {len(filtered_results_df):,} pairs ({len(filtered_results_df)/len(results_df)*100:.1f}%)")
-
-        # Create deduplicated similarity scores: group by (app_text, onet_task_id) and aggregate job_uids
-        deduplicated_similarities = filtered_results_df.groupby(
-            ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
-            as_index=False,
-            sort=False  # Skip internal sorting; we sort afterward anyway
-        ).agg({
-            'job_uid': list,  # Faster than lambda x: list(set(x))
-            'first_occurrence_tst_created': 'first'  # Earliest timestamp
-        }).reset_index(drop=True)
-
-        # Deduplicate job_uids after groupby (faster than doing it in lambda)
-        deduplicated_similarities['job_uid'] = deduplicated_similarities['job_uid'].apply(
-            lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
-        )
-
-        # Add num_jobs column
-        deduplicated_similarities['num_jobs'] = deduplicated_similarities['job_uid'].map(len)
-
-        logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique (app_text, onet_task_id) pairs")
-
-        # Sort both DataFrames by similarity in descending order
-        results_df = results_df.sort_values('similarity', ascending=False)
-        deduplicated_similarities = deduplicated_similarities.sort_values('similarity', ascending=False)
-
-        # Clean up massive results_df immediately - we only needed it for sorting
-        logger.info("Freeing memory: deleting large results_df")
-        del results_df
-        gc.collect()
+        # Merge Task Type column for core vs all tasks split
+        deduplicated_similarities = deduplicated_similarities.merge(
+            onet_df[['task_id', 'Task Type']].rename(columns={'Task Type': 'task_type'}),
+            left_on='onet_task_id', right_on='task_id', how='left'
+        ).drop(columns=['task_id'])
+        logger.info(f"Added Task Type column for core/all task differentiation")
 
         # Create job mapping (app_text -> list of job_uids) with temporal information
-        # CRITICAL FIX: Use filtered_results_df instead of results_df to avoid unnecessary computation on 2B rows
-        job_mapping_agg = filtered_results_df.groupby('app_text', sort=False).agg({
+        job_mapping_agg = results_df.groupby('app_text', sort=False).agg({
             'job_uid': list,  # Faster than lambda x: list(set(x))
             'first_occurrence_tst_created': 'first'  # Earliest timestamp for this app_text
         }).reset_index()
@@ -1859,22 +1871,20 @@ class ONETSimilarityMatcher:
         job_mapping['job_uids'] = job_mapping['job_uid'].apply(lambda x: '|'.join(sorted(x)))
         job_mapping['num_jobs'] = job_mapping['job_uid'].map(len)  # map() is faster than apply() for len
         job_mapping = job_mapping[['app_text', 'job_uids', 'num_jobs', 'first_occurrence_tst_created']].copy()
-        
-        logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique app-task pairs")
-        logger.info(f"Created job mapping for {len(job_mapping)} unique applications (temporal ordering preserved)")
 
-        # Clean up filtered_results_df - we only needed it for job mapping
-        logger.info("Freeing memory: deleting filtered_results_df")
-        del filtered_results_df, job_mapping_agg
-        gc.collect()
+        logger.info(f"Using {len(deduplicated_similarities):,} app-task pairs (no deduplication)")
+        logger.info(f"Created job mapping for {len(job_mapping)} unique applications")
+
+        # NEW: Compute per-task percentile rankings
+        logger.info("Computing per-task similarity percentile rankings")
+        deduplicated_similarities = self._compute_per_task_rankings(deduplicated_similarities)
+        logger.info(f"Added per_task_rank_pct column to {len(deduplicated_similarities):,} matches")
 
         # Phase 3 & 4: Determine highest BGE percentile for cross-encoder and filter
-        logger.info("Phase 3: Determining highest BGE percentile for cross-encoder")
-        max_bge_percentile = max(bge_percentiles)  # e.g., 20 from [20, 10, 5, 1]
-
-        # Use GLOBAL percentile calculated on ALL pairs (not filtered subset)
-        ce_percentile_threshold = self.global_percentile_thresholds[max_bge_percentile]
-        logger.info(f"Using GLOBAL {max_bge_percentile}% percentile threshold: {ce_percentile_threshold:.4f}")
+        # KEY DIFFERENCE: Use PER-TASK filtering instead of global percentile
+        logger.info("Phase 3: Determining highest per-task BGE percentile for cross-encoder")
+        max_bge_percentile = max(bge_percentiles)  # e.g., 20 from [20, 15, 10, 5, 1]
+        logger.info(f"Using PER-TASK top {max_bge_percentile}% filtering for cross-encoder")
 
         # Phase E: Cross-encoder validation (optional)
         cross_encoder_report = None  # Initialize to None (will be set if cross-encoder is used)
@@ -1884,10 +1894,12 @@ class ONETSimilarityMatcher:
             # Add placeholder column for compatibility
             unified_matches['cross_encoder_score'] = np.nan
         else:
-            ce_input_df = deduplicated_similarities[
-                deduplicated_similarities['similarity'] >= ce_percentile_threshold
-            ].copy()
-            logger.info(f"Running cross-encoder on top {max_bge_percentile}% ({len(ce_input_df)} unique pairs)")
+            # Filter to top max_bge_percentile per task using per-task ranking
+            ce_input_df = self._filter_to_top_per_task_percentile(
+                deduplicated_similarities.copy(),
+                percentile=max_bge_percentile
+            )
+            logger.info(f"Running cross-encoder on per-task top {max_bge_percentile}% ({len(ce_input_df):,} unique pairs)")
 
             # Cross-encoder validation (parallel or serial)
             num_workers = getattr(self, 'num_workers', 1)  # Get from instance if set
@@ -1920,118 +1932,101 @@ class ONETSimilarityMatcher:
                 how='left'
             )
 
-        # Merge Task Type column for core vs all tasks split (do this BEFORE percentile calculations)
-        unified_matches = unified_matches.merge(
-            onet_df[['task_id', 'Task Type']].rename(columns={'Task Type': 'task_type'}),
-            left_on='onet_task_id', right_on='task_id', how='left'
-        ).drop(columns=['task_id'])
-        logger.info(f"Added Task Type column for core/all task differentiation")
+        # Create boolean columns for all BGE percentile thresholds
+        # KEY DIFFERENCE: Use PER-TASK rankings instead of global percentiles
+        logger.info("Computing per-task BGE percentile boolean columns")
+
+        for p in bge_percentiles:
+            pct_threshold = p / 100.0  # Convert to decimal (0-1)
+
+            # Format percentile name: handle both integers (20) and floats (0.1)
+            if isinstance(p, int) or p == int(p):
+                pct_name = f'pct_{int(p):02d}'
+            else:
+                # For floats like 0.1, format as pct_0p1
+                pct_str = f'{p:.1f}'.replace('.', 'p')
+                pct_name = f'pct_{pct_str}'
+
+            # Create boolean column using per-task rank (True if within top N% for this task)
+            unified_matches[pct_name] = unified_matches['per_task_rank_pct'] <= pct_threshold
+
+            match_count = unified_matches[pct_name].sum()
+            unique_tasks = unified_matches[unified_matches[pct_name]]['onet_task_id'].nunique()
+            logger.info(f"  {pct_name} (top {p}% per task): {match_count:,} matches across {unique_tasks:,} tasks")
+
+        # Create boolean columns for all cross-encoder thresholds (with NaN handling)
+        logger.info("Computing cross-encoder threshold columns")
+        for ce_thresh in ce_thresholds:
+            col_name = f'ce_{ce_thresh:.1f}'
+            if ce_thresh == 0.0:
+                # ce_0.0 means "no CE filtering" - always True to act as a pass-through
+                # This allows the pipeline to work with or without cross-encoder scores
+                unified_matches[col_name] = True
+                match_count = len(unified_matches)
+                logger.info(f"  {col_name}: {match_count:,} matches (no CE filtering)")
+            else:
+                # Apply threshold only where CE score exists (NaN will become False)
+                unified_matches[col_name] = (
+                    (unified_matches['cross_encoder_score'] >= ce_thresh) &
+                    unified_matches['cross_encoder_score'].notna()
+                )
+                match_count = unified_matches[col_name].sum()
+                logger.info(f"  {col_name}: {match_count:,} matches")
+
+        # Validation: Enforce per-task percentile monotonicity (pct_20 >= pct_15 >= ... >= pct_01)
+        self._validate_per_task_monotonicity(unified_matches, bge_percentiles)
+
+        # Validation: Enforce CE <= BGE for each specification
+        logger.info("Validating CE <= BGE monotonicity...")
+        validation_errors = []
+        bge_cols = []
+        for p in bge_percentiles:
+            if isinstance(p, int) or p == int(p):
+                bge_cols.append(f'pct_{int(p):02d}')
+            else:
+                pct_str = f'{p:.1f}'.replace('.', 'p')
+                bge_cols.append(f'pct_{pct_str}')
+        ce_cols = [f'ce_{c:.1f}' for c in ce_thresholds if c > 0.0]  # Exclude ce_0.0 from validation
+        for bge_col in bge_cols:
+            for ce_col in ce_cols:
+                combined_matches = unified_matches[bge_col] & unified_matches[ce_col]
+                ce_only_matches = unified_matches[ce_col] & ~unified_matches[bge_col]
+                if ce_only_matches.sum() > 0:
+                    error_msg = f"VALIDATION ERROR: {ce_col} has {ce_only_matches.sum()} matches not in {bge_col}"
+                    logger.error(error_msg)
+                    validation_errors.append(error_msg)
+
+        if validation_errors:
+            raise ValueError(f"Validation failed with {len(validation_errors)} errors: {validation_errors[0]}")
+        logger.info("✓ Monotonicity validation passed")
 
         # Process task types based on CLI argument
         # Split logic: Process core tasks and/or all tasks separately with their own percentile calculations
         job_mapping_file = None
         final_return_df = None
 
-        # For 'core' mode: we'll delete unified_matches after processing core tasks
-        # For 'all' mode: we'll delete unified_matches after processing all tasks
-        # For 'both' mode: we keep unified_matches for the all tasks processing
-
         if task_type in ['core', 'both']:
             logger.info("="*80)
             logger.info("PROCESSING CORE TASKS")
             logger.info("="*80)
 
-            # Filter to core tasks BEFORE calculating percentiles
+            # Filter to core tasks and recalculate percentiles on core subset
             unified_matches_core = unified_matches[unified_matches['task_type'] == 'Core'].copy()
             logger.info(f"Filtered to {len(unified_matches_core):,} Core task matches (from {len(unified_matches):,} total)")
 
-            # Calculate percentiles on core tasks only
-            logger.info("Computing BGE percentile thresholds for CORE TASKS")
-            bge_thresholds_core = {}
-            for p in bge_percentiles:
-                threshold = np.percentile(unified_matches_core['similarity'].values, 100 - p)
-                # Format percentile name: handle both integers (20) and floats (0.1)
-                if isinstance(p, int) or p == int(p):
-                    pct_name = f'pct_{int(p):02d}'
-                else:
-                    # For floats like 0.1, format as pct_0p1
-                    pct_str = f'{p:.1f}'.replace('.', 'p')
-                    pct_name = f'pct_{pct_str}'
-                bge_thresholds_core[pct_name] = threshold
-                logger.info(f"  {p}% percentile (top {p}%): {threshold:.4f}")
-
-            # Add BGE boolean columns for core tasks
-            for pct_name, threshold in bge_thresholds_core.items():
-                unified_matches_core[pct_name] = unified_matches_core['similarity'] >= threshold
-                match_count = unified_matches_core[pct_name].sum()
-                logger.info(f"  {pct_name}: {match_count:,} matches")
-
-            # Create boolean columns for all cross-encoder thresholds (with NaN handling)
-            logger.info("Computing cross-encoder threshold columns for CORE TASKS")
-            for ce_thresh in ce_thresholds:
-                col_name = f'ce_{ce_thresh:.1f}'
-                if ce_thresh == 0.0:
-                    # ce_0.0 means "no CE filtering" - always True to act as a pass-through
-                    unified_matches_core[col_name] = True
-                    match_count = len(unified_matches_core)
-                    logger.info(f"  {col_name}: {match_count:,} matches (no CE filtering)")
-                else:
-                    # Apply threshold only where CE score exists (NaN will become False)
-                    unified_matches_core[col_name] = (
-                        (unified_matches_core['cross_encoder_score'] >= ce_thresh) &
-                        unified_matches_core['cross_encoder_score'].notna()
-                    )
-                    match_count = unified_matches_core[col_name].sum()
-                    logger.info(f"  {col_name}: {match_count:,} matches")
-
-            # Save core tasks output with comprehensive naming including model, percentiles, and O*NET version
-            if self.use_openai_embeddings:
-                model_suffix = "_openai"
-            else:
-                # Extract model abbreviation from model name (e.g., "BAAI/bge-large-en-v1.5" -> "bge")
-                model_abbr = self.model_name.split("/")[-1].split("-")[0]
-                model_suffix = f"_{model_abbr}"
-
-            # Build comprehensive filename with percentiles and O*NET version
-            percentile_str = "_".join(str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
-                                      for p in sorted(bge_percentiles, reverse=True))
-            ce_percentile_str = "_".join(f"{c:.1f}".replace(".", "p") for c in sorted(ce_thresholds, reverse=True) if c > 0.0)
-            onet_suffix = f"_onet{onet_version}" if onet_version else ""
-
-            core_output = os.path.join(output_dir,
-                f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}_core_tasks.parquet")
+            # Save core tasks output
+            core_output = os.path.join(output_dir, "task_exposure_matches_all_thresholds_pertask_core_tasks.parquet")
             unified_matches_core.to_parquet(core_output, index=False, compression='snappy')
-            logger.info(f"Saved CORE TASKS: {core_output} ({len(unified_matches_core):,} rows)")
+            logger.info(f"Saved CORE TASKS (PER-TASK FILTERED): {core_output} ({len(unified_matches_core):,} rows)")
 
             # Save job mapping (shared for both)
             if task_type == 'core':
-                job_mapping_file = os.path.join(output_dir,
-                    f"job_app_mapping{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}.parquet")
-                logger.info("Saving job mapping...")
-                gc.collect()  # Force GC before large job_mapping write
+                job_mapping_file = os.path.join(output_dir, "job_app_mapping.parquet")
                 job_mapping.to_parquet(job_mapping_file, index=False, compression='snappy')
                 logger.info(f"Saved job mapping: {job_mapping_file}")
                 final_return_df = unified_matches_core
-                # COMPREHENSIVE cleanup: delete ALL intermediate dataframes not needed for return
-                # (but NOT unified_matches_core - we return it as final_return_df)
-                logger.info("Freeing memory: comprehensive cleanup for core-only mode")
-                del unified_matches, job_mapping, deduplicated_similarities
-                # Delete cross-encoder intermediates if they exist
-                if 'ce_input_df' in locals():
-                    del ce_input_df
-                if 'cross_encoder_validated_df' in locals():
-                    del cross_encoder_validated_df
-                if 'ce_scores' in locals():
-                    del ce_scores
-                # Set all_similarities_df to None instead of deleting (so it doesn't cause UnboundLocalError later)
-                # This frees the massive dataframe (200M+ rows) from memory
-                if all_similarities_df is not None:
-                    all_similarities_df = None
-                gc.collect()
-                logger.info("Memory cleanup completed for core-only mode - freed all intermediate dataframes")
 
             if task_type == 'both':
-                logger.info("Freeing memory: deleting unified_matches_core (keeping unified_matches for all tasks processing)")
                 del unified_matches_core
                 gc.collect()
 
@@ -2040,100 +2035,33 @@ class ONETSimilarityMatcher:
             logger.info("PROCESSING ALL TASKS")
             logger.info("="*80)
 
-            logger.info(f"Using all {len(unified_matches):,} task matches")
+            unified_matches_all = unified_matches.copy()
+            logger.info(f"Using all {len(unified_matches_all):,} task matches")
 
-            # Calculate percentiles on all tasks only
-            logger.info("Computing BGE percentile thresholds for ALL TASKS")
-            bge_thresholds_all = {}
-            for p in bge_percentiles:
-                threshold = np.percentile(unified_matches['similarity'].values, 100 - p)
-                # Format percentile name: handle both integers (20) and floats (0.1)
-                if isinstance(p, int) or p == int(p):
-                    pct_name = f'pct_{int(p):02d}'
-                else:
-                    # For floats like 0.1, format as pct_0p1
-                    pct_str = f'{p:.1f}'.replace('.', 'p')
-                    pct_name = f'pct_{pct_str}'
-                bge_thresholds_all[pct_name] = threshold
-                logger.info(f"  {p}% percentile (top {p}%): {threshold:.4f}")
-
-            # For 'both' mode, we add columns only to a copy; for 'all' mode, we add to unified_matches directly
-            if task_type == 'both':
-                unified_matches_all = unified_matches.copy()
-            else:
-                unified_matches_all = unified_matches
-
-            # Add BGE boolean columns for all tasks
-            for pct_name, threshold in bge_thresholds_all.items():
-                unified_matches_all[pct_name] = unified_matches_all['similarity'] >= threshold
-                match_count = unified_matches_all[pct_name].sum()
-                logger.info(f"  {pct_name}: {match_count:,} matches")
-
-            # Create boolean columns for all cross-encoder thresholds (with NaN handling)
-            logger.info("Computing cross-encoder threshold columns for ALL TASKS")
-            for ce_thresh in ce_thresholds:
-                col_name = f'ce_{ce_thresh:.1f}'
-                if ce_thresh == 0.0:
-                    # ce_0.0 means "no CE filtering" - always True to act as a pass-through
-                    unified_matches_all[col_name] = True
-                    match_count = len(unified_matches_all)
-                    logger.info(f"  {col_name}: {match_count:,} matches (no CE filtering)")
-                else:
-                    # Apply threshold only where CE score exists (NaN will become False)
-                    unified_matches_all[col_name] = (
-                        (unified_matches_all['cross_encoder_score'] >= ce_thresh) &
-                        unified_matches_all['cross_encoder_score'].notna()
-                    )
-                    match_count = unified_matches_all[col_name].sum()
-                    logger.info(f"  {col_name}: {match_count:,} matches")
-
-            # Save all tasks output with comprehensive naming including model, percentiles, and O*NET version
-            if self.use_openai_embeddings:
-                model_suffix = "_openai"
-            else:
-                # Extract model abbreviation from model name (e.g., "BAAI/bge-large-en-v1.5" -> "bge")
-                model_abbr = self.model_name.split("/")[-1].split("-")[0]
-                model_suffix = f"_{model_abbr}"
-
-            # Build comprehensive filename with percentiles and O*NET version
-            percentile_str = "_".join(str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
-                                      for p in sorted(bge_percentiles, reverse=True))
-            ce_percentile_str = "_".join(f"{c:.1f}".replace(".", "p") for c in sorted(ce_thresholds, reverse=True) if c > 0.0)
-            onet_suffix = f"_onet{onet_version}" if onet_version else ""
-
-            all_output = os.path.join(output_dir,
-                f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}_all_tasks.parquet")
-
-            # Force garbage collection before large parquet write
-            logger.info("Saving ALL TASKS parquet file...")
-            gc.collect()
+            # Save all tasks output
+            all_output = os.path.join(output_dir, "task_exposure_matches_all_thresholds_pertask_all_tasks.parquet")
             unified_matches_all.to_parquet(all_output, index=False, compression='snappy')
-            logger.info(f"Saved ALL TASKS: {all_output} ({len(unified_matches_all):,} rows)")
+            logger.info(f"Saved ALL TASKS (PER-TASK FILTERED): {all_output} ({len(unified_matches_all):,} rows)")
 
             # Save job mapping if this is the only run
             if task_type == 'all':
-                job_mapping_file = os.path.join(output_dir,
-                    f"job_app_mapping{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}.parquet")
+                job_mapping_file = os.path.join(output_dir, "job_app_mapping.parquet")
                 job_mapping.to_parquet(job_mapping_file, index=False, compression='snappy')
                 logger.info(f"Saved job mapping: {job_mapping_file}")
                 final_return_df = unified_matches_all
             elif task_type == 'both':
                 # Save job mapping on second run (only save once)
                 if job_mapping_file is None:
-                    job_mapping_file = os.path.join(output_dir,
-                        f"job_app_mapping{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}.parquet")
+                    job_mapping_file = os.path.join(output_dir, "job_app_mapping.parquet")
                     job_mapping.to_parquet(job_mapping_file, index=False, compression='snappy')
                     logger.info(f"Saved job mapping: {job_mapping_file}")
 
-            # Clean up all_tasks data after saving
             if task_type == 'both':
                 del unified_matches_all
                 gc.collect()
 
         # 3. Parquet format for ALL similarity scores (comprehensive analysis)
-        # Skip for core-only mode - all_similarities_df already deleted in core cleanup above
-        # For all/both modes, process the comprehensive similarity scores
-        if all_similarities_df is not None and task_type != 'core':
+        if all_similarities_df is not None:
             # Create deduplicated version of all similarities too
             all_deduplicated = all_similarities_df.drop_duplicates(
                 subset=['app_text', 'onet_task_id']
@@ -2149,6 +2077,10 @@ class ONETSimilarityMatcher:
             # Free memory
             del all_similarities_df, all_deduplicated
             gc.collect()
+
+        # Free memory - results_df is no longer needed
+        del results_df
+        gc.collect()
 
         # 4. Save validation metrics (including cross-encoder report if available)
         if cross_encoder_report is not None:
@@ -2230,8 +2162,8 @@ def _cross_encoder_worker_function(worker_id: int,
     onet_tasks = chunk_df['onet_task'].tolist()
     pairs = [[app, task] for app, task in zip(app_texts, onet_tasks)]
 
-    # Use actual DataFrame indices from chunk (these map back to original similarity_df)
-    global_indices = chunk_df.index.tolist()
+    # Create global indices for this chunk (CRITICAL: these map back to original DataFrame)
+    global_indices = list(range(global_start_idx, global_start_idx + len(chunk_df)))
 
     # Run inference with checkpointing
     scores = []
@@ -2365,10 +2297,7 @@ def parse_arguments():
     
     parser.add_argument("--model", type=str, default="BAAI/bge-large-en-v1.5",
                        help="Embedding model name (default: BAAI/bge-large-en-v1.5)")
-
-    parser.add_argument("--use-openai-embeddings", action="store_true",
-                       help="Load pre-generated OpenAI text-embedding-3-large embeddings from cache (generated by generate_openai_embeddings.py)")
-
+    
     parser.add_argument("--step3-file", type=str, default=None,
                        help="Path to Step 3 output file (auto-detect latest if not specified)")
     
@@ -2417,8 +2346,8 @@ def parse_arguments():
     parser.add_argument("--num-workers", type=int, default=1,
                        help="Number of parallel workers for cross-encoder (default: 1)")
 
-    parser.add_argument("--checkpoint-interval", type=int, default=10000,
-                       help="Save cross-encoder checkpoint every N pairs (default: 10000)")
+    parser.add_argument("--checkpoint-interval", type=int, default=100000,
+                       help="Save cross-encoder checkpoint every N pairs (default: 100000)")
 
     parser.add_argument("--no-checkpoint", action="store_true",
                        help="Disable cross-encoder checkpointing (not recommended for large runs)")
@@ -2492,20 +2421,19 @@ def main():
         batch_size = args.batch_size
         if batch_size is None:
             batch_size = 256 if torch.cuda.is_available() else 64
-            
-        matcher = ONETSimilarityMatcher(
+
+        matcher = ONETSimilarityMatcherPerTask(
             model_name=args.model,
             minimum_similarity=MINIMUM_SIMILARITY,
             batch_size=batch_size,
-            embeddings_dir=args.embeddings_dir,
-            use_openai_embeddings=args.use_openai_embeddings
+            embeddings_dir=args.embeddings_dir
         )
     except Exception as e:
         logger.error(f"Failed to initialize matcher: {e}")
         return
 
-    # Override device if requested (only for BGE embeddings)
-    if not args.use_openai_embeddings and args.force_device != "auto":
+    # Override device if requested
+    if args.force_device != "auto":
         logger.info(f"Overriding device detection: {args.force_device}")
         matcher.device = args.force_device
         matcher.model = matcher.model.to(matcher.device)
@@ -2561,8 +2489,7 @@ def main():
             cross_encoder_batch_size=args.cross_encoder_batch_size,
             bge_percentiles=BGE_PERCENTILES,
             ce_thresholds=CE_THRESHOLDS,
-            task_type=args.task_type,
-            onet_version=args.onet_version
+            task_type=args.task_type
         )
         
         # Print summary
