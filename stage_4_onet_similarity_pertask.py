@@ -2195,9 +2195,9 @@ def _cross_encoder_worker_function(worker_id: int,
                         except Exception as e:
                             logger.warning(f"Worker {worker_id}: Could not load existing checkpoint: {e}")
 
-                    # Create new data for this checkpoint interval
+                    # Create new data for this checkpoint interval (ALL scores so far to avoid index overlap)
                     new_checkpoint_df = pd.DataFrame({
-                        'global_index': global_indices[:pairs_processed],
+                        'global_index': global_indices[:len(scores)],
                         'cross_encoder_score': scores
                     })
 

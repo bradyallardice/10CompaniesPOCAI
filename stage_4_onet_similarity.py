@@ -2263,9 +2263,9 @@ def _cross_encoder_worker_function(worker_id: int,
                         except Exception as e:
                             logger.warning(f"Worker {worker_id}: Could not load existing checkpoint: {e}")
 
-                    # Create new data for this checkpoint interval
+                    # Create new data for this checkpoint interval (ALL scores so far to avoid index overlap)
                     new_checkpoint_df = pd.DataFrame({
-                        'global_index': global_indices[:pairs_processed],
+                        'global_index': global_indices[:len(scores)],
                         'cross_encoder_score': scores
                     })
 
@@ -2418,7 +2418,7 @@ def parse_arguments():
                        help="Number of parallel workers for cross-encoder (default: 1)")
 
     parser.add_argument("--checkpoint-interval", type=int, default=10000,
-                       help="Save cross-encoder checkpoint every N pairs (default: 10000)")
+                    help="Save cross-encoder checkpoint every N pairs (default: 10000)")
 
     parser.add_argument("--no-checkpoint", action="store_true",
                        help="Disable cross-encoder checkpointing (not recommended for large runs)")
