@@ -1488,13 +1488,14 @@ class ONETSimilarityMatcherPerTask:
                     except Exception as e:
                         logger.warning(f"Failed to load salvaged checkpoint {salvaged_file.name}: {e}")
 
-        # Then, try to load regular checkpoints by worker_id
-        for worker_id in range(num_workers):
-            checkpoint_path = self._get_ce_checkpoint_path(worker_id, cross_encoder_model,
-                                                          len(similarity_df), run_hash)
-            checkpoint_df = self._load_ce_checkpoint(checkpoint_path, run_metadata)
-            if checkpoint_df is not None:
-                existing_checkpoints[worker_id] = checkpoint_df
+        # Then, try to load regular checkpoints by worker_id (only if no salvaged checkpoints found)
+        if 'salvaged' not in existing_checkpoints:
+            for worker_id in range(num_workers):
+                checkpoint_path = self._get_ce_checkpoint_path(worker_id, cross_encoder_model,
+                                                              len(similarity_df), run_hash)
+                checkpoint_df = self._load_ce_checkpoint(checkpoint_path, run_metadata)
+                if checkpoint_df is not None:
+                    existing_checkpoints[worker_id] = checkpoint_df
 
         checkpoint_scores = None
         if existing_checkpoints:
