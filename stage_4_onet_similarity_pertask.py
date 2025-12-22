@@ -1467,6 +1467,26 @@ class ONETSimilarityMatcherPerTask:
 
         # Detect and load existing checkpoints
         existing_checkpoints = {}
+
+        # First, try to load salvaged checkpoints (converted from positional to content-based keys)
+        salvaged_dir = Path(self.embeddings_dir) / "cross_encoder_checkpoints" / "salvaged"
+        if salvaged_dir.exists():
+            salvaged_files = sorted(salvaged_dir.glob(f"ce_worker*{cross_encoder_model.replace('/', '_')}*{len(similarity_df)}*"))
+            if salvaged_files:
+                logger.info(f"Found {len(salvaged_files)} salvaged checkpoints in {salvaged_dir}")
+                for salvaged_file in salvaged_files:
+                    try:
+                        df = pd.read_parquet(salvaged_file)
+                        # Salvaged files use content-based keys, so merge all into one dict
+                        for _, row in df.iterrows():
+                            key = (row['app_text'], row['onet_task_id'])
+                            # Just accumulate all rows - we'll merge them below
+                        existing_checkpoints['salvaged'] = df
+                        logger.info(f"  Loaded salvaged checkpoint: {salvaged_file.name} ({len(df)} scores)")
+                    except Exception as e:
+                        logger.warning(f"Failed to load salvaged checkpoint {salvaged_file.name}: {e}")
+
+        # Then, try to load regular checkpoints by worker_id
         for worker_id in range(num_workers):
             checkpoint_path = self._get_ce_checkpoint_path(worker_id, cross_encoder_model,
                                                           len(similarity_df), run_hash)
@@ -1479,15 +1499,27 @@ class ONETSimilarityMatcherPerTask:
             logger.info(f"Found {len(existing_checkpoints)} valid checkpoints for this run")
             all_checkpoint_dfs = list(existing_checkpoints.values())
             merged_checkpoints = pd.concat(all_checkpoint_dfs, ignore_index=True)
-            merged_checkpoints = merged_checkpoints.drop_duplicates(subset=['global_index'], keep='last')
-            merged_checkpoints = merged_checkpoints.sort_values('global_index')
 
-            logger.info(f"Loaded {len(merged_checkpoints)} pre-computed scores from checkpoints")
-            coverage_pct = (len(merged_checkpoints) / len(similarity_df)) * 100
-            logger.info(f"Checkpoint coverage: {len(merged_checkpoints):,}/{len(similarity_df):,} ({coverage_pct:.1f}%)")
+            # Check if we have content-based keys (new format) or positional indices (old format)
+            if 'app_text' in merged_checkpoints.columns and 'onet_task_id' in merged_checkpoints.columns:
+                # New format: content-based keys
+                logger.info("Loading content-based checkpoint format")
+                merged_checkpoints = merged_checkpoints.drop_duplicates(subset=['app_text', 'onet_task_id'], keep='last')
+                checkpoint_scores = {
+                    (row['app_text'], row['onet_task_id']): row['cross_encoder_score']
+                    for _, row in merged_checkpoints.iterrows()
+                }
+            else:
+                # Old format: positional indices (still supported for backward compatibility)
+                logger.info("Loading positional index checkpoint format (legacy)")
+                merged_checkpoints = merged_checkpoints.drop_duplicates(subset=['global_index'], keep='last')
+                merged_checkpoints = merged_checkpoints.sort_values('global_index')
+                checkpoint_scores = dict(zip(merged_checkpoints['global_index'],
+                                            merged_checkpoints['cross_encoder_score']))
 
-            checkpoint_scores = dict(zip(merged_checkpoints['global_index'],
-                                        merged_checkpoints['cross_encoder_score']))
+            logger.info(f"Loaded {len(checkpoint_scores)} pre-computed scores from checkpoints")
+            coverage_pct = (len(checkpoint_scores) / len(similarity_df)) * 100
+            logger.info(f"Checkpoint coverage: {len(checkpoint_scores):,}/{len(similarity_df):,} ({coverage_pct:.1f}%)")
 
             # If checkpoints cover everything, skip computation
             if len(checkpoint_scores) == len(similarity_df):
@@ -1509,21 +1541,34 @@ class ONETSimilarityMatcherPerTask:
             # Identify remaining work (exclude checkpointed pairs for flexible worker reassignment)
             total_pairs = len(similarity_df)
             if checkpoint_scores is not None:
-                # Filter to only pairs NOT in checkpoint
-                completed_indices = set(checkpoint_scores.keys())
-                remaining_mask = [i not in completed_indices for i in range(total_pairs)]
+                # Filter to only pairs NOT in checkpoint (works with both content-based and positional keys)
+                is_content_based = isinstance(next(iter(checkpoint_scores.keys())), tuple)
+
+                if is_content_based:
+                    # Content-based keys: (app_text, onet_task_id)
+                    completed_pairs = set(checkpoint_scores.keys())
+                    remaining_mask = [
+                        (row['app_text'], row['onet_task_id']) not in completed_pairs
+                        for _, row in similarity_df.iterrows()
+                    ]
+                else:
+                    # Positional indices (legacy format)
+                    completed_indices = set(checkpoint_scores.keys())
+                    remaining_mask = [i not in completed_indices for i in range(total_pairs)]
+
                 remaining_df = similarity_df.iloc[remaining_mask].copy()
                 remaining_count = len(remaining_df)
 
                 # Log comprehensive resume summary
-                cached_pct = len(completed_indices) / total_pairs * 100
+                cached_count = len(checkpoint_scores)
+                cached_pct = cached_count / total_pairs * 100
                 remaining_pct = remaining_count / total_pairs * 100
                 est_per_worker = remaining_count / num_workers
                 logger.info("=" * 70)
                 logger.info("RESUME FROM CHECKPOINT")
                 logger.info("=" * 70)
                 logger.info(f"Total pairs in dataset: {total_pairs:,}")
-                logger.info(f"Cached from previous runs: {len(completed_indices):,} ({cached_pct:.1f}%)")
+                logger.info(f"Cached from previous runs: {cached_count:,} ({cached_pct:.1f}%)")
                 logger.info(f"Remaining to process: {remaining_count:,} ({remaining_pct:.1f}%)")
                 logger.info(f"Workers for this run: {num_workers}")
                 logger.info(f"Estimated pairs per worker: ~{est_per_worker:,.0f}")
@@ -1625,11 +1670,21 @@ class ONETSimilarityMatcherPerTask:
                 # Merge results from workers with checkpoint data
                 cross_encoder_scores = [None] * total_pairs
 
-                # First, populate from checkpoints
+                # First, populate from checkpoints (handle both content-based and positional keys)
                 if checkpoint_scores is not None:
-                    for global_idx, score in checkpoint_scores.items():
-                        if 0 <= global_idx < total_pairs:
-                            cross_encoder_scores[global_idx] = score
+                    is_content_based = isinstance(next(iter(checkpoint_scores.keys())), tuple)
+
+                    if is_content_based:
+                        # Content-based keys: iterate through similarity_df and look up
+                        for i, (_, row) in enumerate(similarity_df.iterrows()):
+                            key = (row['app_text'], row['onet_task_id'])
+                            if key in checkpoint_scores:
+                                cross_encoder_scores[i] = checkpoint_scores[key]
+                    else:
+                        # Positional indices (legacy format)
+                        for global_idx, score in checkpoint_scores.items():
+                            if 0 <= global_idx < total_pairs:
+                                cross_encoder_scores[global_idx] = score
 
                 # Then, overlay fresh worker results (overwrites checkpoint data if recomputed)
                 for worker_id, global_indices, chunk_scores in results:
@@ -2196,15 +2251,18 @@ def _cross_encoder_worker_function(worker_id: int,
                             logger.warning(f"Worker {worker_id}: Could not load existing checkpoint: {e}")
 
                     # Create new data for this checkpoint interval (ALL scores so far to avoid index overlap)
+                    # Use content-based keys for robust checkpoint resumption
                     new_checkpoint_df = pd.DataFrame({
-                        'global_index': global_indices[:len(scores)],
+                        'app_text': chunk_df['app_text'].iloc[:len(scores)].values,
+                        'onet_task_id': chunk_df['onet_task_id'].iloc[:len(scores)].values,
                         'cross_encoder_score': scores
                     })
 
                     # Append to existing or use new
                     if existing_df is not None and len(existing_df) > 0:
                         checkpoint_df = pd.concat([existing_df, new_checkpoint_df], ignore_index=True)
-                        checkpoint_df = checkpoint_df.drop_duplicates(subset=['global_index'], keep='last')
+                        # Deduplicate on content keys to prevent data loss
+                        checkpoint_df = checkpoint_df.drop_duplicates(subset=['app_text', 'onet_task_id'], keep='last')
                     else:
                         checkpoint_df = new_checkpoint_df
 
@@ -2244,16 +2302,17 @@ def _cross_encoder_worker_function(worker_id: int,
                 except Exception as e:
                     logger.warning(f"Worker {worker_id}: Could not load existing checkpoint: {e}")
 
-            # Create final checkpoint data
+            # Create final checkpoint data using content-based keys
             final_checkpoint_df = pd.DataFrame({
-                'global_index': global_indices,
+                'app_text': chunk_df['app_text'].values,
+                'onet_task_id': chunk_df['onet_task_id'].values,
                 'cross_encoder_score': scores
             })
 
             # Append to existing or use new
             if existing_df is not None and len(existing_df) > 0:
                 checkpoint_df = pd.concat([existing_df, final_checkpoint_df], ignore_index=True)
-                checkpoint_df = checkpoint_df.drop_duplicates(subset=['global_index'], keep='last')
+                checkpoint_df = checkpoint_df.drop_duplicates(subset=['app_text', 'onet_task_id'], keep='last')
             else:
                 checkpoint_df = final_checkpoint_df
 
