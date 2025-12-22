@@ -1423,7 +1423,9 @@ class ONETSimilarityMatcher:
         # First, try to load salvaged checkpoints (converted from positional to content-based keys)
         salvaged_dir = Path(self.embeddings_dir) / "cross_encoder_checkpoints" / "salvaged"
         if salvaged_dir.exists():
-            salvaged_files = sorted(salvaged_dir.glob(f"ce_worker*{cross_encoder_model.replace('/', '_')}*{len(similarity_df)}*"))
+            # Salvaged files have pattern: ce_worker{id}_{model_name}_{total_pairs}_{hash}.parquet
+            # Just match any ce_worker files - we'll validate columns when loading
+            salvaged_files = sorted(salvaged_dir.glob("ce_worker*.parquet"))
             if salvaged_files:
                 logger.info(f"Found {len(salvaged_files)} salvaged checkpoints in {salvaged_dir}")
                 for salvaged_file in salvaged_files:
