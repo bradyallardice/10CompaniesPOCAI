@@ -415,16 +415,22 @@ class ONETSimilarityMatcher:
         content = f"{model_name}|{len(app_texts)}|{len(onet_task_ids)}"
         return hashlib.md5(content.encode()).hexdigest()[:8]
 
-    def _get_ce_checkpoint_path(self, worker_id: int, model_name: str,
-                                total_pairs: int, run_hash: str) -> Path:
+    def _get_ce_checkpoint_path(self, model_name: str,
+                                total_pairs: int, run_hash: str,
+                                start_idx: Optional[int] = None,
+                                end_idx: Optional[int] = None) -> Path:
         """
         Generate checkpoint file path for cross-encoder worker progress.
 
+        Uses content-based naming (chunk indices) for immutable checkpoints that work
+        with any number of workers. Falls back to single-file naming if indices not provided.
+
         Args:
-            worker_id: Worker identifier
             model_name: Cross-encoder model name
             total_pairs: Total number of pairs being processed
             run_hash: Hash identifying this specific run
+            start_idx: Starting index in full dataset (optional, for content-based naming)
+            end_idx: Ending index in full dataset (optional, for content-based naming)
 
         Returns:
             Path to checkpoint file
@@ -433,7 +439,13 @@ class ONETSimilarityMatcher:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         safe_model_name = model_name.replace("/", "_").replace("-", "_")
-        filename = f"ce_worker{worker_id}_{safe_model_name}_total{total_pairs}_{run_hash}.parquet"
+
+        # Use content-based naming if indices provided (preferred for resumable checkpoints)
+        if start_idx is not None and end_idx is not None:
+            filename = f"ce_chunk_{start_idx}_{end_idx}_{safe_model_name}_total{total_pairs}_{run_hash}.parquet"
+        else:
+            # Fallback to single merged file for backward compatibility
+            filename = f"ce_merged_{safe_model_name}_total{total_pairs}_{run_hash}.parquet"
 
         return checkpoint_dir / filename
 
@@ -784,10 +796,13 @@ class ONETSimilarityMatcher:
             # Check for expected columns
             if 'Task' not in onet_df.columns:
                 raise ValueError("Expected 'Task' column not found in O*NET file")
+            if 'Task ID' not in onet_df.columns:
+                raise ValueError("Expected 'Task ID' column not found in O*NET file")
 
-            # Create task_id as row index
-            onet_df = onet_df.reset_index()
-            onet_df['task_id'] = onet_df.index
+            # Use actual Task ID from the file (not row index)
+            # Task IDs are unique identifiers in the O*NET file
+            onet_df = onet_df.reset_index(drop=True)
+            onet_df['task_id'] = onet_df['Task ID'].astype(int)
 
             # Clean and validate tasks
             onet_df = onet_df[onet_df['Task'].notna()].copy()
@@ -876,18 +891,17 @@ class ONETSimilarityMatcher:
                                       apps_embeddings: np.ndarray,
                                       onet_df: pd.DataFrame,
                                       onet_embeddings: np.ndarray,
-                                      save_all_similarities: bool = False,
                                       use_cache: bool = True,
+                                      per_task_mode: bool = False,
                                       bge_percentiles: Optional[List[int]] = None) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
         """
-        Phase C: Compute similarities and apply global minimum threshold with optional caching.
+        Phase C: Compute similarities and apply global minimum threshold with caching.
 
         Args:
             apps_df: DataFrame with application strings
             apps_embeddings: Embeddings for application strings
             onet_df: DataFrame with O*NET tasks
             onet_embeddings: Embeddings for O*NET tasks
-            save_all_similarities: Whether to also compute and return all similarities
             use_cache: Whether to use cached similarity results (default: True)
             bge_percentiles: List of percentile thresholds for later use (default: [20, 15, 10, 5, 1])
 
@@ -941,7 +955,7 @@ class ONETSimilarityMatcher:
         checkpoint_prefix = checkpoint_dir / cache_filename
 
         filtered_results_df = pd.DataFrame()
-        all_results_df = pd.DataFrame() if save_all_similarities else None
+        all_results_df = pd.DataFrame()  # Always save all similarities for accurate percentile calculation
 
         logger.info(f"Processing {len(unique_apps)} unique application strings in chunks of {CHUNK_SIZE}")
         logger.info(f"Using checkpoints at: {checkpoint_dir}")
@@ -960,7 +974,7 @@ class ONETSimilarityMatcher:
                 chunk_filtered_df = pd.read_parquet(chunk_checkpoint_filtered)
                 filtered_results_df = pd.concat([filtered_results_df, chunk_filtered_df], ignore_index=True)
 
-                if save_all_similarities and chunk_checkpoint_all.exists():
+                if chunk_checkpoint_all.exists():
                     chunk_all_df = pd.read_parquet(chunk_checkpoint_all)
                     all_results_df = pd.concat([all_results_df, chunk_all_df], ignore_index=True)
 
@@ -969,9 +983,14 @@ class ONETSimilarityMatcher:
 
             logger.info(f"Processing chunk {chunk_start}-{chunk_end} of {len(unique_apps)} apps")
 
+            # Pre-build lists for O(1) access during similarity computation
+            # These maintain positional alignment with onet_embeddings array
+            task_id_list = onet_df['task_id'].tolist()
+            task_text_list = onet_df['Task'].tolist()
+
             # Accumulate results for this chunk only
             chunk_filtered_results = []
-            chunk_all_results = [] if save_all_similarities else None
+            chunk_all_results = []  # Always collect all similarities
 
             for local_idx, app_text in enumerate(chunk_apps):
                 global_idx = chunk_start + local_idx
@@ -984,17 +1003,16 @@ class ONETSimilarityMatcher:
                 job_uid_to_timestamp = job_uid_lookup.get(app_text, {})
                 matching_jobs = list(job_uid_to_timestamp.keys())
 
-                # Save all similarities if requested
-                if save_all_similarities:
-                    for onet_idx, similarity in enumerate(similarities):
-                        for job_uid in matching_jobs:
-                            chunk_all_results.append({
-                                'job_uid': job_uid,
-                                'app_text': app_text,
-                                'onet_task_id': onet_df.iloc[onet_idx]['task_id'],
-                                'onet_task': onet_df.iloc[onet_idx]['Task'],
-                                'similarity': float(similarity)
-                            })
+                # Always save all similarities for accurate percentile calculation
+                for onet_idx, similarity in enumerate(similarities):
+                    for job_uid in matching_jobs:
+                        chunk_all_results.append({
+                            'job_uid': job_uid,
+                            'app_text': app_text,
+                            'onet_task_id': task_id_list[onet_idx],
+                            'onet_task': task_text_list[onet_idx],
+                            'similarity': float(similarity)
+                        })
 
                 # Apply global minimum threshold
                 above_threshold = similarities >= self.minimum_similarity
@@ -1009,8 +1027,8 @@ class ONETSimilarityMatcher:
                         chunk_filtered_results.append({
                             'job_uid': job_uid,
                             'app_text': app_text,
-                            'onet_task_id': onet_df.iloc[onet_idx]['task_id'],
-                            'onet_task': onet_df.iloc[onet_idx]['Task'],
+                            'onet_task_id': task_id_list[onet_idx],
+                            'onet_task': task_text_list[onet_idx],
                             'similarity': float(similarities[onet_idx]),
                             'first_occurrence_tst_created': timestamp
                         })
@@ -1028,7 +1046,7 @@ class ONETSimilarityMatcher:
                 logger.info(f"Saved filtered checkpoint: {chunk_checkpoint_filtered.name}")
                 del chunk_filtered_df
 
-            if save_all_similarities and chunk_all_results:
+            if chunk_all_results:
                 chunk_all_df = pd.DataFrame(chunk_all_results)
                 all_results_df = pd.concat([all_results_df, chunk_all_df], ignore_index=True)
 
@@ -1046,27 +1064,21 @@ class ONETSimilarityMatcher:
             logger.info(f"Chunk complete. Current memory: {filtered_results_df.memory_usage(deep=True).sum() / 1e6:.1f} MB")
 
         logger.info(f"Generated {len(filtered_results_df)} filtered similarity matches (above threshold {self.minimum_similarity})")
-        if save_all_similarities:
-            logger.info(f"Generated {len(all_results_df)} total similarity matches")
+        logger.info(f"Generated {len(all_results_df)} total similarity matches")
 
         # Calculate global percentile threshold on ALL similarity scores
         # This must be done BEFORE the 0.3 filter to get true top 20% of all pairs
-        if save_all_similarities and all_results_df is not None:
-            logger.info("Computing global percentile on ALL similarity scores")
-            all_similarities_array = all_results_df['similarity'].values
+        logger.info("Computing global percentile on ALL similarity scores")
+        all_similarities_array = all_results_df['similarity'].values
 
-            # Store percentile thresholds for later use by Phase E
-            self.global_percentile_thresholds = {}
-            for percentile in sorted(bge_percentiles):  # Use the passed percentiles, not hardcoded ones
-                threshold = np.percentile(all_similarities_array, 100 - percentile)
-                self.global_percentile_thresholds[percentile] = threshold
-                logger.info(f"  Global {percentile}% percentile (top {percentile}%): {threshold:.4f}")
+        # Store percentile thresholds for later use by Phase E
+        self.global_percentile_thresholds = {}
+        for percentile in sorted(bge_percentiles):  # Use the passed percentiles, not hardcoded ones
+            threshold = np.percentile(all_similarities_array, 100 - percentile)
+            self.global_percentile_thresholds[percentile] = threshold
+            logger.info(f"  Global {percentile}% percentile (top {percentile}%): {threshold:.4f}")
 
-            logger.info(f"Global percentiles calculated from {len(all_similarities_array):,} total pairs")
-        else:
-            logger.warning("Cannot compute global percentiles: save_all_similarities=False")
-            logger.warning("Will fall back to percentiles calculated on filtered subset (may be inaccurate)")
-            self.global_percentile_thresholds = None
+        logger.info(f"Global percentiles calculated from {len(all_similarities_array):,} total pairs")
 
         # Clean up chunk checkpoints after successful completion
         logger.info("Cleaning up chunk checkpoints...")
@@ -1074,11 +1086,98 @@ class ONETSimilarityMatcher:
             checkpoint_file.unlink()
             logger.info(f"Deleted checkpoint: {checkpoint_file.name}")
 
+        # If in per-task mode, also compute per-task rankings
+        if per_task_mode:
+            filtered_results_df = self._compute_per_task_rankings(filtered_results_df)
+
         # Save to cache
         if use_cache:
             self._save_similarity_cache(cache_path, filtered_results_df, all_results_df, self.minimum_similarity)
 
         return filtered_results_df, all_results_df
+
+    def _compute_per_task_rankings(self, results_df):
+        """
+        Compute per-task percentile rankings for each O*NET task.
+
+        For each task, ranks all matching AI applications by similarity score,
+        then converts ranks to percentiles (0-1 scale where 0 = best match).
+
+        Args:
+            results_df: DataFrame with columns ['app_text', 'onet_task_id', 'similarity']
+
+        Returns:
+            DataFrame with added 'per_task_rank_pct' column
+        """
+        logger.info("Computing per-task percentile rankings...")
+
+        # Group by task and rank within each group
+        results_df['per_task_rank'] = results_df.groupby('onet_task_id')['similarity'].rank(
+            ascending=False, method='min'
+        )
+
+        # Convert ranks to percentiles (0-1 scale)
+        task_counts = results_df.groupby('onet_task_id').size()
+        results_df['per_task_rank_pct'] = results_df.apply(
+            lambda row: (row['per_task_rank'] - 1) / (task_counts[row['onet_task_id']] - 1)
+            if task_counts[row['onet_task_id']] > 1 else 0.0,
+            axis=1
+        )
+
+        logger.info(f"  Added per-task rankings for {results_df['onet_task_id'].nunique()} tasks")
+
+        return results_df
+
+    def _filter_to_top_per_task_percentile(self, df, percentile):
+        """
+        Filter to top N% of matches per task (e.g., percentile=20 keeps top 20% per task).
+
+        Args:
+            df: DataFrame with 'per_task_rank_pct' column
+            percentile: Percentile threshold (0-100)
+
+        Returns:
+            Filtered DataFrame
+        """
+        threshold = percentile / 100.0
+        filtered = df[df['per_task_rank_pct'] <= threshold].copy()
+
+        logger.info(f"  Filtered to top {percentile}% per task: {len(filtered):,} pairs")
+
+        return filtered
+
+    def _validate_per_task_monotonicity(self, unified_df, percentile_cols):
+        """
+        Validate that per-task percentile columns follow subset relationship.
+
+        Each stricter percentile should be a subset of the looser one:
+        pct_20 ⊇ pct_15 ⊇ pct_10 ⊇ pct_05 ⊇ pct_01
+
+        Args:
+            unified_df: DataFrame with boolean percentile columns
+            percentile_cols: List of column names in order from loosest to strictest
+
+        Raises:
+            ValueError: If monotonicity is violated
+        """
+        logger.info("\nValidating per-task percentile monotonicity...")
+
+        for i in range(len(percentile_cols) - 1):
+            looser_col = percentile_cols[i]
+            stricter_col = percentile_cols[i + 1]
+
+            # Count violations where stricter=True but looser=False
+            violations = unified_df[unified_df[stricter_col] & ~unified_df[looser_col]]
+
+            if len(violations) > 0:
+                raise ValueError(
+                    f"Per-task monotonicity violation: {stricter_col} has {len(violations)} "
+                    f"matches not in {looser_col}"
+                )
+
+            logger.info(f"  ✓ {stricter_col} ⊆ {looser_col}")
+
+        logger.info("✓ Per-task monotonicity validation passed")
 
     def _calculate_percentiles_and_create_columns(self,
                                                   unified_matches: pd.DataFrame,
@@ -1424,30 +1523,88 @@ class ONETSimilarityMatcher:
         salvaged_dir = Path(self.embeddings_dir) / "cross_encoder_checkpoints" / "salvaged"
         if salvaged_dir.exists():
             # Salvaged files have pattern: ce_worker{id}_{model_name}_{total_pairs}_{hash}.parquet
-            # Just match any ce_worker files - we'll validate columns when loading
-            salvaged_files = sorted(salvaged_dir.glob("ce_worker*.parquet"))
+            # Only load salvaged files matching this run's hash to avoid mixing different datasets
+            safe_model_name = cross_encoder_model.replace("/", "_").replace("-", "_")
+            salvaged_pattern = f"ce_worker*_{safe_model_name}_total{len(similarity_df)}_{run_hash}.parquet"
+            salvaged_files = sorted(salvaged_dir.glob(salvaged_pattern))
             if salvaged_files:
                 logger.info(f"Found {len(salvaged_files)} salvaged checkpoints in {salvaged_dir}")
+
+                # Accumulate DataFrames in a list (don't overwrite!)
+                salvaged_dfs = []
+                total_rows_loaded = 0
+
                 for salvaged_file in salvaged_files:
                     try:
                         df = pd.read_parquet(salvaged_file)
-                        # Salvaged files use content-based keys, so merge all into one dict
-                        for _, row in df.iterrows():
-                            key = (row['app_text'], row['onet_task_id'])
-                            # Just accumulate all rows - we'll merge them below
-                        existing_checkpoints['salvaged'] = df
-                        logger.info(f"  Loaded salvaged checkpoint: {salvaged_file.name} ({len(df)} scores)")
+
+                        # Validate schema
+                        required_cols = ['app_text', 'onet_task_id', 'cross_encoder_score']
+                        if not all(col in df.columns for col in required_cols):
+                            logger.warning(f"  Skipping {salvaged_file.name}: missing required columns")
+                            continue
+
+                        # Validate no NaN/corruption
+                        if df['app_text'].isna().any() or df['onet_task_id'].isna().any() or df['cross_encoder_score'].isna().any():
+                            logger.warning(f"  Skipping {salvaged_file.name}: contains NaN values")
+                            continue
+
+                        # Validate no empty strings
+                        if (df['app_text'] == '').any() or (df['onet_task_id'] == '').any():
+                            logger.warning(f"  Skipping {salvaged_file.name}: contains empty strings")
+                            continue
+
+                        salvaged_dfs.append(df)
+                        total_rows_loaded += len(df)
+                        logger.info(f"  ✓ Loaded {salvaged_file.name}: {len(df):,} rows")
+
                     except Exception as e:
                         logger.warning(f"Failed to load salvaged checkpoint {salvaged_file.name}: {e}")
 
-        # Then, try to load regular checkpoints by worker_id (only if no salvaged checkpoints found)
+                # Concatenate all salvaged DataFrames
+                if salvaged_dfs:
+                    logger.info(f"\nMerging {len(salvaged_dfs)} salvaged checkpoint files...")
+                    logger.info(f"  Total rows loaded: {total_rows_loaded:,}")
+
+                    merged_df = pd.concat(salvaged_dfs, ignore_index=True)
+                    logger.info(f"  After concatenation: {len(merged_df):,} rows")
+
+                    # Deduplicate by content keys
+                    before_dedup = len(merged_df)
+                    merged_df = merged_df.drop_duplicates(
+                        subset=['app_text', 'onet_task_id'],
+                        keep='last'
+                    )
+                    after_dedup = len(merged_df)
+                    duplicates_removed = before_dedup - after_dedup
+
+                    if duplicates_removed > 0:
+                        logger.info(f"  Removed {duplicates_removed:,} duplicate pairs")
+                    logger.info(f"  Final unique pairs: {after_dedup:,}")
+
+                    # Store the merged, deduplicated DataFrame
+                    existing_checkpoints['salvaged'] = merged_df
+                    logger.info(f"✓ Successfully loaded salvaged checkpoints: {after_dedup:,} unique pairs")
+
+        # Then, try to load chunk-based checkpoints (only if no salvaged checkpoints found)
         if 'salvaged' not in existing_checkpoints:
-            for worker_id in range(num_workers):
-                checkpoint_path = self._get_ce_checkpoint_path(worker_id, cross_encoder_model,
-                                                              len(similarity_df), run_hash)
-                checkpoint_df = self._load_ce_checkpoint(checkpoint_path, run_metadata)
-                if checkpoint_df is not None:
-                    existing_checkpoints[worker_id] = checkpoint_df
+            checkpoint_dir = Path(self.embeddings_dir) / "cross_encoder_checkpoints"
+            if checkpoint_dir.exists():
+                # Look for content-based chunk files matching pattern: ce_chunk_*_{model}_{hash}.parquet
+                safe_model_name = cross_encoder_model.replace("/", "_").replace("-", "_")
+                chunk_pattern = f"ce_chunk_*_{safe_model_name}_total{len(similarity_df)}_{run_hash}.parquet"
+                chunk_files = sorted(checkpoint_dir.glob(chunk_pattern))
+
+                for chunk_file in chunk_files:
+                    try:
+                        chunk_df = pd.read_parquet(chunk_file)
+                        # Validate schema
+                        required_cols = ['app_text', 'onet_task_id', 'cross_encoder_score']
+                        if all(col in chunk_df.columns for col in required_cols):
+                            existing_checkpoints[chunk_file.name] = chunk_df
+                            logger.debug(f"Loaded chunk checkpoint {chunk_file.name}: {len(chunk_df)} pairs")
+                    except Exception as e:
+                        logger.warning(f"Could not load chunk checkpoint {chunk_file.name}: {e}")
 
         checkpoint_scores = None
         if existing_checkpoints:
@@ -1479,7 +1636,19 @@ class ONETSimilarityMatcher:
             # If checkpoints cover everything, skip computation
             if len(checkpoint_scores) == len(similarity_df):
                 logger.info("All scores found in checkpoints - skipping computation")
-                cross_encoder_scores = [checkpoint_scores.get(i) for i in range(len(similarity_df))]
+
+                # Check if content-based or positional keys
+                is_content_based = isinstance(next(iter(checkpoint_scores.keys())), tuple)
+
+                if is_content_based:
+                    # Content-based: look up by (app_text, onet_task_id)
+                    cross_encoder_scores = [
+                        checkpoint_scores.get((row['app_text'], int(row['onet_task_id'])))
+                        for _, row in similarity_df.iterrows()
+                    ]
+                else:
+                    # Positional: look up by index
+                    cross_encoder_scores = [checkpoint_scores.get(i) for i in range(len(similarity_df))]
 
                 # Verify no missing
                 if any(score is None for score in cross_encoder_scores):
@@ -1501,9 +1670,15 @@ class ONETSimilarityMatcher:
 
                 if is_content_based:
                     # Content-based keys: (app_text, onet_task_id)
-                    completed_pairs = set(checkpoint_scores.keys())
+                    # Ensure onet_task_id is consistent type (convert to int if needed)
+                    completed_pairs = set()
+                    for (app_text, task_id), score in checkpoint_scores.items():
+                        # Normalize task_id to int for consistent matching
+                        task_id_normalized = int(task_id) if not isinstance(task_id, int) else task_id
+                        completed_pairs.add((app_text, task_id_normalized))
+
                     remaining_mask = [
-                        (row['app_text'], row['onet_task_id']) not in completed_pairs
+                        (row['app_text'], int(row['onet_task_id'])) not in completed_pairs
                         for _, row in similarity_df.iterrows()
                     ]
                 else:
@@ -1511,7 +1686,10 @@ class ONETSimilarityMatcher:
                     completed_indices = set(checkpoint_scores.keys())
                     remaining_mask = [i not in completed_indices for i in range(total_pairs)]
 
-                remaining_df = similarity_df.iloc[remaining_mask].copy()
+                # Build remaining_df with original indices preserved
+                remaining_indices = np.where(remaining_mask)[0]
+                remaining_df = similarity_df.iloc[remaining_indices].copy()
+                remaining_df['_original_index'] = remaining_indices
                 remaining_count = len(remaining_df)
 
                 # Log comprehensive resume summary
@@ -1529,7 +1707,8 @@ class ONETSimilarityMatcher:
                 logger.info(f"Estimated pairs per worker: ~{est_per_worker:,.0f}")
                 logger.info("=" * 70)
             else:
-                remaining_df = similarity_df
+                remaining_df = similarity_df.copy()
+                remaining_df['_original_index'] = np.arange(len(similarity_df))
                 remaining_count = total_pairs
                 logger.info(f"No checkpoints found - processing all {total_pairs:,} pairs with {num_workers} workers")
 
@@ -1543,11 +1722,19 @@ class ONETSimilarityMatcher:
                 if start_idx < remaining_count:
                     chunk_df = remaining_df.iloc[start_idx:end_idx].copy()
 
-                    # Create checkpoint config
+                    # Get original indices for content-based checkpoint naming
+                    original_indices = chunk_df['_original_index'].values
+                    chunk_original_start = int(original_indices.min())
+                    chunk_original_end = int(original_indices.max())
+
+                    # Create checkpoint config with content-based naming
                     checkpoint_config = {
                         'enabled': getattr(self, 'checkpoint_enabled', True),
                         'interval': getattr(self, 'checkpoint_interval', 100000),
-                        'checkpoint_path': self._get_ce_checkpoint_path(i, cross_encoder_model, total_pairs, run_hash),
+                        'checkpoint_path': self._get_ce_checkpoint_path(
+                            cross_encoder_model, total_pairs, run_hash,
+                            start_idx=chunk_original_start, end_idx=chunk_original_end
+                        ),
                         'run_metadata': run_metadata
                     }
 
@@ -1556,7 +1743,7 @@ class ONETSimilarityMatcher:
                     chunks.append((i, chunk_df, cross_encoder_model, batch_size, self.device, checkpoint_config, worker_row_range))
 
                     # Log worker assignment within remaining work scope
-                    logger.info(f"Worker {i}: Assigned rows {start_idx:,}-{end_idx-1:,} of {remaining_count:,} remaining pairs")
+                    logger.info(f"Worker {i}: Assigned rows {start_idx:,}-{end_idx-1:,} of {remaining_count:,} remaining pairs (original indices {chunk_original_start:,}-{chunk_original_end:,})")
 
             logger.info(f"Split {remaining_count:,} remaining pairs into {len(chunks)} chunks")
 
@@ -1747,7 +1934,6 @@ class ONETSimilarityMatcher:
                          use_apps_cache: bool = True,
                          use_cross_encoder_cache: bool = True,
                          use_similarities_cache: bool = True,
-                         save_all_similarities: bool = False,
                          include_soc_15: bool = False,
                          skip_cross_encoder: bool = False,
                          cross_encoder_model: str = "BAAI/bge-reranker-v2-m3",
@@ -1755,6 +1941,7 @@ class ONETSimilarityMatcher:
                          bge_percentiles: Optional[List[float]] = None,
                          ce_thresholds: Optional[List[float]] = None,
                          task_type: str = 'both',
+                         per_task_mode: bool = False,
                          onet_version: Optional[str] = None) -> Tuple[pd.DataFrame, dict]:
         """
         Run the complete pipeline from Step 3 output to O*NET similarity matches.
@@ -1766,7 +1953,6 @@ class ONETSimilarityMatcher:
             enable_fuzzy_dedup: Whether to enable fuzzy deduplication
             use_onet_cache: Whether to use cached O*NET embeddings
             use_apps_cache: Whether to use cached application embeddings
-            save_all_similarities: Whether to save all similarity scores (creates large file)
             onet_version: O*NET version string (e.g., "20" or "30") for filename suffix
 
         Returns:
@@ -1841,8 +2027,8 @@ class ONETSimilarityMatcher:
         
         # Phase C: Compute similarities and filter
         results_df, all_similarities_df = self.compute_similarities_and_filter(
-            dedup_df, apps_embeddings, onet_df, onet_embeddings, save_all_similarities=save_all_similarities,
-            use_cache=use_similarities_cache, bge_percentiles=bge_percentiles
+            dedup_df, apps_embeddings, onet_df, onet_embeddings,
+            use_cache=use_similarities_cache, per_task_mode=per_task_mode, bge_percentiles=bge_percentiles
         )
         
         # Phase D: Validate results
@@ -1851,41 +2037,47 @@ class ONETSimilarityMatcher:
         # Create deduplicated similarity scores and job mapping
         logger.info("Creating deduplicated similarity scores and job mapping")
 
-        # Filter results_df to only include pairs above the global percentile threshold
-        # This reduces the dataset from 202M rows to ~39M rows before the expensive groupby
+        # Get max percentile for filtering
         max_bge_percentile = max(bge_percentiles)  # e.g., 20
 
-        # Safety check: ensure global_percentile_thresholds is available
-        if not hasattr(self, 'global_percentile_thresholds') or self.global_percentile_thresholds is None:
-            logger.warning("global_percentile_thresholds not available, computing from results_df")
-            all_similarities_array = results_df['similarity'].values
-            self.global_percentile_thresholds = {}
-            for percentile in sorted(bge_percentiles):
-                threshold = np.percentile(all_similarities_array, 100 - percentile)
-                self.global_percentile_thresholds[percentile] = threshold
-                logger.info(f"  Global {percentile}% percentile (top {percentile}%): {threshold:.4f}")
+        # Phase D: Pre-filter and deduplicate (conditional based on mode)
+        if per_task_mode:
+            # Per-task mode: Skip deduplication for memory efficiency
+            logger.info("Per-task mode: Skipping deduplication step for memory efficiency")
+            deduplicated_similarities = results_df.copy()
+        else:
+            # Global mode: Apply global threshold and deduplicate
+            # Safety check: ensure global_percentile_thresholds is available
+            if not hasattr(self, 'global_percentile_thresholds') or self.global_percentile_thresholds is None:
+                logger.warning("global_percentile_thresholds not available, computing from results_df")
+                all_similarities_array = results_df['similarity'].values
+                self.global_percentile_thresholds = {}
+                for percentile in sorted(bge_percentiles):
+                    threshold = np.percentile(all_similarities_array, 100 - percentile)
+                    self.global_percentile_thresholds[percentile] = threshold
+                    logger.info(f"  Global {percentile}% percentile (top {percentile}%): {threshold:.4f}")
 
-        ce_percentile_threshold = self.global_percentile_thresholds[max_bge_percentile]
-        logger.info(f"Filtering to pairs above global {max_bge_percentile}% percentile ({ce_percentile_threshold:.4f})")
+            ce_percentile_threshold = self.global_percentile_thresholds[max_bge_percentile]
+            logger.info(f"Filtering to pairs above global {max_bge_percentile}% percentile ({ce_percentile_threshold:.4f})")
 
-        # Pre-filter before groupby to improve performance
-        filtered_results_df = results_df[results_df['similarity'] >= ce_percentile_threshold].copy()
-        logger.info(f"Filtered from {len(results_df):,} to {len(filtered_results_df):,} pairs ({len(filtered_results_df)/len(results_df)*100:.1f}%)")
+            # Pre-filter before groupby to improve performance
+            filtered_results_df = results_df[results_df['similarity'] >= ce_percentile_threshold].copy()
+            logger.info(f"Filtered from {len(results_df):,} to {len(filtered_results_df):,} pairs ({len(filtered_results_df)/len(results_df)*100:.1f}%)")
 
-        # Create deduplicated similarity scores: group by (app_text, onet_task_id) and aggregate job_uids
-        deduplicated_similarities = filtered_results_df.groupby(
-            ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
-            as_index=False,
-            sort=False  # Skip internal sorting; we sort afterward anyway
-        ).agg({
-            'job_uid': list,  # Faster than lambda x: list(set(x))
-            'first_occurrence_tst_created': 'first'  # Earliest timestamp
-        }).reset_index(drop=True)
+            # Create deduplicated similarity scores: group by (app_text, onet_task_id) and aggregate job_uids
+            deduplicated_similarities = filtered_results_df.groupby(
+                ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
+                as_index=False,
+                sort=False  # Skip internal sorting; we sort afterward anyway
+            ).agg({
+                'job_uid': list,  # Faster than lambda x: list(set(x))
+                'first_occurrence_tst_created': 'first'  # Earliest timestamp
+            }).reset_index(drop=True)
 
-        # Deduplicate job_uids after groupby (faster than doing it in lambda)
-        deduplicated_similarities['job_uid'] = deduplicated_similarities['job_uid'].apply(
-            lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
-        )
+            # Deduplicate job_uids after groupby (faster than doing it in lambda)
+            deduplicated_similarities['job_uid'] = deduplicated_similarities['job_uid'].apply(
+                lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
+            )
 
         # Add num_jobs column
         deduplicated_similarities['num_jobs'] = deduplicated_similarities['job_uid'].map(len)
@@ -1902,29 +2094,36 @@ class ONETSimilarityMatcher:
         gc.collect()
 
         # Create job mapping (app_text -> list of job_uids) with temporal information
-        # CRITICAL FIX: Use filtered_results_df instead of results_df to avoid unnecessary computation on 2B rows
-        job_mapping_agg = filtered_results_df.groupby('app_text', sort=False).agg({
-            'job_uid': list,  # Faster than lambda x: list(set(x))
-            'first_occurrence_tst_created': 'first'  # Earliest timestamp for this app_text
-        }).reset_index()
+        # TEMPORARY: Per-task mode skips this to avoid memory issues on current system
+        # TODO: Optimize job_mapping generation for per-task mode so it doesn't exhaust memory
+        if not per_task_mode:
+            # CRITICAL FIX: Use filtered_results_df instead of results_df to avoid unnecessary computation on 2B rows
+            job_mapping_agg = filtered_results_df.groupby('app_text', sort=False).agg({
+                'job_uid': list,  # Faster than lambda x: list(set(x))
+                'first_occurrence_tst_created': 'first'  # Earliest timestamp for this app_text
+            }).reset_index()
 
-        # Deduplicate job_uids
-        job_mapping_agg['job_uid'] = job_mapping_agg['job_uid'].apply(
-            lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
-        )
+            # Deduplicate job_uids
+            job_mapping_agg['job_uid'] = job_mapping_agg['job_uid'].apply(
+                lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
+            )
 
-        job_mapping = job_mapping_agg.copy()
-        job_mapping['job_uids'] = job_mapping['job_uid'].apply(lambda x: '|'.join(sorted(x)))
-        job_mapping['num_jobs'] = job_mapping['job_uid'].map(len)  # map() is faster than apply() for len
-        job_mapping = job_mapping[['app_text', 'job_uids', 'num_jobs', 'first_occurrence_tst_created']].copy()
-        
+            job_mapping = job_mapping_agg.copy()
+            job_mapping['job_uids'] = job_mapping['job_uid'].apply(lambda x: '|'.join(sorted(x)))
+            job_mapping['num_jobs'] = job_mapping['job_uid'].map(len)  # map() is faster than apply() for len
+            job_mapping = job_mapping[['app_text', 'job_uids', 'num_jobs', 'first_occurrence_tst_created']].copy()
+
+            logger.info(f"Created job mapping for {len(job_mapping)} unique applications (temporal ordering preserved)")
+
+            # Clean up filtered_results_df - we only needed it for job mapping
+            logger.info("Freeing memory: deleting filtered_results_df")
+            del filtered_results_df, job_mapping_agg
+            gc.collect()
+        else:
+            logger.info("Per-task mode: Skipping job_mapping generation (memory optimization)")
+            job_mapping = None
+
         logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique app-task pairs")
-        logger.info(f"Created job mapping for {len(job_mapping)} unique applications (temporal ordering preserved)")
-
-        # Clean up filtered_results_df - we only needed it for job mapping
-        logger.info("Freeing memory: deleting filtered_results_df")
-        del filtered_results_df, job_mapping_agg
-        gc.collect()
 
         # Phase 3 & 4: Determine highest BGE percentile for cross-encoder and filter
         logger.info("Phase 3: Determining highest BGE percentile for cross-encoder")
@@ -1942,9 +2141,18 @@ class ONETSimilarityMatcher:
             # Add placeholder column for compatibility
             unified_matches['cross_encoder_score'] = np.nan
         else:
-            ce_input_df = deduplicated_similarities[
-                deduplicated_similarities['similarity'] >= ce_percentile_threshold
-            ].copy()
+            # Filter to pairs for cross-encoder validation (conditional based on mode)
+            if per_task_mode:
+                # Per-task mode: Use per-task filtering method
+                ce_input_df = self._filter_to_top_per_task_percentile(
+                    deduplicated_similarities.copy(),
+                    percentile=max_bge_percentile
+                )
+            else:
+                # Global mode: Use global threshold
+                ce_input_df = deduplicated_similarities[
+                    deduplicated_similarities['similarity'] >= ce_percentile_threshold
+                ].copy()
             logger.info(f"Running cross-encoder on top {max_bge_percentile}% ({len(ce_input_df)} unique pairs)")
 
             # Cross-encoder validation (parallel or serial)
@@ -1999,30 +2207,54 @@ class ONETSimilarityMatcher:
             logger.info("PROCESSING CORE TASKS")
             logger.info("="*80)
 
+            # ADD VALIDATION: ensure global percentile thresholds were computed
+            if (not hasattr(self, 'global_percentile_thresholds')) or (self.global_percentile_thresholds is None):
+                raise ValueError(
+                    "Global percentile thresholds not available. "
+                    "This should not happen as all similarities are always saved. Contact developers."
+                )
+
             # Filter to core tasks BEFORE calculating percentiles
             unified_matches_core = unified_matches[unified_matches['task_type'] == 'Core'].copy()
             logger.info(f"Filtered to {len(unified_matches_core):,} Core task matches (from {len(unified_matches):,} total)")
 
-            # Calculate percentiles on core tasks only
-            logger.info("Computing BGE percentile thresholds for CORE TASKS")
-            bge_thresholds_core = {}
-            for p in bge_percentiles:
-                threshold = np.percentile(unified_matches_core['similarity'].values, 100 - p)
-                # Format percentile name: handle both integers (20) and floats (0.1)
-                if isinstance(p, int) or p == int(p):
-                    pct_name = f'pct_{int(p):02d}'
-                else:
-                    # For floats like 0.1, format as pct_0p1
-                    pct_str = f'{p:.1f}'.replace('.', 'p')
-                    pct_name = f'pct_{pct_str}'
-                bge_thresholds_core[pct_name] = threshold
-                logger.info(f"  {p}% percentile (top {p}%): {threshold:.4f}")
+            # Use GLOBAL thresholds calculated in Phase C
+            # Create boolean columns for BGE percentiles (conditional based on mode)
+            if per_task_mode:
+                # Per-task mode: Use per-task rank percentiles
+                logger.info("Using PER-TASK percentile rankings for CORE TASKS")
+                for p in bge_percentiles:
+                    # Format percentile name: handle both integers (20) and floats (0.1)
+                    if isinstance(p, int) or p == int(p):
+                        pct_name = f'pct_{int(p):02d}'
+                    else:
+                        # For floats like 0.1, format as pct_0p1
+                        pct_str = f'{p:.1f}'.replace('.', 'p')
+                        pct_name = f'pct_{pct_str}'
+                    pct_threshold = p / 100.0
+                    unified_matches_core[pct_name] = unified_matches_core['per_task_rank_pct'] <= pct_threshold
+                    match_count = unified_matches_core[pct_name].sum()
+                    logger.info(f"  {pct_name}: {match_count:,} matches (per-task top {p}%)")
+            else:
+                # Global mode: Use global thresholds
+                logger.info("Using GLOBAL percentile thresholds for CORE TASKS (calculated on all pairs)")
+                bge_thresholds_core = {}
+                for p in bge_percentiles:
+                    # Format percentile name: handle both integers (20) and floats (0.1)
+                    if isinstance(p, int) or p == int(p):
+                        pct_name = f'pct_{int(p):02d}'
+                    else:
+                        # For floats like 0.1, format as pct_0p1
+                        pct_str = f'{p:.1f}'.replace('.', 'p')
+                        pct_name = f'pct_{pct_str}'
+                    bge_thresholds_core[pct_name] = self.global_percentile_thresholds[p]
+                    logger.info(f"  {p}% percentile (GLOBAL): {self.global_percentile_thresholds[p]:.4f}")
 
-            # Add BGE boolean columns for core tasks
-            for pct_name, threshold in bge_thresholds_core.items():
-                unified_matches_core[pct_name] = unified_matches_core['similarity'] >= threshold
-                match_count = unified_matches_core[pct_name].sum()
-                logger.info(f"  {pct_name}: {match_count:,} matches")
+                # Add BGE boolean columns for core tasks
+                for pct_name, threshold in bge_thresholds_core.items():
+                    unified_matches_core[pct_name] = unified_matches_core['similarity'] >= threshold
+                    match_count = unified_matches_core[pct_name].sum()
+                    logger.info(f"  {pct_name}: {match_count:,} matches")
 
             # Create boolean columns for all cross-encoder thresholds (with NaN handling)
             logger.info("Computing cross-encoder threshold columns for CORE TASKS")
@@ -2057,14 +2289,16 @@ class ONETSimilarityMatcher:
             onet_suffix = f"_onet{onet_version}" if onet_version else ""
 
             core_output = os.path.join(output_dir,
-                f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}_core_tasks.parquet")
+                f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}_core.parquet")
             unified_matches_core.to_parquet(core_output, index=False, compression='snappy')
             logger.info(f"Saved CORE TASKS: {core_output} ({len(unified_matches_core):,} rows)")
 
+            # Task suffix
+            task_suffix = f"_{task_type}_tasks"
             # Save job mapping (shared for both)
             if task_type == 'core':
                 job_mapping_file = os.path.join(output_dir,
-                    f"job_app_mapping{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}.parquet")
+                    f"job_app_mapping{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}{task_suffix}.parquet")
                 logger.info("Saving job mapping...")
                 gc.collect()  # Force GC before large job_mapping write
                 job_mapping.to_parquet(job_mapping_file, index=False, compression='snappy')
@@ -2100,11 +2334,10 @@ class ONETSimilarityMatcher:
 
             logger.info(f"Using all {len(unified_matches):,} task matches")
 
-            # Calculate percentiles on all tasks only
-            logger.info("Computing BGE percentile thresholds for ALL TASKS")
+            # Use GLOBAL thresholds calculated in Phase C
+            logger.info("Using GLOBAL percentile thresholds for ALL TASKS (calculated on all pairs)")
             bge_thresholds_all = {}
             for p in bge_percentiles:
-                threshold = np.percentile(unified_matches['similarity'].values, 100 - p)
                 # Format percentile name: handle both integers (20) and floats (0.1)
                 if isinstance(p, int) or p == int(p):
                     pct_name = f'pct_{int(p):02d}'
@@ -2112,8 +2345,8 @@ class ONETSimilarityMatcher:
                     # For floats like 0.1, format as pct_0p1
                     pct_str = f'{p:.1f}'.replace('.', 'p')
                     pct_name = f'pct_{pct_str}'
-                bge_thresholds_all[pct_name] = threshold
-                logger.info(f"  {p}% percentile (top {p}%): {threshold:.4f}")
+                bge_thresholds_all[pct_name] = self.global_percentile_thresholds[p]
+                logger.info(f"  {p}% percentile (GLOBAL): {self.global_percentile_thresholds[p]:.4f}")
 
             # For 'both' mode, we add columns only to a copy; for 'all' mode, we add to unified_matches directly
             if task_type == 'both':
@@ -2328,6 +2561,7 @@ def _cross_encoder_worker_function(worker_id: int,
                         'onet_task_id': chunk_df['onet_task_id'].iloc[:len(scores)].values,
                         'cross_encoder_score': scores
                     })
+                    # Note: Exclude _original_index column from checkpoint - it's only for worker assignment
 
                     # Append to existing or use new
                     if existing_df is not None and len(existing_df) > 0:
@@ -2379,6 +2613,7 @@ def _cross_encoder_worker_function(worker_id: int,
                 'onet_task_id': chunk_df['onet_task_id'].values,
                 'cross_encoder_score': scores
             })
+            # Note: Exclude _original_index column from checkpoint - it's only for worker assignment
 
             # Append to existing or use new
             if existing_df is not None and len(existing_df) > 0:
@@ -2452,9 +2687,6 @@ def parse_arguments():
     parser.add_argument("--list-cache", action="store_true",
                        help="List cached embeddings and exit")
     
-    parser.add_argument("--save-all-similarities", action="store_true",
-                       help="Save all similarity scores (creates large CSV file)")
-    
     parser.add_argument("--include-soc-15", action="store_true",
                        help="Include SOC group 15 (Computer and Mathematical Occupations). Default is to exclude.")
     
@@ -2497,6 +2729,11 @@ def parse_arguments():
                        choices=['core', 'all', 'both'],
                        default='both',
                        help="Task type: 'core' (Core only), 'all' (Core+Supp), 'both' (default)")
+
+    parser.add_argument("--per-task", action="store_true",
+                       help="Use per-task percentile filtering instead of global filtering. "
+                            "In per-task mode, top N%% is computed separately for each O*NET task, "
+                            "resulting in variable-sized match sets that better capture task-specific AI exposure.")
 
     return parser.parse_args()
 
@@ -2616,7 +2853,6 @@ def main():
             use_apps_cache=USE_APPS_CACHE,
             use_cross_encoder_cache=not args.no_ce_cache,
             use_similarities_cache=not args.no_similarities_cache,
-            save_all_similarities=args.save_all_similarities,
             include_soc_15=args.include_soc_15,
             skip_cross_encoder=args.skip_cross_encoder,
             cross_encoder_model=args.cross_encoder_model,
@@ -2624,6 +2860,7 @@ def main():
             bge_percentiles=BGE_PERCENTILES,
             ce_thresholds=CE_THRESHOLDS,
             task_type=args.task_type,
+            per_task_mode=args.per_task,
             onet_version=args.onet_version
         )
         
