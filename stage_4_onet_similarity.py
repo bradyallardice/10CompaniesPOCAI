@@ -2910,10 +2910,15 @@ def validate_task_id_alignment(output_dir, onet_version=None):
     output = pd.read_parquet(output_file)
 
     # Load O*NET source for validation
-    onet_file = os.path.join(
-        os.path.dirname(os.path.dirname(output_dir)),
-        f"task_statements_{onet_version or '20'}.xlsx"
-    )
+    # Get project root by finding the Data directory
+    current_dir = os.path.dirname(os.path.abspath(output_dir))
+    while current_dir and current_dir != "/":
+        if os.path.exists(os.path.join(current_dir, "Data", f"task_statements_{onet_version or '20'}.xlsx")):
+            onet_file = os.path.join(current_dir, "Data", f"task_statements_{onet_version or '20'}.xlsx")
+            break
+        current_dir = os.path.dirname(current_dir)
+    else:
+        onet_file = os.path.join(os.getcwd(), "Data", f"task_statements_{onet_version or '20'}.xlsx")
 
     if not os.path.exists(onet_file):
         logger.warning(f"O*NET source file not found: {onet_file}, skipping validation")
