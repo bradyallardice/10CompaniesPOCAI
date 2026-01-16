@@ -2874,10 +2874,97 @@ def main():
         print(f"Average matches per application: {validation_metrics['avg_matches_per_app']:.1f}")
         print(f"Similarity range: {validation_metrics['similarity_stats']['min']:.3f} - {validation_metrics['similarity_stats']['max']:.3f}")
         print("="*60)
-        
+
+        # Validate task_id to task_text alignment
+        print("\n" + "="*60)
+        print("VALIDATING TASK_ID TO TASK_TEXT ALIGNMENT")
+        print("="*60)
+        validate_task_id_alignment(args.output_dir, onet_version=args.onet_version)
+
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
         raise
+
+
+def validate_task_id_alignment(output_dir, onet_version=None):
+    """
+    Validate that each onet_task_id in Stage 4 output has the correct onet_task text.
+
+    For every row: task_text should match what Task ID actually contains in O*NET source.
+    If any mismatch is found, raises AssertionError.
+    """
+    import glob
+
+    logger.info("Validating task_id to task_text alignment...")
+
+    # Find the output parquet file
+    output_pattern = os.path.join(output_dir, "task_exposure_matches_all_thresholds*.parquet")
+    output_files = glob.glob(output_pattern)
+
+    if not output_files:
+        logger.warning(f"No output parquet files found matching {output_pattern}")
+        return
+
+    output_file = output_files[0]
+    logger.info(f"Loading output file: {output_file}")
+    output = pd.read_parquet(output_file)
+
+    # Load O*NET source for validation
+    onet_file = os.path.join(
+        os.path.dirname(os.path.dirname(output_dir)),
+        f"task_statements_{onet_version or '20'}.xlsx"
+    )
+
+    if not os.path.exists(onet_file):
+        logger.warning(f"O*NET source file not found: {onet_file}, skipping validation")
+        return
+
+    logger.info(f"Loading O*NET source: {onet_file}")
+    onet_source = pd.read_excel(onet_file)
+
+    # Build lookup: Task ID -> Task text
+    onet_lookup = dict(zip(onet_source['Task ID'].astype(int), onet_source['Task']))
+
+    logger.info(f"Checking {len(output):,} rows for task_id/task_text alignment...")
+
+    mismatches = []
+    for idx, row in output.iterrows():
+        task_id = int(row['onet_task_id'])
+        actual_text = row['onet_task']
+
+        if task_id not in onet_lookup:
+            mismatches.append({
+                'row': idx,
+                'task_id': task_id,
+                'error': 'Task ID not found in O*NET source'
+            })
+            continue
+
+        expected_text = onet_lookup[task_id]
+        if actual_text != expected_text:
+            mismatches.append({
+                'row': idx,
+                'task_id': task_id,
+                'expected': expected_text[:60],
+                'actual': actual_text[:60]
+            })
+
+    if mismatches:
+        logger.error(f"❌ VALIDATION FAILED: Found {len(mismatches)} mismatches")
+        for i, mismatch in enumerate(mismatches[:5]):  # Show first 5
+            logger.error(f"   Row {mismatch['row']}, Task ID {mismatch['task_id']}")
+            if 'error' in mismatch:
+                logger.error(f"      Error: {mismatch['error']}")
+            else:
+                logger.error(f"      Expected: {mismatch['expected']}...")
+                logger.error(f"      Got: {mismatch['actual']}...")
+        if len(mismatches) > 5:
+            logger.error(f"   ... and {len(mismatches) - 5} more mismatches")
+        raise AssertionError(f"Task ID alignment validation failed: {len(mismatches)} mismatches found")
+
+    logger.info("✅ VALIDATION PASSED: All task_ids match their task_text")
+    logger.info(f"   Validated {len(output):,} rows successfully")
+    logger.info(f"   Task ID range: {output['onet_task_id'].min()} - {output['onet_task_id'].max()}")
 
 
 if __name__ == "__main__":
