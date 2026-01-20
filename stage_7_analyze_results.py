@@ -56,6 +56,7 @@ class ExposureAnalyzer:
                  output_dir: str = DEFAULT_OUTPUT_DIR,
                  percentile: str = DEFAULT_PERCENTILE,
                  ce_threshold: str = DEFAULT_CE_THRESHOLD,
+                 task_type: str = 'auto',
                  top_n: int = DEFAULT_TOP_N):
         """
         Initialize analyzer with data paths and parameters.
@@ -68,6 +69,10 @@ class ExposureAnalyzer:
             output_dir: Directory for analysis outputs (default: Data/Testing/stage_7)
             percentile: BGE percentile to use as baseline (default: pct_05)
             ce_threshold: Cross-encoder threshold to use (default: ce_0.0)
+            task_type: Which Stage 5 ISCO task universe to use for ranking and task breakdown.
+                - "core": force `isco_firm_year_exposure_core_tasks_{percentile}_{ce_threshold}.csv`
+                - "all": force `isco_firm_year_exposure_*_all_specs.csv` (then extract requested percentile columns)
+                - "auto": prefer "all" if available, else fall back to "core" (previous behavior)
             top_n: Number of top items to show in rankings (default: 20)
         """
         self.stage5_dir = stage5_dir
@@ -77,6 +82,7 @@ class ExposureAnalyzer:
         self.output_dir = output_dir
         self.percentile = percentile
         self.ce_threshold = ce_threshold
+        self.task_type = task_type
         self.top_n = top_n
 
         # Setup logging
@@ -93,7 +99,10 @@ class ExposureAnalyzer:
         # Column mapping for percentile suffixes
         self._percentile_suffix = f'_{self.percentile}_{self.ce_threshold}'
 
-        self.logger.info(f"ExposureAnalyzer initialized with percentile={self.percentile}, ce_threshold={self.ce_threshold}, top_n={self.top_n}")
+        self.logger.info(
+            f"ExposureAnalyzer initialized with percentile={self.percentile}, "
+            f"ce_threshold={self.ce_threshold}, task_type={self.task_type}, top_n={self.top_n}"
+        )
         self.logger.info(f"Output directory: {self.output_dir}")
 
     def _setup_logging(self):
@@ -175,26 +184,48 @@ class ExposureAnalyzer:
     def _load_stage5_isco(self):
         """Load Stage 5 ISCO occupation exposure."""
         try:
-            # Try with all_specs (all percentiles)
-            pattern = os.path.join(self.stage5_dir, 'isco_firm_year_exposure_*_all_specs.csv')
             files = list(Path(self.stage5_dir).glob('isco_firm_year_exposure_*_all_specs.csv'))
 
-            if files:
-                filepath = str(files[0])
-                self.logger.info(f"Loading Stage 5 ISCO (all_specs): {filepath}")
-                self.stage5_isco = pd.read_csv(filepath)
-                self.logger.info(f"  Shape: {self.stage5_isco.shape}")
-                self.logger.info(f"  Columns: {list(self.stage5_isco.columns[:10])}...")
-                # Extract relevant columns for selected percentile
-                self._extract_isco_percentile_columns()
+            task_universe = (self.task_type or 'auto').strip().lower()
+            if task_universe not in {'auto', 'all', 'core'}:
+                self.logger.warning(
+                    f"Unknown task_type={self.task_type!r}; falling back to 'auto'"
+                )
+                task_universe = 'auto'
+
+            # Decide which Stage 5 ISCO file to use (explicitly, if requested)
+            use_all_specs = False
+            if task_universe == 'all':
+                use_all_specs = True
+            elif task_universe == 'core':
+                use_all_specs = False
             else:
-                # Fallback: try specific percentile file
+                # auto: prefer all_specs if present (previous behavior)
+                use_all_specs = bool(files)
+
+            if use_all_specs:
+                if not files:
+                    self.logger.warning(
+                        "task_type='all' requested but no isco_firm_year_exposure_*_all_specs.csv found; "
+                        "falling back to core_tasks file."
+                    )
+                    use_all_specs = False
+                else:
+                    filepath = str(files[0])
+                    self.logger.info(f"Loading Stage 5 ISCO (all_specs): {filepath}")
+                    self.stage5_isco = pd.read_csv(filepath)
+                    self.logger.info(f"  Shape: {self.stage5_isco.shape}")
+                    self.logger.info(f"  Columns: {list(self.stage5_isco.columns[:10])}...")
+                    # Extract relevant columns for selected percentile
+                    self._extract_isco_percentile_columns()
+
+            if not use_all_specs:
                 filepath = os.path.join(
                     self.stage5_dir,
                     f'isco_firm_year_exposure_core_tasks_{self.percentile}_{self.ce_threshold}.csv'
                 )
                 if os.path.exists(filepath):
-                    self.logger.info(f"Loading Stage 5 ISCO: {filepath}")
+                    self.logger.info(f"Loading Stage 5 ISCO (core_tasks): {filepath}")
                     self.stage5_isco = pd.read_csv(filepath)
                     self.logger.info(f"  Shape: {self.stage5_isco.shape}")
                 else:
@@ -664,29 +695,29 @@ class ExposureAnalyzer:
             self.logger.warning("Stage 6 jobs data not loaded, skipping firm exposure variants analysis")
             return
 
-        # Filter to selected percentile
-        pct = self.percentile + '_' + self.ce_threshold
-
-        # Build column names for this percentile
-        hampole_unadj_col = f'hampole_occupation_exposure_{pct}'
-        hampole_adj_col = f'hampole_ai_exposure_avg_{pct}'
-        binary_unadj_col = f'binary_occupation_exposure_{pct}'
-        binary_adj_col = f'binary_ai_exposure_avg_{pct}'
-        intensity_col = f'log_ai_intensity_{pct}'
-
-        # Check if columns exist
-        available_cols = self.stage6_jobs.columns.tolist()
-        missing_cols = [c for c in [hampole_unadj_col, hampole_adj_col, binary_unadj_col, binary_adj_col, intensity_col] if c not in available_cols]
+        # After _extract_jobs_percentile_columns, the selected percentile's columns
+        # are available under base names (without the _{percentile}_{ce_threshold} suffix).
+        required_cols = [
+            'hampole_occupation_exposure',
+            'hampole_ai_exposure_avg',
+            'binary_occupation_exposure',
+            'binary_ai_exposure_avg',
+        ]
+        available_cols = set(self.stage6_jobs.columns)
+        missing_cols = [c for c in required_cols if c not in available_cols]
 
         if missing_cols:
-            self.logger.warning(f"Missing columns for percentile {pct}: {missing_cols}")
+            self.logger.warning(
+                "Missing required exposure columns in Stage 6 jobs for firm_exposure_variants_analysis: "
+                f"{missing_cols}"
+            )
             return
 
         # Aggregate to firm-year level
         firm_year_data = self.stage6_jobs[[
             'company_id', 'company_name', 'year',
-            hampole_unadj_col, hampole_adj_col,
-            binary_unadj_col, binary_adj_col
+            'hampole_occupation_exposure', 'hampole_ai_exposure_avg',
+            'binary_occupation_exposure', 'binary_ai_exposure_avg'
         ]].copy()
 
         firm_year_data.columns = ['company_id', 'company_name', 'year',
@@ -1786,16 +1817,24 @@ class ExposureAnalyzer:
         self.logger.info("→ Generating task-level breakdown for top occupations...")
 
         try:
-            # Step 1: Get top 20 ISCO occupations by average exposure
-            exposure_file = f"{self.stage5_dir}/isco_firm_year_exposure_core_tasks_{self.percentile}_{self.ce_threshold}.csv"
-            isco_exposures = pd.read_csv(exposure_file)
+            # Step 1: Get top N ISCO occupations by average exposure, using the SAME Stage 5 ISCO
+            # universe that drives occupation ranking (core vs all).
+            if self.stage5_isco is None:
+                self.logger.warning("Stage 5 ISCO data not loaded; cannot compute top occupations task breakdown.")
+                return
+
+            isco_exposures = self.stage5_isco.copy()
 
             # Convert ISCO codes to 4-digit zero-padded strings for consistent matching with Webb
             isco_exposures['isco08_4d'] = isco_exposures['isco08_4d'].astype(str).str.zfill(4)
 
-            top_occs = isco_exposures.groupby(['isco08_4d', 'isco08_title'])[
-                'hampole_ai_exposure_avg'
-            ].mean().sort_values(ascending=False).head(self.top_n).reset_index()
+            top_occs = (
+                isco_exposures.groupby(['isco08_4d', 'isco08_title'])['hampole_ai_exposure_avg']
+                .mean()
+                .sort_values(ascending=False)
+                .head(self.top_n)
+                .reset_index()
+            )
             top_occs.columns = ['isco08_4d', 'isco08_title', 'mean_exposure']
 
             self.logger.info(f"  Identified top {len(top_occs)} ISCO occupations")
@@ -2313,6 +2352,18 @@ def main():
     )
 
     parser.add_argument(
+        '--task-type',
+        type=str,
+        default='auto',
+        choices=['auto', 'core', 'all'],
+        help=(
+            'Which Stage 5 ISCO task universe to use when selecting top occupations and building task breakdowns. '
+            '"core" forces core_tasks Stage 5 files, "all" forces *_all_specs files, '
+            '"auto" prefers all_specs if available (default: auto).'
+        )
+    )
+
+    parser.add_argument(
         '--top-n',
         type=int,
         default=DEFAULT_TOP_N,
@@ -2338,6 +2389,7 @@ def main():
         output_dir=args.output_dir,
         percentile=args.percentile,
         ce_threshold=args.ce_threshold,
+        task_type=args.task_type,
         top_n=args.top_n
     )
 
