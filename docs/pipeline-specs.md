@@ -122,10 +122,51 @@ Deduplicate AI applications and calculate similarity to O*NET occupational tasks
 ### Process
 1. **Deduplicate AI Applications**: Remove duplicate tasks from Stage 3 output, saving mapping file
 2. **Create Text Embeddings**: Generate embeddings for all deduplicated AI tasks and O*NET tasks
-3. **Calculate Similarities**: Compare AI task embeddings to O*NET task embeddings
-4. **Determine Exposure Threshold**: Tasks above 95th percentile similarity (default) are considered AI-exposed
+3. **Calculate Similarities** (two modes available):
+   - **Exhaustive mode** (default): Compute all app-task similarities, calculate global percentiles, filter by percentiles
+   - **FAISS mode** (optional): Retrieve top-k apps per task, filter by threshold (faster, different matching logic)
+4. **Determine Exposure Threshold**:
+   - Exhaustive: Tasks above specified percentile similarity (default: 95th) are AI-exposed
+   - FAISS: All retrieved pairs above 0.3 threshold are AI-exposed (no percentile filtering)
 5. **Optional Cross Encoder**: Run subset through cross encoder for refined results
 6. **Output**: CSV file mapping AI tasks to O*NET tasks for Stage 5
+
+### FAISS Optimization (Optional)
+
+**Purpose**: Alternative matching approach using top-k apps per task (task-centric exposure)
+
+**Usage**:
+```bash
+python3 stage_4_onet_similarity.py --use-faiss --faiss-k 200
+```
+
+**How it works**:
+- Builds FAISS index on 15k AI application embeddings
+- For each O*NET task (19k tasks), retrieves top-k (default: 200) most similar apps
+- Applies minimum similarity threshold (0.3) to filter retrieved apps
+- All pairs above threshold are considered "matches" (no percentile filtering)
+
+**Key Difference from Exhaustive Mode**:
+- **Exhaustive**: Compute all 285M pairs → calculate global percentiles → filter by percentiles
+  - Output: Percentile boolean columns (pct_20, pct_15, pct_10, pct_05, pct_01)
+  - Matching logic: Global percentile-based (top X% across ALL pairs)
+- **FAISS**: Loop over tasks → retrieve top-k apps per task → filter by 0.3 threshold
+  - Output: NO percentile columns (simpler schema)
+  - Matching logic: Task-centric (top-k apps for EACH task independently)
+
+**Performance**:
+- Exhaustive: ~15k apps × 19k tasks = 285M comparisons (~1-2 hours)
+- FAISS (k=200): 19k tasks × k=200 retrievals = 3.8M comparisons (~5-10 minutes, 10-20x speedup)
+
+**Trade-offs**:
+- Pros: Much faster, lower memory, simpler output (no percentile columns), task-centric matching
+- Cons: Different matching logic than exhaustive, may miss apps if k too small
+
+**When to Use**:
+- **FAISS**: Task-centric exposure analysis, faster exploration, large-scale runs
+- **Exhaustive**: Global percentile-based matching, validation, final production runs
+
+**Recommendation**: Choose based on research question. Both modes are valid, just different approaches.
 
 ---
 
