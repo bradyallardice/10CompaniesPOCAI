@@ -1549,7 +1549,129 @@ class ONETSimilarityMatcher:
         logger.info(f"Mean similarity: {validation_metrics['similarity_stats']['mean']:.3f}")
         
         return validation_metrics
-    
+
+    def _deduplicate_in_chunks(self,
+                               filtered_df: pd.DataFrame,
+                               chunk_size: int = 5_000_000,
+                               output_dir: str = None) -> pd.DataFrame:
+        """
+        Memory-efficient deduplication using chunked processing and temporary Parquet files.
+
+        Process large DataFrames in chunks to avoid memory exhaustion during groupby operations.
+        Each chunk is deduplicated separately, then iteratively merged with re-deduplication
+        across chunk boundaries.
+
+        Args:
+            filtered_df: DataFrame to deduplicate (already filtered by similarity threshold)
+            chunk_size: Number of rows per chunk (default: 5M)
+            output_dir: Directory for temporary files (default: Data/temp_chunks/)
+
+        Returns:
+            Deduplicated DataFrame with aggregated job_uid lists
+        """
+        import tempfile
+        import shutil
+        from datetime import datetime
+
+        # Setup temp directory
+        if output_dir is None:
+            output_dir = "Data"
+        temp_dir = os.path.join(output_dir, f"temp_chunks_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        logger.info(f"Starting chunked deduplication (chunk size: {chunk_size:,} rows)")
+        logger.info(f"Temporary directory: {temp_dir}")
+
+        try:
+            # Step 1: Process chunks and save to temporary files
+            n_rows = len(filtered_df)
+            n_chunks = (n_rows + chunk_size - 1) // chunk_size  # Ceiling division
+            chunk_files = []
+
+            logger.info(f"Processing {n_rows:,} rows in {n_chunks} chunks")
+
+            for i in range(n_chunks):
+                start_idx = i * chunk_size
+                end_idx = min((i + 1) * chunk_size, n_rows)
+
+                logger.info(f"Chunk {i+1}/{n_chunks}: rows {start_idx:,} to {end_idx:,}")
+
+                # Extract chunk
+                chunk = filtered_df.iloc[start_idx:end_idx].copy()
+
+                # Deduplicate within chunk
+                chunk_dedup = chunk.groupby(
+                    ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
+                    as_index=False,
+                    sort=False
+                ).agg({
+                    'job_uid': list,
+                    'first_occurrence_tst_created': 'first'
+                }).reset_index(drop=True)
+
+                # Deduplicate job_uids
+                chunk_dedup['job_uid'] = chunk_dedup['job_uid'].apply(
+                    lambda x: list(dict.fromkeys(x))
+                )
+
+                # Save to temp file
+                chunk_file = os.path.join(temp_dir, f"chunk_{i:04d}.parquet")
+                chunk_dedup.to_parquet(chunk_file, index=False, compression='snappy')
+                chunk_files.append(chunk_file)
+
+                logger.info(f"  Chunk {i+1} deduplicated: {len(chunk):,} → {len(chunk_dedup):,} unique pairs")
+
+                # Free memory
+                del chunk, chunk_dedup
+                gc.collect()
+
+            # Step 2: Iteratively merge chunks with re-deduplication
+            logger.info(f"Merging {len(chunk_files)} chunks")
+
+            # Start with first chunk
+            merged = pd.read_parquet(chunk_files[0])
+            logger.info(f"Loaded chunk 1: {len(merged):,} pairs")
+
+            # Merge remaining chunks one at a time
+            for i, chunk_file in enumerate(chunk_files[1:], start=2):
+                next_chunk = pd.read_parquet(chunk_file)
+                logger.info(f"Loaded chunk {i}: {len(next_chunk):,} pairs")
+
+                # Concatenate
+                before_merge = len(merged) + len(next_chunk)
+                merged = pd.concat([merged, next_chunk], ignore_index=True)
+
+                # Re-deduplicate across chunk boundary
+                # Need to combine job_uid lists for same (app_text, onet_task_id) pairs
+                merged = merged.groupby(
+                    ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
+                    as_index=False,
+                    sort=False
+                ).agg({
+                    'job_uid': lambda x: list(dict.fromkeys([uid for sublist in x for uid in sublist])),
+                    'first_occurrence_tst_created': 'first'
+                }).reset_index(drop=True)
+
+                after_merge = len(merged)
+                logger.info(f"  After merge and dedup: {before_merge:,} → {after_merge:,} pairs")
+
+                # Free memory
+                del next_chunk
+                gc.collect()
+
+            logger.info(f"Final deduplicated result: {len(merged):,} unique (app_text, onet_task_id) pairs")
+
+        finally:
+            # Step 3: Cleanup temporary files
+            try:
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                    logger.info(f"Cleaned up temporary directory: {temp_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp directory {temp_dir}: {e}")
+
+        return merged
+
     def validate_with_cross_encoder(self,
                                   similarity_df: pd.DataFrame,
                                   cross_encoder_model: str = "BAAI/bge-reranker-v2-m3",
@@ -2197,7 +2319,8 @@ class ONETSimilarityMatcher:
                          ce_thresholds: Optional[List[float]] = None,
                          task_type: str = 'both',
                          per_task_mode: bool = False,
-                         onet_version: Optional[str] = None) -> Tuple[pd.DataFrame, dict]:
+                         onet_version: Optional[str] = None,
+                         dedup_chunk_size: int = 10_000_000) -> Tuple[pd.DataFrame, dict]:
         """
         Run the complete pipeline from Step 3 output to O*NET similarity matches.
 
@@ -2319,20 +2442,32 @@ class ONETSimilarityMatcher:
             filtered_results_df = results_df[results_df['similarity'] >= ce_percentile_threshold].copy()
             logger.info(f"Filtered from {len(results_df):,} to {len(filtered_results_df):,} pairs ({len(filtered_results_df)/len(results_df)*100:.1f}%)")
 
-            # Create deduplicated similarity scores: group by (app_text, onet_task_id) and aggregate job_uids
-            deduplicated_similarities = filtered_results_df.groupby(
-                ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
-                as_index=False,
-                sort=False  # Skip internal sorting; we sort afterward anyway
-            ).agg({
-                'job_uid': list,  # Faster than lambda x: list(set(x))
-                'first_occurrence_tst_created': 'first'  # Earliest timestamp
-            }).reset_index(drop=True)
+            # Decide whether to use chunked deduplication based on dataset size
+            if len(filtered_results_df) > dedup_chunk_size:
+                # Large dataset: use memory-efficient chunked deduplication
+                logger.info(f"Dataset size ({len(filtered_results_df):,}) exceeds chunk size ({dedup_chunk_size:,})")
+                logger.info("Using memory-efficient chunked deduplication")
+                deduplicated_similarities = self._deduplicate_in_chunks(
+                    filtered_df=filtered_results_df,
+                    chunk_size=dedup_chunk_size,
+                    output_dir=output_dir
+                )
+            else:
+                # Small dataset: use standard in-memory deduplication
+                logger.info(f"Dataset size ({len(filtered_results_df):,}) within limits, using standard deduplication")
+                deduplicated_similarities = filtered_results_df.groupby(
+                    ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
+                    as_index=False,
+                    sort=False  # Skip internal sorting; we sort afterward anyway
+                ).agg({
+                    'job_uid': list,  # Faster than lambda x: list(set(x))
+                    'first_occurrence_tst_created': 'first'  # Earliest timestamp
+                }).reset_index(drop=True)
 
-            # Deduplicate job_uids after groupby (faster than doing it in lambda)
-            deduplicated_similarities['job_uid'] = deduplicated_similarities['job_uid'].apply(
-                lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
-            )
+                # Deduplicate job_uids after groupby (faster than doing it in lambda)
+                deduplicated_similarities['job_uid'] = deduplicated_similarities['job_uid'].apply(
+                    lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
+                )
 
         # Add num_jobs column
         deduplicated_similarities['num_jobs'] = deduplicated_similarities['job_uid'].map(len)
@@ -3021,6 +3156,12 @@ def parse_arguments():
                             "Randomly samples this many pairs for percentile computation instead of using all pairs. "
                             "Ignored in FAISS mode (no percentile calculation).")
 
+    parser.add_argument("--dedup-chunk-size", type=int, default=10000000,
+                       help="Chunk size for memory-efficient deduplication (default: 10,000,000). "
+                            "If filtered results exceed this size, deduplication will process data in chunks "
+                            "to avoid memory exhaustion. Lower values use less memory but may be slower. "
+                            "Typical range: 5M-20M rows depending on available RAM.")
+
     return parser.parse_args()
 
 
@@ -3151,7 +3292,8 @@ def main():
             ce_thresholds=CE_THRESHOLDS,
             task_type=args.task_type,
             per_task_mode=args.per_task,
-            onet_version=args.onet_version
+            onet_version=args.onet_version,
+            dedup_chunk_size=args.dedup_chunk_size
         )
         
         # Print summary
