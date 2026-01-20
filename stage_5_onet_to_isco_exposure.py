@@ -35,28 +35,54 @@ class TaskFirmExposurePipeline:
     def __init__(self,
                  aggregation_method: str = "mean",
                  time_invariant: bool = False,
-                 occupation_exposure: str = "none",
+                 exposure_table_format: str = "exposed-firm-occ-year",
                  data_dir: str = "Data/",
+                 stage_4_dir: str = "Data/Stage_4/",
+                 stage_2_dir: str = "Data/Stage_2/",
+                 output_dir: str = None,
                  bge_percentiles: List[float] = None,
                  ce_thresholds: List[float] = None,
-                 task_type: str = 'core'):
+                 task_type: str = 'core',
+                 onet_version: int = 20,
+                 use_employment_weights: bool = False):
         """
         Initialize the multi-specification exposure pipeline.
 
         Args:
             aggregation_method: Method to aggregate O*NET → ISCO ("mean", "weighted_mean")
             time_invariant: If True, firms exposed to all their AI apps across all years; if False, firms exposed to apps from first appearance onwards
-            occupation_exposure: Occupation-level exposure mode ("none", "time-invariant", "time-variant")
+            exposure_table_format: Output table format for firm × occupation × year exposure:
+                - "exposed-firm-occ-year": Only combinations with exposure > 0 [DEFAULT]
+                - "all-firm-occ-year": All firm × occupation × year combinations (includes zeros)
+                - "exposed-occ-year": Only occupation × year (same for all firms)
             data_dir: Directory containing input data files
+            stage_4_dir: Directory containing Stage 4 cross-encoder results
+            stage_2_dir: Directory containing Stage 2 data files
+            output_dir: Directory for output files (default: Data/firm_year_exposure/). Used for both O*NET and ISCO outputs
             bge_percentiles: List of BGE percentile cutoffs (default: [20, 15, 10, 5, 1])
             ce_thresholds: List of cross-encoder thresholds (default: [0.8, 0.6, 0.4, 0.2, 0.0])
             task_type: Task type ('core' or 'all')
+            onet_version: O*NET version (default: 20). BLS SOC-10→ISCO-08 crosswalk only compatible with v20
+            use_employment_weights: If True, use employment-weighted aggregation for O*NET→ISCO crosswalk via 6-digit SOC
         """
         self.aggregation_method = aggregation_method
         self.time_invariant = time_invariant
-        self.occupation_exposure = occupation_exposure
+        self.exposure_table_format = exposure_table_format
         self.data_dir = data_dir
+        self.stage_4_dir = stage_4_dir
+        self.stage_2_dir = stage_2_dir
+        self.output_dir = output_dir if output_dir else os.path.join(data_dir, 'firm_year_exposure')
         self.task_type = task_type
+        self.onet_version = onet_version
+        self.use_employment_weights = use_employment_weights
+
+        # Validate O*NET version compatibility with BLS SOC-10 crosswalk
+        if onet_version >= 25:
+            raise ValueError(
+                f"O*NET version {onet_version} uses SOC 2018+ taxonomy. "
+                f"The BLS SOC-10 → ISCO-08 crosswalk is only compatible with O*NET v20 (SOC 2010). "
+                f"Please use O*NET v20 or obtain a SOC 2018 → ISCO-08 crosswalk."
+            )
 
         # Set default thresholds if not provided
         if bge_percentiles is None:
@@ -68,10 +94,14 @@ class TaskFirmExposurePipeline:
         self.ce_thresholds = ce_thresholds
 
         logger.info(f"Initialized Multi-Specification Task → Occupation × Firm AI exposure pipeline")
+        logger.info(f"  Data directory: {data_dir}")
+        logger.info(f"  Output directory: {self.output_dir}")
         logger.info(f"  Aggregation method: {aggregation_method}")
         logger.info(f"  Firm time invariant exposure: {time_invariant}")
-        logger.info(f"  Occupation exposure mode: {occupation_exposure}")
+        logger.info(f"  Exposure table format: {exposure_table_format}")
         logger.info(f"  Task type: {task_type}")
+        logger.info(f"  O*NET version: {onet_version} (SOC 2010 taxonomy)")
+        logger.info(f"  O*NET→ISCO crosswalk mode: {'Employment-weighted (8d→6d→4d)' if use_employment_weights else 'Unweighted (8d→4d)'}")
         logger.info(f"  BGE percentiles: {bge_percentiles}")
         logger.info(f"  CE thresholds: {ce_thresholds}")
     
@@ -91,8 +121,8 @@ class TaskFirmExposurePipeline:
         matches_df = pd.read_parquet(top_matches_file)
         logger.info(f"Loaded {len(matches_df):,} task-application pairs")
 
-        # Validate required columns
-        required_cols = ['app_text', 'onet_task_id', 'onet_task', 'similarity', 'cross_encoder_score']
+        # Validate required columns (ai_app_id added so we can carry stable app keys forward)
+        required_cols = ['app_text', 'onet_task_id', 'onet_task', 'similarity', 'cross_encoder_score', 'ai_app_id']
         missing_cols = [c for c in required_cols if c not in matches_df.columns]
         if missing_cols:
             raise ValueError(f"Missing required columns: {missing_cols}")
@@ -195,9 +225,225 @@ class TaskFirmExposurePipeline:
         logger.info(f"Unique ESCO codes: {xwalk_df['esco_code'].nunique():,}")
         logger.info(f"Unique O*NET codes: {xwalk_df['onet_code'].nunique():,}")
         logger.info(f"Unique ISCO 4-digit codes: {xwalk_df['isco08_4d'].nunique():,}")
-        
+
         return xwalk_df
-    
+
+    def load_bls_soc_isco_crosswalk(self, bls_file_path: str) -> pd.DataFrame:
+        """
+        Load BLS 2010 SOC to ISCO-08 crosswalk.
+
+        IMPORTANT: This crosswalk uses SOC 2010 taxonomy and is ONLY compatible
+        with O*NET version 20. For O*NET 25+, use SOC 2018 crosswalk instead.
+
+        Args:
+            bls_file_path: Path to ISCO_SOC_Crosswalk.xls
+
+        Returns:
+            DataFrame with columns: soc_code, isco08_4d, isco08_title
+        """
+        logger.info(f"Loading BLS SOC-10 → ISCO-08 crosswalk from: {bls_file_path}")
+        logger.info("NOTE: This crosswalk uses SOC 2010 taxonomy (compatible with O*NET v20 only)")
+
+        # Load with header on row 6 (0-indexed)
+        df = pd.read_excel(bls_file_path, header=6, dtype=str)
+        logger.info(f"Loaded {len(df):,} raw rows from BLS crosswalk")
+
+        # Clean column names
+        df.columns = [c.strip().lower() for c in df.columns]
+        logger.info(f"Column names: {list(df.columns)}")
+
+        # Map to standard column names
+        crosswalk = pd.DataFrame()
+        crosswalk['soc_code'] = df['2010 soc code'].astype(str).str.strip()
+        crosswalk['isco08_4d'] = df['isco-08 code'].astype(str).str.strip()
+        crosswalk['isco08_title'] = df['isco-08 title en'].astype(str).str.strip()
+
+        logger.info(f"Extracted columns: soc_code, isco08_4d, isco08_title")
+
+        # Filter valid rows (non-null codes)
+        rows_before = len(crosswalk)
+        crosswalk = crosswalk.dropna(subset=['soc_code', 'isco08_4d'])
+        logger.info(f"Removed {rows_before - len(crosswalk):,} rows with null SOC or ISCO codes")
+
+        # Filter to valid 4-digit ISCO codes
+        rows_before = len(crosswalk)
+        crosswalk = crosswalk[crosswalk['isco08_4d'].str.len() == 4]
+        logger.info(f"Removed {rows_before - len(crosswalk):,} rows with non-4-digit ISCO codes")
+
+        # Deduplicate (handles 'part' column implicitly - treat all as full links)
+        rows_before = len(crosswalk)
+        crosswalk = crosswalk[['soc_code', 'isco08_4d', 'isco08_title']].drop_duplicates()
+        logger.info(f"Removed {rows_before - len(crosswalk):,} duplicate SOC→ISCO mappings")
+
+        logger.info(f"Final BLS crosswalk: {len(crosswalk):,} unique SOC-10 → ISCO-08 links")
+        logger.info(f"  Unique SOC codes: {crosswalk['soc_code'].nunique():,}")
+        logger.info(f"  Unique ISCO codes: {crosswalk['isco08_4d'].nunique():,}")
+        logger.info(f"  Example mappings:")
+        for idx, (_, row) in enumerate(crosswalk.head(3).iterrows()):
+            logger.info(f"    {row['soc_code']} → {row['isco08_4d']} ({row['isco08_title']})")
+
+        return crosswalk
+
+    def load_employment_data(self, employment_file: str) -> pd.DataFrame:
+        """
+        Load BLS employment data for 6-digit SOC codes.
+
+        Args:
+            employment_file: Path to national_M2018_dl.xlsx (2018 employment data)
+
+        Returns:
+            DataFrame with columns: soc_6d, employment
+        """
+        logger.info(f"Loading BLS employment data from: {employment_file}")
+
+        # Load employment file
+        emp_df = pd.read_excel(employment_file, dtype={'OCC_CODE': str})
+        logger.info(f"Loaded {len(emp_df):,} occupation employment records")
+
+        # Clean column names
+        emp_df.columns = [c.strip().upper() for c in emp_df.columns]
+
+        # Extract relevant columns
+        employment = pd.DataFrame()
+        employment['soc_6d'] = emp_df['OCC_CODE'].astype(str).str.strip()
+
+        # Handle employment (may have commas or be numeric)
+        if emp_df['TOT_EMP'].dtype == 'object':
+            # Remove commas and '#' symbols, convert to float
+            employment['employment'] = emp_df['TOT_EMP'].str.replace(',', '').str.replace('#', '').astype(float)
+        else:
+            employment['employment'] = emp_df['TOT_EMP'].astype(float)
+
+        # Remove summary rows (e.g., "00-0000" = All Occupations, "11-0000" = major groups)
+        # Keep only detailed 6-digit occupations (XX-XXXX format)
+        employment = employment[employment['soc_6d'].str.match(r'^\d{2}-\d{4}$')].copy()
+
+        logger.info(f"Filtered to {len(employment):,} detailed 6-digit SOC occupations")
+        logger.info(f"  Total employment in dataset: {employment['employment'].sum():,.0f}")
+        logger.info(f"  Employment range: {employment['employment'].min():,.0f} - {employment['employment'].max():,.0f}")
+        logger.info(f"  Median employment: {employment['employment'].median():,.0f}")
+
+        return employment
+
+    def load_webb_crosswalk_with_weights(self, webb_file: str, employment_data: pd.DataFrame, use_weights: bool) -> pd.DataFrame:
+        """
+        Load Webb crosswalk and add pre-normalized employment weights.
+
+        Args:
+            webb_file: Path to webb_crosswalk_clean.xls
+            employment_data: BLS employment counts by 6-digit SOC
+            use_weights: If True, add employment weights; if False, use equal weights
+
+        Returns:
+            DataFrame with columns: onet_8d, soc_6d, isco08_4d, isco08_title, weight
+            Where weights sum to 1.0 within each isco08_4d group
+        """
+        logger.info(f"Loading Webb O*NET-SOC → ISCO-08 crosswalk from: {webb_file}")
+        logger.info(f"  Weighting mode: {'Employment-weighted' if use_weights else 'Unweighted (equal weights)'}")
+
+        # Load Webb crosswalk
+        webb_df = pd.read_excel(webb_file, dtype=str)
+        logger.info(f"Loaded {len(webb_df):,} raw crosswalk rows")
+
+        # Clean column names
+        webb_df.columns = [c.strip().lower() for c in webb_df.columns]
+
+        # Extract relevant columns
+        crosswalk = pd.DataFrame()
+        crosswalk['onet_8d'] = webb_df['onetsoccode'].astype(str).str.strip()
+        crosswalk['soc_6d'] = webb_df['onetsoccode_for_matching'].astype(str).str.strip()
+        crosswalk['isco08_4d'] = webb_df['isco08'].astype(str).str.strip()
+        crosswalk['isco08_title'] = webb_df['isco08_name'].astype(str).str.strip()
+
+        logger.info(f"Extracted columns: onet_8d, soc_6d, isco08_4d, isco08_title")
+
+        # Filter valid rows
+        rows_before = len(crosswalk)
+        crosswalk = crosswalk.dropna(subset=['onet_8d', 'soc_6d', 'isco08_4d'])
+        logger.info(f"Removed {rows_before - len(crosswalk):,} rows with null codes")
+
+        # Track ISCO code lengths (including non-4-digit codes)
+        isco_lengths = crosswalk['isco08_4d'].str.len()
+        non_4digit_rows = (isco_lengths != 4).sum()
+        if non_4digit_rows > 0:
+            logger.info(f"Found {non_4digit_rows} row(s) with non-4-digit ISCO codes")
+            length_dist = isco_lengths.value_counts().sort_index()
+            for length, count in length_dist.items():
+                logger.info(f"  {length}-digit ISCO codes: {count} row(s)")
+
+            # Show the non-4-digit codes
+            non_4digit_codes = crosswalk[isco_lengths != 4][['onet_8d', 'soc_6d', 'isco08_4d']]
+            logger.info(f"  Non-4-digit mappings:")
+            for idx, row in non_4digit_codes.iterrows():
+                logger.info(f"    {row['onet_8d']} → {row['soc_6d']} → {row['isco08_4d']} ({len(row['isco08_4d'])}-digit)")
+
+        # Deduplicate
+        rows_before = len(crosswalk)
+        crosswalk = crosswalk.drop_duplicates(subset=['onet_8d', 'soc_6d', 'isco08_4d'])
+        logger.info(f"Removed {rows_before - len(crosswalk):,} duplicate mappings")
+
+        # Count 4-digit vs non-4-digit in final crosswalk
+        final_isco_lengths = crosswalk['isco08_4d'].str.len()
+        count_4digit = (final_isco_lengths == 4).sum()
+        count_non4digit = (final_isco_lengths != 4).sum()
+
+        logger.info(f"Final Webb crosswalk: {len(crosswalk):,} unique O*NET-8d → SOC-6d → ISCO links")
+        logger.info(f"  Unique 8-digit O*NET codes: {crosswalk['onet_8d'].nunique():,}")
+        logger.info(f"  Unique 6-digit SOC codes: {crosswalk['soc_6d'].nunique():,}")
+        logger.info(f"  Unique ISCO codes: {crosswalk['isco08_4d'].nunique():,}")
+        logger.info(f"  ISCO code lengths: {count_4digit} 4-digit + {count_non4digit} non-4-digit ({count_non4digit/len(crosswalk)*100:.1f}%)")
+
+        # STEP: Add employment weights and pre-normalize
+        if use_weights:
+            logger.info("Adding employment weights to crosswalk...")
+
+            # Merge with employment data (left join to keep all SOC codes)
+            crosswalk = crosswalk.merge(employment_data, on='soc_6d', how='left')
+
+            # Fill missing employment with median
+            median_emp = employment_data['employment'].median()
+            missing_emp = crosswalk['employment'].isna().sum()
+            if missing_emp > 0:
+                logger.warning(f"  {missing_emp} SOC-6d codes missing employment data - filling with median ({median_emp:,.0f})")
+                crosswalk['employment'] = crosswalk['employment'].fillna(median_emp)
+
+            logger.info(f"  Employment statistics: min={crosswalk['employment'].min():,.0f}, max={crosswalk['employment'].max():,.0f}, median={crosswalk['employment'].median():,.0f}")
+
+            # PRE-NORMALIZE: Calculate weights that sum to 1.0 within each ISCO-4d group
+            # Group by ISCO, sum employment, then divide each row's employment by group total
+            crosswalk['total_employment_in_isco'] = crosswalk.groupby('isco08_4d')['employment'].transform('sum')
+            crosswalk['weight'] = crosswalk['employment'] / crosswalk['total_employment_in_isco']
+
+            # Drop temporary columns
+            crosswalk.drop(columns=['employment', 'total_employment_in_isco'], inplace=True)
+
+            logger.info("  Pre-normalized weights created (sum to 1.0 within each ISCO group)")
+
+            # Validation: Check that weights sum to ~1.0 for each ISCO code
+            weight_sums = crosswalk.groupby('isco08_4d')['weight'].sum()
+            if not np.allclose(weight_sums, 1.0, rtol=1e-5):
+                logger.warning(f"  WARNING: Some ISCO groups have weights that don't sum to 1.0! Range: {weight_sums.min():.6f} - {weight_sums.max():.6f}")
+            else:
+                logger.info(f"  ✓ Validation passed: All ISCO groups have weights summing to 1.0")
+
+        else:
+            # Unweighted mode: Use equal weights within each ISCO-4d group
+            logger.info("Using equal weights (unweighted mode)...")
+
+            # Count how many SOC-6d codes map to each ISCO-4d
+            crosswalk['count_in_isco'] = crosswalk.groupby('isco08_4d')['soc_6d'].transform('nunique')
+            crosswalk['weight'] = 1.0 / crosswalk['count_in_isco']
+
+            crosswalk.drop(columns=['count_in_isco'], inplace=True)
+
+            logger.info(f"  Equal weights assigned (sum to 1.0 within each ISCO group)")
+
+        logger.info(f"  Example weighted mappings:")
+        for idx, row in crosswalk.head(5).iterrows():
+            logger.info(f"    {row['onet_8d']} → {row['soc_6d']} → {row['isco08_4d']} (weight={row['weight']:.4f})")
+
+        return crosswalk
+
     def load_isco_titles(self) -> pd.DataFrame:
         """
         Load ISCO-08 4-digit occupation titles from ESCO crosswalk.
@@ -239,7 +485,7 @@ class TaskFirmExposurePipeline:
         logger.info(f"Total ISCO titles available: {len(combined_titles):,}")
         return combined_titles
     
-    def load_job_app_mapping(self) -> pd.DataFrame:
+    def load_job_app_mapping(self, task_type: str = 'core', model: str = 'BGE') -> pd.DataFrame:
         """
         Load job-application mapping file to connect AI apps to specific jobs.
 
@@ -248,8 +494,43 @@ class TaskFirmExposurePipeline:
         """
         logger.info("Loading job-application mapping...")
 
-        mapping_file = os.path.join(self.data_dir, "job_app_mapping.parquet")
-        mapping_df = pd.read_parquet(mapping_file)
+        # BGE percentile string (match stage_4 formatting: reverse-sorted)
+        pct_list = getattr(self, 'bge_percentiles', None) or []
+        if not pct_list:
+            percentile_str = ""
+        else:
+            percentile_str = "_".join(
+                str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
+                for p in sorted(pct_list, reverse=True)
+            )
+
+        # CE thresholds string (only include > 0.0 thresholds, format like 0p8)
+        ce_list = getattr(self, 'ce_thresholds', None) or []
+        ce_percentile_str = "_".join(f"{c:.1f}".replace('.', 'p') for c in sorted(ce_list, reverse=True) if c > 0.0)
+        ce_part = f"_ce{ce_percentile_str}" if ce_percentile_str else ""
+
+        # O*NET suffix
+        onet_suffix = f"_onet{self.onet_version}" if getattr(self, 'onet_version', None) else ""
+
+        # Task suffix
+        task_suffix = f"_{task_type}"
+
+        # Construct filename using same pattern as stage_4
+        # e.g. task_exposure_matches_all_thresholds_openai_bge20_15_10_5_1_ce0p8_0p6_onet20_core.parquet
+        bge_part = f"_bge{percentile_str}" if percentile_str else ""
+        filename = f"job_app_mapping_{model}{bge_part}{ce_part}{onet_suffix}{task_suffix}.parquet"
+        filepath = os.path.join(self.stage_4_dir, filename)
+
+        if os.path.exists(filepath):
+            logger.info(f"Using Stage 4 file: {filename}")
+        else:
+            logger.warning(f"  WARNING: Stage 4 file not found: {filename}")
+
+        mapping_df = pd.read_parquet(self.stage_4_dir + filename)
+
+        # Strictly require ai_app_id (no fallback hashing per user directive)
+        if 'ai_app_id' not in mapping_df.columns:
+            raise ValueError("ai_app_id missing from job_app_mapping parquet; regenerate Stage 4 outputs with ai_app_id included.")
 
         logger.info(f"Loaded {len(mapping_df):,} application-job mappings")
         logger.info(f"Unique AI applications: {mapping_df['app_text'].nunique():,}")
@@ -365,7 +646,7 @@ class TaskFirmExposurePipeline:
         
         return original_df
     
-    def load_stage2_deduplication_mapping(self, stage2_mapping_file: str = None) -> pd.DataFrame:
+    def load_stage2_deduplication_mapping(self) -> pd.DataFrame:
         """
         Load Stage 2 deduplication mapping to recover jobs removed by similarity deduplication.
         Only loads the UID columns needed for mapping.
@@ -376,12 +657,12 @@ class TaskFirmExposurePipeline:
         Returns:
             DataFrame with kept_uid → removed_uid mapping for Stage 2 recovery
         """
-        if stage2_mapping_file is None:
+        if self.stage_2_dir is None:
             # Auto-detect the most recent similar_duplicates_removed file
-            stage2_files = list(Path(self.data_dir).glob("similar_duplicates_removed_*.csv"))
+            stage2_files = list(Path(self.stage_2_dir).glob("similar_duplicates_removed_*.csv"))
             if not stage2_files:
                 # Check for the standard filename
-                standard_file = os.path.join(self.data_dir, "similar_duplicates_removed.csv")
+                standard_file = os.path.join(self.stage_2_dir, "similar_duplicates_removed.csv")
                 if os.path.exists(standard_file):
                     stage2_mapping_file = standard_file
                 else:
@@ -434,8 +715,8 @@ class TaskFirmExposurePipeline:
         # Use original UIDs directly (no Stage 2 mapping needed)
         jam['job_uids_kept'] = jam['job_uids_list']
 
-        # Explode UIDs for join
-        expanded = jam[['app_text', 'job_uids_kept', 'first_occurrence_tst_created']].explode('job_uids_kept')
+        # Explode UIDs for join; carry ai_app_id for downstream joins
+        expanded = jam[['app_text', 'ai_app_id', 'job_uids_kept', 'first_occurrence_tst_created']].explode('job_uids_kept')
         expanded = expanded.rename(columns={'job_uids_kept': 'job_uid'})
 
         # Join to company data using original job UIDs
@@ -456,7 +737,7 @@ class TaskFirmExposurePipeline:
 
         # Keep only rows that successfully joined
         out = merged.dropna(subset=['company_name']).copy()
-        out = out[['app_text', 'job_uid', 'company_name', 'x28_occupations', 'x28_industries',
+        out = out[['app_text', 'ai_app_id', 'job_uid', 'company_name', 'x28_occupations', 'x28_industries',
                 'year', 'tst_created', 'first_occurrence_tst_created', 'provenance_job_uids']]
 
         logger.info(f"Final expansion (Stage 4 deduplication only): {out['job_uid'].nunique():,} jobs, {len(out):,} app-job rows")
@@ -514,7 +795,7 @@ class TaskFirmExposurePipeline:
         Returns:
             DataFrame with task-firm exposure probabilities (both variants)
         """
-        logger.info(f"Step 2: Calculating task exposure at firm level (time_invariant={self.time_invariant}, occupation_exposure={self.occupation_exposure})...")
+        logger.info(f"Step 2: Calculating task exposure at firm level (time_invariant={self.time_invariant}, exposure_table_format={self.exposure_table_format})...")
         logger.info(f"Using expanded dataset with Stage 4 deduplication only (Stage 2 deduplication temporarily disabled)...")
         
         # Stage 2 deduplication reintegration commented out - only using Stage 4 deduplication
@@ -525,8 +806,8 @@ class TaskFirmExposurePipeline:
         expanded_job_app_mapping = self.expand_job_app_mapping_to_full_dataset(
             job_app_mapping, original_jobs, None
         )
-        expanded_job_app_mapping.to_csv('Data/expanded_jobs_matching.csv', index=False)
-        task_app_matches.to_csv('Data/task_app_matches.csv', index=False)
+        expanded_job_app_mapping.to_csv(os.path.join(self.output_dir, 'expanded_jobs_matching.csv'), index=False)
+        task_app_matches.to_csv(os.path.join(self.output_dir, 'task_app_matches.csv'), index=False)
 
         # Explode job_uid array to one row per job
         # Stage 4 stores job_uid as arrays since multiple jobs can use the same AI app text
@@ -560,45 +841,77 @@ class TaskFirmExposurePipeline:
         logger.info(f"Mapped {len(task_firm_matches):,} task-app-firm relationships")
 
         # COMPREHENSIVE VALIDATION: Check for UID loss between expanded mapping and task-firm matches
-        expanded_uids = set(expanded_job_app_mapping['job_uid'].unique())
-        task_firm_uids = set(task_firm_matches['job_uid'].unique())
-        if len(expanded_uids) != len(task_firm_uids):
-            missing_in_task_firm = expanded_uids - task_firm_uids
-            logger.warning(f"VALIDATION: {len(missing_in_task_firm)} UIDs lost in task-app matching: {list(missing_in_task_firm)[:10]}")
+        verbose_validation = os.environ.get("VERBOSE_VALIDATION", "").strip().lower() in {"1", "true", "yes", "y"}
 
-            # Get all apps from missing UIDs
+        expanded_uids = set(expanded_job_app_mapping['job_uid'].dropna().unique())
+        task_firm_uids = set(task_firm_matches['job_uid'].dropna().unique())
+        missing_in_task_firm = expanded_uids - task_firm_uids
+
+        uid_loss_verdict = "none"
+        uid_loss_is_expected_filtering = False
+
+        if missing_in_task_firm:
+            # Get all apps from missing UIDs (from expanded mapping, not from task matches)
             missing_apps_df = expanded_job_app_mapping[expanded_job_app_mapping['job_uid'].isin(missing_in_task_firm)]
-            missing_app_texts = missing_apps_df['app_text'].unique()
-            logger.warning(f"VALIDATION: Missing UIDs had {len(missing_app_texts)} unique AI apps")
+            missing_app_texts = missing_apps_df['app_text'].dropna().unique()
 
-            # CRITICAL CHECK 1: Verify these UIDs exist in original_jobs (rules out data source mismatch)
-            original_uids = set(original_jobs['job_uid'].unique()) if 'job_uid' in original_jobs.columns else set()
+            # Reason coding
+            original_uids = set(original_jobs['job_uid'].dropna().unique()) if 'job_uid' in original_jobs.columns else set()
             missing_from_original = missing_in_task_firm - original_uids
-            if missing_from_original:
-                logger.error(f"ERROR: {len(missing_from_original)} missing UIDs don't exist in original_jobs! This indicates data source mismatch: {list(missing_from_original)[:5]}")
-            else:
-                logger.info(f"✅ VALIDATION: All {len(missing_in_task_firm)} missing UIDs exist in original_jobs (data source OK)")
 
-            # CRITICAL CHECK 2: Verify NONE of these apps are in task_app_matches (rules out join errors)
-            task_matching_apps = set(task_app_matches['app_text'].unique())
+            task_matching_apps = set(task_app_matches['app_text'].dropna().unique())
             apps_that_should_match = set(missing_app_texts) & task_matching_apps
-            if apps_that_should_match:
-                logger.error(f"ERROR: {len(apps_that_should_match)} apps from missing UIDs ARE in task_app_matches! This indicates join error: {list(apps_that_should_match)[:3]}")
-            else:
-                logger.info(f"✅ VALIDATION: None of the {len(missing_app_texts)} apps from missing UIDs are in task_app_matches (legitimate filtering)")
 
-            # DETAILED BREAKDOWN: Show apps per missing UID
-            for uid in list(missing_in_task_firm)[:5]:  # Show first 5
-                uid_apps = missing_apps_df[missing_apps_df['job_uid'] == uid]['app_text'].tolist()
-                logger.info(f"  UID {uid}: {len(uid_apps)} non-matching apps")
-                for app in uid_apps[:2]:  # Show first 2 apps
-                    logger.info(f"    - {app[:80]}...")
+            n_missing = len(missing_in_task_firm)
+            n_expanded = max(len(expanded_uids), 1)
+            pct_missing = 100.0 * (n_missing / n_expanded)
 
-            # SUMMARY DIAGNOSIS
-            if not missing_from_original and not apps_that_should_match:
-                logger.info(f"🔍 DIAGNOSIS: Loss is legitimate - {len(missing_in_task_firm)} UIDs contained only AI applications that don't match any O*NET tasks")
+            # Canonical, reason-coded summary (single source of truth)
+            if missing_from_original:
+                uid_loss_verdict = "error_data_source_mismatch"
+                logger.error(
+                    "VALIDATION_UID_LOSS: ERROR — %s/%s jobs (%.2f%%) are missing from final task-firm matches, "
+                    "and %s of those job_uids do not exist in original_jobs (data source mismatch). "
+                    "ACTION: verify the original_jobs extract used here matches Stage 4 inputs (same source + time window). "
+                    "Examples: %s",
+                    f"{n_missing:,}", f"{n_expanded:,}", pct_missing,
+                    f"{len(missing_from_original):,}",
+                    list(sorted(missing_from_original))[:10],
+                )
+            elif apps_that_should_match:
+                uid_loss_verdict = "error_possible_join_issue"
+                logger.error(
+                    "VALIDATION_UID_LOSS: ERROR — %s/%s jobs (%.2f%%) are missing from final task-firm matches, "
+                    "and %s associated app_text values *do* appear in task_app_matches (possible join/key issue). "
+                    "ACTION: inspect join keys and normalization for ('app_text','job_uid') across exploded matches vs expanded mapping. "
+                    "Examples: %s",
+                    f"{n_missing:,}", f"{n_expanded:,}", pct_missing,
+                    f"{len(apps_that_should_match):,}",
+                    list(sorted(apps_that_should_match))[:5],
+                )
             else:
-                logger.error(f"🚨 DIAGNOSIS: Loss indicates data pipeline error - investigate data source consistency or join logic")
+                uid_loss_verdict = "expected_filtering_no_task_match"
+                uid_loss_is_expected_filtering = True
+                logger.info(
+                    "VALIDATION_UID_LOSS: OK — %s/%s jobs (%.2f%%) are missing from final task-firm matches, "
+                    "but this is expected filtering: those jobs' AI apps have zero O*NET task matches. "
+                    "(%s unique AI apps across missing jobs). ACTION: none (expected).",
+                    f"{n_missing:,}", f"{n_expanded:,}", pct_missing,
+                    f"{len(missing_app_texts):,}",
+                )
+
+            # Optional detail for inspection (only when explicitly enabled, or when verdict indicates an error)
+            if verbose_validation or not uid_loss_is_expected_filtering:
+                logger.info(
+                    "VALIDATION_UID_LOSS_DETAILS: showing examples (set VERBOSE_VALIDATION=1 for more routine detail)."
+                )
+                for uid in list(sorted(missing_in_task_firm))[:5]:
+                    uid_apps = missing_apps_df[missing_apps_df['job_uid'] == uid]['app_text'].dropna().tolist()
+                    logger.info("  UID %s: %s app_text values (examples below)", uid, f"{len(uid_apps):,}")
+                    for app in uid_apps[:2]:
+                        logger.info("    - %s...", str(app)[:120])
+        else:
+            logger.info("VALIDATION_UID_LOSS: OK — no jobs were lost between expanded mapping and final task-firm matches.")
 
         # Only log company info if company_name column exists
         if 'company_name' in task_firm_matches.columns:
@@ -641,14 +954,24 @@ class TaskFirmExposurePipeline:
             logger.warning(f"WARNING: Lost {stage4_jobs - expanded_jobs:,} jobs during expansion. "
                           f"This could indicate missing job UIDs in company data.")
         
-        if final_jobs_with_tasks != expanded_jobs:
-            logger.warning(f"WARNING: Job count mismatch between expanded mapping ({expanded_jobs:,}) "
-                          f"and final task matches ({final_jobs_with_tasks:,}). "
-                          f"This could indicate issues in task-app matching.")
-        
         # Check for any jobs accidentally INCLUDED without AI-task provenance
         allowed_jobs = set(expanded_job_app_mapping['job_uid'].dropna().unique())
         final_jobs   = set(task_firm_matches['job_uid'].dropna().unique())
+
+        if final_jobs_with_tasks != expanded_jobs:
+            # Avoid repeating the canonical UID-loss warning above if it's the same issue.
+            if missing_in_task_firm and missing_in_task_firm == (allowed_jobs - final_jobs) and uid_loss_is_expected_filtering:
+                logger.info(
+                    "DATA_CONSISTENCY: Job count mismatch (%s vs %s) is already explained above by expected filtering "
+                    "(jobs with AI apps but zero O*NET task matches).",
+                    f"{expanded_jobs:,}", f"{final_jobs_with_tasks:,}",
+                )
+            else:
+                logger.warning(
+                    "WARNING: Job count mismatch between expanded mapping (%s) and final task matches (%s). "
+                    "This may indicate task-app matching loss beyond expected filtering.",
+                    f"{expanded_jobs:,}", f"{final_jobs_with_tasks:,}",
+                )
 
         # Jobs that appear in final matches but weren't in the allowed mapping
         accidental_inclusions = final_jobs - allowed_jobs
@@ -663,10 +986,24 @@ class TaskFirmExposurePipeline:
         # Optional: jobs we expected (from mapping) but lost during the merge
         missing_expected = allowed_jobs - final_jobs
         if missing_expected:
-            logger.warning(
-                f"{len(missing_expected)} job(s) from the expanded mapping are missing in final matches. "
-                f"First few: {list(sorted(missing_expected))[:10]}"
-            )
+            # De-duplicate: if this is the same missing set already summarized above, don't re-warn.
+            if missing_in_task_firm and missing_expected == missing_in_task_firm:
+                if uid_loss_is_expected_filtering:
+                    logger.info(
+                        "DATA_CONSISTENCY: %s job(s) missing in final matches (same set as VALIDATION_UID_LOSS above; expected filtering).",
+                        f"{len(missing_expected):,}",
+                    )
+                else:
+                    logger.warning(
+                        "DATA_CONSISTENCY: %s job(s) missing in final matches (same set as VALIDATION_UID_LOSS above; verdict=%s).",
+                        f"{len(missing_expected):,}",
+                        uid_loss_verdict,
+                    )
+            else:
+                logger.warning(
+                    f"{len(missing_expected)} job(s) from the expanded mapping are missing in final matches. "
+                    f"First few: {list(sorted(missing_expected))[:10]}"
+                )
         else:
             logger.info("✅ VALIDATION PASSED: Final jobs are a clean subset of the expanded mapping")
 
@@ -676,117 +1013,131 @@ class TaskFirmExposurePipeline:
         all_years = sorted(task_firm_matches['year'].unique())
         all_apps = task_app_matches['app_text'].unique()  # All apps across all firms
         all_tasks = task_app_matches['onet_task_id'].unique()  # All exposed tasks
-        
+
         if self.time_invariant:
             logger.info(f"Time-invariant mode: Each firm exposed to all AI apps it has ever used, across all years")
             logger.info(f"Processing {len(all_firms)} firms across {len(all_years)} years")
+
+            # VECTORIZED: Use groupby aggregations instead of nested loops
+            firm_matched = []
+
+            for firm in all_firms:
+                # Get ALL apps this specific firm has ever used across all years
+                firm_apps_ever = set(task_firm_matches[task_firm_matches['company_name'] == firm]['app_text'].unique())
+
+                if len(firm_apps_ever) == 0:
+                    continue  # Skip firms with no AI apps
+
+                # Get all tasks that match any of this firm's apps (across all time)
+                firm_app_task_matches = task_app_matches[task_app_matches['app_text'].isin(firm_apps_ever)]
+
+                if len(firm_app_task_matches) == 0:
+                    continue  # Skip firms with no task matches
+
+                # VECTORIZED: Count unique apps per task in ONE groupby operation (not nested in loops!)
+                task_counts = firm_app_task_matches.groupby('onet_task_id')['app_text'].nunique().reset_index()
+                task_counts.columns = ['onet_task_id', 'n_task_matches_firm_year']
+
+                n_firm_apps_ever = len(firm_apps_ever)
+                task_counts['company_name'] = firm
+                task_counts['n_ai_apps_firm_year'] = n_firm_apps_ever
+                task_counts['hampole_task_exposure'] = task_counts['n_task_matches_firm_year'] / n_firm_apps_ever
+                task_counts['binary_task_exposure'] = (task_counts['n_task_matches_firm_year'] >= 1).astype(int)
+
+                firm_matched.append(task_counts)
+
+            if firm_matched:
+                # Combine all firm task counts
+                firm_year_task_counts = pd.concat(firm_matched, ignore_index=True)
+
+                # VECTORIZED: Broadcast across all years with cross join (no loop!)
+                years_df = pd.DataFrame({'year': all_years})
+                exposure_df = firm_year_task_counts.merge(
+                    years_df,
+                    how='cross'
+                )[['company_name', 'year', 'onet_task_id', 'n_ai_apps_firm_year',
+                   'n_task_matches_firm_year', 'hampole_task_exposure', 'binary_task_exposure']]
+
+                logger.info(f"Vectorized time-invariant calculation: {len(exposure_df):,} firm-year-task combinations")
+            else:
+                exposure_df = pd.DataFrame(columns=[
+                    'company_name', 'year', 'onet_task_id', 'n_ai_apps_firm_year',
+                    'n_task_matches_firm_year', 'hampole_task_exposure', 'binary_task_exposure'
+                ])
         else:
-            # Calculate firm-year-level AI app counts (N_f,t) - count by firm AND year
+            logger.info(f"Time-variant mode: Apps available to firms from first appearance onwards")
+
+            # VECTORIZED: Pre-compute first-year using groupby (not nested loops!)
+            firm_app_first_years = (task_firm_matches
+                .groupby(['company_name', 'app_text'])['year']
+                .min()
+                .reset_index()
+                .rename(columns={'year': 'first_year'})
+            )
+
+            logger.info(f"Pre-computed first-year mapping for {len(firm_app_first_years):,} firm-app pairs")
+
+            # Calculate firm-year-level AI app counts for logging
             firm_year_app_counts = task_firm_matches.groupby(['company_name', 'year'])['app_text'].nunique().reset_index()
             firm_year_app_counts.rename(columns={'app_text': 'n_ai_apps_firm_year'}, inplace=True)
-            
+
             logger.info(f"Time-variant mode: AI apps per firm-year - Mean: {firm_year_app_counts['n_ai_apps_firm_year'].mean():.1f}, "
                        f"Max: {firm_year_app_counts['n_ai_apps_firm_year'].max():,}")
             logger.info(f"Unique firm-year combinations: {len(firm_year_app_counts):,}")
-        
-        # Calculate task exposure for each task-firm-year combination
-        task_firm_exposure = []
-        
-        if self.time_invariant:
-            # Time-invariant: Each firm-year is exposed to all tasks that match ANY app THAT FIRM has ever used
-            for firm in all_firms:
-                # Get ALL apps this specific firm has ever used across all years
-                firm_apps_ever = task_firm_matches[task_firm_matches['company_name'] == firm]['app_text'].unique()
-                n_firm_apps_ever = len(firm_apps_ever)
-                
-                if n_firm_apps_ever == 0:
-                    continue  # Skip firms with no AI apps
-                
-                # Get all tasks that match any of this firm's apps (across all time)
-                firm_app_task_matches = task_app_matches[task_app_matches['app_text'].isin(firm_apps_ever)]
-                firm_exposed_tasks = firm_app_task_matches['onet_task_id'].unique()
-                
-                for year in all_years:
-                    for task_id in firm_exposed_tasks:
-                        # Count how many of THIS FIRM's apps (ever) match this task
-                        task_matches_for_firm = firm_app_task_matches[firm_app_task_matches['onet_task_id'] == task_id]
-                        n_matches_firm = len(task_matches_for_firm['app_text'].unique())
-                        
-                        # Hampole variant: share of THIS FIRM's apps (ever) that match this task
-                        hampole_exposure = n_matches_firm / n_firm_apps_ever if n_firm_apps_ever > 0 else 0
-                        
-                        # Binary variant: 1 if any of this firm's apps (ever) matches, 0 otherwise
-                        binary_exposure = 1 if n_matches_firm >= 1 else 0
-                        
-                        task_firm_exposure.append({
-                            'company_name': firm,
-                            'year': year,
-                            'onet_task_id': task_id,
-                            'n_ai_apps_firm_year': n_firm_apps_ever,  # Apps this firm has ever used
-                            'n_task_matches_firm_year': n_matches_firm,
-                            'hampole_task_exposure': hampole_exposure,
-                            'binary_task_exposure': binary_exposure
-                        })
-        else:
-            # Time-variant: Firms exposed to all apps from first appearance onwards
-            # First, find the first appearance year of each app for each firm
-            firm_app_first_year = {}
-            for firm in all_firms:
-                firm_data = task_firm_matches[task_firm_matches['company_name'] == firm]
-                firm_app_first_year[firm] = {}
-                for app in firm_data['app_text'].unique():
-                    app_years = firm_data[firm_data['app_text'] == app]['year']
-                    if len(app_years) > 0:
-                        firm_app_first_year[firm][app] = app_years.min()
 
-            logger.info(f"Time-variant mode: Apps available to firms from first appearance onwards")
+            # VECTORIZED: Only loop over firm-years, not firm-year-tasks
+            firm_matched = []
 
-            # For each firm-year, include all apps that have appeared by that year for that firm
             for firm in all_firms:
-                firm_apps_by_first_year = firm_app_first_year[firm]
-                if not firm_apps_by_first_year:
-                    continue  # Skip firms with no AI apps
+                # Get apps for this firm with their first years
+                firm_app_years = firm_app_first_years[firm_app_first_years['company_name'] == firm]
+
+                if len(firm_app_years) == 0:
+                    continue  # Skip firms with no apps
 
                 for year in all_years:
-                    # Get all apps that have appeared by this year for this firm
-                    available_apps = [app for app, first_year in firm_apps_by_first_year.items()
-                                    if first_year <= year]
+                    # Get apps available by this year for this firm (vectorized filter)
+                    available_apps = firm_app_years[firm_app_years['first_year'] <= year]['app_text'].tolist()
 
                     if not available_apps:
                         continue  # Skip firm-years with no available apps
 
                     n_apps_firm_year = len(available_apps)
 
-                    # Get all tasks that match any of the available apps
-                    available_app_matches = task_app_matches[task_app_matches['app_text'].isin(available_apps)]
-                    exposed_tasks = available_app_matches['onet_task_id'].unique()
+                    # Get all tasks that match available apps
+                    available_task_matches = task_app_matches[task_app_matches['app_text'].isin(available_apps)]
 
-                    for task_id in exposed_tasks:
-                        # Count how many available apps match this task
-                        task_matches = available_app_matches[available_app_matches['onet_task_id'] == task_id]
-                        n_matches = len(task_matches['app_text'].unique())
+                    if len(available_task_matches) == 0:
+                        continue  # Skip if no task matches
 
-                        # Hampole variant: share of available apps that match this task
-                        hampole_exposure = n_matches / n_apps_firm_year if n_apps_firm_year > 0 else 0
+                    # VECTORIZED: Count unique apps per task in ONE groupby operation (not per task!)
+                    task_counts = available_task_matches.groupby('onet_task_id')['app_text'].nunique().reset_index()
+                    task_counts.columns = ['onet_task_id', 'n_task_matches_firm_year']
 
-                        # Binary variant: 1 if any available app matches, 0 otherwise
-                        binary_exposure = 1 if n_matches >= 1 else 0
+                    task_counts['company_name'] = firm
+                    task_counts['year'] = year
+                    task_counts['n_ai_apps_firm_year'] = n_apps_firm_year
+                    task_counts['hampole_task_exposure'] = task_counts['n_task_matches_firm_year'] / n_apps_firm_year
+                    task_counts['binary_task_exposure'] = (task_counts['n_task_matches_firm_year'] >= 1).astype(int)
 
-                        task_firm_exposure.append({
-                            'company_name': firm,
-                            'year': year,
-                            'onet_task_id': task_id,
-                            'n_ai_apps_firm_year': n_apps_firm_year,
-                            'n_task_matches_firm_year': n_matches,
-                            'hampole_task_exposure': hampole_exposure,
-                            'binary_task_exposure': binary_exposure
-                        })
-        
-        exposure_df = pd.DataFrame(task_firm_exposure)
+                    firm_matched.append(task_counts)
+
+            if firm_matched:
+                exposure_df = pd.concat(firm_matched, ignore_index=True)[
+                    ['company_name', 'year', 'onet_task_id', 'n_ai_apps_firm_year',
+                     'n_task_matches_firm_year', 'hampole_task_exposure', 'binary_task_exposure']
+                ]
+
+                logger.info(f"Vectorized time-variant calculation: {len(exposure_df):,} firm-year-task combinations")
+            else:
+                exposure_df = pd.DataFrame(columns=[
+                    'company_name', 'year', 'onet_task_id', 'n_ai_apps_firm_year',
+                    'n_task_matches_firm_year', 'hampole_task_exposure', 'binary_task_exposure'
+                ])
         
         # Apply occupation-level exposure if specified
-        if self.occupation_exposure != "none":
-            logger.info(f"Applying occupation-level exposure ({self.occupation_exposure}) - overriding firm-level logic...")
+        if self.exposure_table_format != "exposed-firm-occ-year":
+            logger.info(f"Applying exposure table format ({self.exposure_table_format}) - overriding firm-level logic...")
             exposure_df = self._apply_occupation_exposure(exposure_df, task_app_matches, task_firm_matches)
         
         logger.info(f"Calculated task-firm-year exposure: {len(exposure_df):,} task-firm-year combinations")
@@ -816,7 +1167,7 @@ class TaskFirmExposurePipeline:
         Returns:
             DataFrame with occupation-level exposure applied
         """
-        logger.info(f"Occupation exposure mode: {self.occupation_exposure}")
+        logger.info(f"Exposure table format: {self.exposure_table_format}")
 
         # Get all firms and years from the data
         all_firms = task_firm_matches['company_name'].unique()
@@ -824,23 +1175,23 @@ class TaskFirmExposurePipeline:
         all_apps = task_app_matches['app_text'].unique()
         all_tasks = task_app_matches['onet_task_id'].unique()
 
-        # Handle the 3 occupation exposure options: none, additional, only
-        if self.occupation_exposure == "none":
-            logger.info(f"Skipping occupation-level processing (keeping firm-level only)")
+        # Handle the 3 exposure table format options: exposed-firm-occ-year, all-firm-occ-year, exposed-occ-year
+        if self.exposure_table_format == "exposed-firm-occ-year":
+            logger.info(f"Skipping exposure expansion (keeping firm-level only with exposure > 0)")
             return firm_exposure_df  # Return original firm-level data unchanged
-        elif self.occupation_exposure == "only":
-            logger.info(f"Using occupation-only exposure (constant across firms, time_invariant={self.time_invariant})")
+        elif self.exposure_table_format == "exposed-occ-year":
+            logger.info(f"Using occupation-year only (constant across firms, time_invariant={self.time_invariant})")
             return self._apply_pure_occupation_exposure(
                 task_app_matches, task_firm_matches, all_firms, all_years, all_tasks, all_apps
             )
-        elif self.occupation_exposure == "additional":
-            logger.info(f"Using occupation×firm exposure (firm-specific within occupations, time_invariant={self.time_invariant})")
+        elif self.exposure_table_format == "all-firm-occ-year":
+            logger.info(f"Using all firm × occupation × year combinations (includes zeros, time_invariant={self.time_invariant})")
             return self._apply_firm_specific_occupation_exposure(
                 task_app_matches, task_firm_matches, all_firms, all_years, all_tasks
             )
         else:
-            # Backward compatibility - default to additional for other values
-            logger.warning(f"Unknown occupation_exposure value '{self.occupation_exposure}'. Defaulting to 'additional'.")
+            # Backward compatibility - default to all-firm-occ-year for other values
+            logger.warning(f"Unknown exposure_table_format value '{self.exposure_table_format}'. Defaulting to 'all-firm-occ-year'.")
             return self._apply_firm_specific_occupation_exposure(
                 task_app_matches, task_firm_matches, all_firms, all_years, all_tasks
             )
@@ -1146,62 +1497,177 @@ class TaskFirmExposurePipeline:
         logger.info(f"✅ Loaded {len(company_mapping):,} company mappings")
         return company_mapping
 
-    def crosswalk_onet_to_isco(self, onet_exposure: pd.DataFrame, 
-                              esco_crosswalk: pd.DataFrame,
+    def crosswalk_onet_to_isco(self, onet_exposure: pd.DataFrame,
+                              webb_crosswalk: pd.DataFrame,
                               isco_titles: pd.DataFrame,
-                              company_mapping: pd.DataFrame = None) -> pd.DataFrame:
+                              company_mapping: pd.DataFrame = None,
+                              use_weights: bool = False) -> pd.DataFrame:
         """
-        Crosswalk O*NET occupation-firm exposure to ISCO-08 using ESCO mapping.
-        
+        Two-mode crosswalk: O*NET-SOC → ISCO-08.
+
+        Unweighted mode: 8-digit O*NET → 4-digit ISCO (simple mean aggregation)
+        Weighted mode: 8-digit O*NET → 6-digit SOC → 4-digit ISCO (employment-weighted)
+
         Args:
             onet_exposure: O*NET occupation-firm exposure scores
-            esco_crosswalk: ESCO → O*NET crosswalk
+            webb_crosswalk: Webb crosswalk with pre-normalized weights (from load_webb_crosswalk_with_weights)
             isco_titles: ISCO-08 titles
-            
+            company_mapping: Optional company ID mapping
+            use_weights: If True, use employment-weighted aggregation via 6-digit SOC
+
         Returns:
             DataFrame with ISCO-08 occupation-firm exposure scores
         """
-        logger.info("Crosswalking O*NET → ISCO-08...")
-        
-        # Add company names if not already present and mapping is provided
+        mode_str = "Employment-Weighted (8d→6d→4d)" if use_weights else "Unweighted (8d→4d)"
+        logger.info(f"Crosswalking O*NET → ISCO-08 ({mode_str})...")
+
+        # Add company names if not already present
         if company_mapping is not None and 'company_name' not in onet_exposure.columns:
-            logger.info("Adding company names to ONET exposure data...")
+            logger.info("Adding company names to O*NET exposure data...")
             onet_exposure = onet_exposure.merge(company_mapping, on='company_id', how='left')
             missing_companies = onet_exposure['company_name'].isna().sum()
             if missing_companies > 0:
                 logger.warning(f"{missing_companies} company_ids could not be mapped to company names")
-        
-        # Map O*NET codes to ISCO codes via ESCO crosswalk
-        onet_to_isco = onet_exposure.merge(
-            esco_crosswalk[['onet_code', 'isco08_4d']].drop_duplicates(),
-            on='onet_code',
+
+        working_df = onet_exposure.copy()
+
+        # Merge with Webb crosswalk to get mapping paths
+        # Webb crosswalk has: onet_8d, soc_6d, isco08_4d, isco08_title, weight (pre-normalized)
+        merged = working_df.merge(
+            webb_crosswalk,
+            left_on='onet_code',
+            right_on='onet_8d',
             how='inner'
         )
-        
-        logger.info(f"Mapped {len(onet_to_isco):,} O*NET-firm → ISCO-firm relationships")
-        logger.info(f"  Unique ISCO codes: {onet_to_isco['isco08_4d'].nunique():,}")
-        logger.info(f"  Unique firms: {onet_to_isco['company_name'].nunique():,}")
-        
-        # Aggregate multiple O*NET codes mapping to same ISCO-firm-year combination
-        # Use mean aggregation for exposure scores, sum for counts/weights
-        isco_firm_exposure = onet_to_isco.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg({
-            'hampole_ai_exposure_avg': 'mean',
-            'binary_ai_exposure_avg': 'mean',
-            'hampole_occupation_exposure': 'mean',
-            'binary_occupation_exposure': 'mean',
-            'log_ai_intensity': 'mean',  # Should be same for firm-year
-            'n_ai_apps_firm_year': 'mean',  # Should be same for firm-year
-            'total_tasks_occupation': 'sum',
-            'total_importance_weight': 'sum',
-            'onet_code': 'nunique'  # Count how many O*NET codes contribute
-        })
-        
-        # Rename the onet_code count column
-        isco_firm_exposure.rename(columns={'onet_code': 'n_onet_codes_contributing'}, inplace=True)
-        
+
+        # Log mapping coverage
+        total_onet_codes = working_df['onet_code'].nunique()
+        mapped_onet_codes = merged['onet_code'].nunique()
+        unmapped_onet_codes = total_onet_codes - mapped_onet_codes
+
+        logger.info(f"Crosswalk mapping results:")
+        logger.info(f"  Total unique O*NET codes: {total_onet_codes:,}")
+        logger.info(f"  Successfully mapped O*NET codes: {mapped_onet_codes:,} ({mapped_onet_codes/total_onet_codes*100:.1f}%)")
+        logger.info(f"  Unmapped O*NET codes: {unmapped_onet_codes:,} ({unmapped_onet_codes/total_onet_codes*100:.1f}%)")
+        logger.info(f"  Total input O*NET-firm-year rows: {len(working_df):,}")
+        logger.info(f"  After 1-to-many crosswalk explosion: {len(merged):,} O*NET-firm-year → ISCO-firm-year rows")
+
+        if unmapped_onet_codes > 0:
+            unmapped_onets = set(working_df['onet_code']) - set(merged['onet_code'])
+            logger.warning(f"  Unmapped O*NET codes (first 10): {list(sorted(unmapped_onets))[:10]}")
+
+        # Track contribution from non-4-digit ISCO codes
+        merged['isco_digit_length'] = merged['isco08_4d'].str.len()
+        rows_from_4digit = (merged['isco_digit_length'] == 4).sum()
+        rows_from_non4digit = (merged['isco_digit_length'] != 4).sum()
+        pct_from_non4digit = rows_from_non4digit / len(merged) * 100 if len(merged) > 0 else 0
+
+        logger.info(f"Non-4-digit ISCO contribution:")
+        logger.info(f"  Rows from 4-digit ISCO codes: {rows_from_4digit:,}")
+        logger.info(f"  Rows from non-4-digit ISCO codes: {rows_from_non4digit:,} ({pct_from_non4digit:.1f}%)")
+        if rows_from_non4digit > 0:
+            non4digit_sample = merged[merged['isco_digit_length'] != 4][['onet_8d', 'isco08_4d']].drop_duplicates()
+            logger.info(f"  Non-4-digit mappings in merged data:")
+            for idx, row in non4digit_sample.iterrows():
+                logger.info(f"    {row['onet_8d']} → {row['isco08_4d']} ({len(row['isco08_4d'])}-digit)")
+
+        # Drop the temporary column used for tracking
+        merged.drop(columns=['isco_digit_length'], inplace=True)
+
+        if use_weights:
+            # WEIGHTED MODE: Two-stage aggregation (8d → 6d → 4d)
+            logger.info("Using weighted aggregation (8-digit → 6-digit → 4-digit)...")
+
+            # STAGE 1: Aggregate 8-digit O*NET to 6-digit SOC (averaging exposures)
+            logger.info("  Stage 1: Averaging 8-digit O*NET codes within each 6-digit SOC...")
+
+            # Group by SOC-6d + firm + year and average all exposure scores
+            soc_6d_grouped = merged.groupby(['soc_6d', 'company_name', 'year'], as_index=False).agg({
+                'hampole_ai_exposure_avg': 'mean',
+                'binary_ai_exposure_avg': 'mean',
+                'hampole_occupation_exposure': 'mean',
+                'binary_occupation_exposure': 'mean',
+                'log_ai_intensity': 'mean',
+                'n_ai_apps_firm_year': 'mean',
+                'total_tasks_occupation': 'mean',
+                'total_importance_weight': 'mean',
+                'onet_code': 'nunique'  # Count contributing O*NET codes
+            })
+
+            logger.info(f"  Stage 1 complete: {len(soc_6d_grouped):,} unique 6-digit SOC-firm-year combinations")
+            logger.info(f"    Unique 6-digit SOC codes: {soc_6d_grouped['soc_6d'].nunique():,}")
+
+            # STAGE 2: Map 6-digit SOC to 4-digit ISCO using pre-normalized weights
+            logger.info("  Stage 2: Applying employment weights to map 6-digit SOC → 4-digit ISCO...")
+
+            # Get unique SOC-6d → ISCO-4d mappings with pre-normalized weights
+            soc_to_isco_weights = webb_crosswalk[['soc_6d', 'isco08_4d', 'weight']].drop_duplicates()
+
+            # Merge weights with averaged SOC-6d exposures
+            weighted_merged = soc_6d_grouped.merge(soc_to_isco_weights, on='soc_6d', how='inner')
+
+            logger.info(f"    Merged {len(weighted_merged):,} SOC-firm-year rows with ISCO weights")
+
+            # Multiply exposures by pre-normalized weights (no division needed - weights already sum to 1.0)
+            weighted_merged['weighted_hampole_ai'] = weighted_merged['hampole_ai_exposure_avg'] * weighted_merged['weight']
+            weighted_merged['weighted_binary_ai'] = weighted_merged['binary_ai_exposure_avg'] * weighted_merged['weight']
+            weighted_merged['weighted_hampole_occ'] = weighted_merged['hampole_occupation_exposure'] * weighted_merged['weight']
+            weighted_merged['weighted_binary_occ'] = weighted_merged['binary_occupation_exposure'] * weighted_merged['weight']
+            weighted_merged['weighted_total_tasks'] = weighted_merged['total_tasks_occupation'] * weighted_merged['weight']
+            weighted_merged['weighted_importance'] = weighted_merged['total_importance_weight'] * weighted_merged['weight']
+
+            # Aggregate to ISCO-firm-year level by summing weighted values
+            # Because weights sum to 1.0, summing weighted values = weighted average
+            isco_firm_exposure = weighted_merged.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg({
+                'weighted_hampole_ai': 'sum',
+                'weighted_binary_ai': 'sum',
+                'weighted_hampole_occ': 'sum',
+                'weighted_binary_occ': 'sum',
+                'weighted_total_tasks': 'sum',
+                'weighted_importance': 'sum',
+                'log_ai_intensity': 'mean',  # Unweighted metadata
+                'n_ai_apps_firm_year': 'mean',
+                'onet_code': 'sum'  # Sum of O*NET codes contributing through all SOC-6d paths
+            })
+
+            # Rename weighted columns back to original names
+            isco_firm_exposure.rename(columns={
+                'weighted_hampole_ai': 'hampole_ai_exposure_avg',
+                'weighted_binary_ai': 'binary_ai_exposure_avg',
+                'weighted_hampole_occ': 'hampole_occupation_exposure',
+                'weighted_binary_occ': 'binary_occupation_exposure',
+                'weighted_total_tasks': 'total_tasks_occupation',
+                'weighted_importance': 'total_importance_weight',
+                'onet_code': 'n_onet_codes_contributing'
+            }, inplace=True)
+
+            logger.info(f"  Stage 2 complete: {len(isco_firm_exposure):,} ISCO-firm-year combinations")
+
+        else:
+            # UNWEIGHTED MODE: Direct aggregation (8d → 4d)
+            logger.info("Using unweighted aggregation (8-digit → 4-digit direct)...")
+
+            # Simple mean aggregation across all O*NET codes mapping to same ISCO
+            isco_firm_exposure = merged.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg({
+                'hampole_ai_exposure_avg': 'mean',
+                'binary_ai_exposure_avg': 'mean',
+                'hampole_occupation_exposure': 'mean',
+                'binary_occupation_exposure': 'mean',
+                'log_ai_intensity': 'mean',
+                'n_ai_apps_firm_year': 'mean',
+                'total_tasks_occupation': 'mean',
+                'total_importance_weight': 'mean',
+                'onet_code': 'nunique'
+            })
+
+            # Rename O*NET code count column
+            isco_firm_exposure.rename(columns={'onet_code': 'n_onet_codes_contributing'}, inplace=True)
+
+            logger.info(f"  Unweighted aggregation complete: {len(isco_firm_exposure):,} ISCO-firm-year combinations")
+
         # Add ISCO titles
         isco_firm_exposure = isco_firm_exposure.merge(isco_titles, on='isco08_4d', how='left')
-        
+
         # Add company_id for Stage 6 compatibility
         if company_mapping is not None:
             isco_firm_exposure = isco_firm_exposure.merge(
@@ -1213,7 +1679,7 @@ class TaskFirmExposurePipeline:
             if missing_companies > 0:
                 logger.warning(f"{missing_companies} company names could not be mapped to company_ids")
 
-        # Reorder columns (Stage 6 needs company_id and isco_code)
+        # Reorder columns (Stage 6 needs company_id first)
         base_cols = ['company_id', 'isco08_4d', 'isco08_title', 'company_name', 'year']
         other_cols = [col for col in isco_firm_exposure.columns if col not in base_cols]
         cols = [col for col in base_cols if col in isco_firm_exposure.columns] + other_cols
@@ -1411,12 +1877,12 @@ class TaskFirmExposurePipeline:
         """
         components = [occupation_system]  # Start with isco or onet
 
-        # Add firm if we have firm-level variation (not occupation_exposure="only")
-        if self.occupation_exposure != "only":
+        # Add firm if we have firm-level variation (not exposure_table_format="exposed-occ-year")
+        if self.exposure_table_format != "exposed-occ-year":
             components.append("firm")
 
         # Add occupation if occupation processing is enabled
-        if self.occupation_exposure in ["additional", "only"]:
+        if self.exposure_table_format in ["all-firm-occ-year", "exposed-occ-year"]:
             components.append("occupation")
 
         # Add year if time-variant
@@ -1427,7 +1893,7 @@ class TaskFirmExposurePipeline:
         components.append(f"exposure_{self.task_type}_tasks.csv")
         return "_".join(components)
 
-    def _find_stage4_file(self, task_type: str = 'core') -> str:
+    def _find_stage4_file(self, task_type: str = 'core', model: str = 'BGE') -> str:
         """
         Auto-detect Stage 4 output file based on task type.
 
@@ -1437,18 +1903,52 @@ class TaskFirmExposurePipeline:
         Returns:
             Path to Stage 4 file
         """
-        suffix = f"_{task_type}_tasks"
-        filename = f"task_exposure_matches_all_thresholds{suffix}.parquet"
-        filepath = os.path.join(self.data_dir, filename)
 
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(
-                f"Stage 4 file not found: {filepath}\n"
-                f"Expected for task_type='{task_type}': {filename}"
+        # BGE percentile string (match stage_4 formatting: reverse-sorted)
+        pct_list = getattr(self, 'bge_percentiles', None) or []
+        if not pct_list:
+            percentile_str = ""
+        else:
+            percentile_str = "_".join(
+                str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
+                for p in sorted(pct_list, reverse=True)
             )
 
-        logger.info(f"Using Stage 4 file: {filename}")
-        return filepath
+        # CE thresholds string (only include > 0.0 thresholds, format like 0p8)
+        ce_list = getattr(self, 'ce_thresholds', None) or []
+        ce_percentile_str = "_".join(f"{c:.1f}".replace('.', 'p') for c in sorted(ce_list, reverse=True) if c > 0.0)
+        ce_part = f"_ce{ce_percentile_str}" if ce_percentile_str else ""
+
+        # O*NET suffix
+        onet_suffix = f"_onet{self.onet_version}" if getattr(self, 'onet_version', None) else ""
+
+        # Task suffix
+        task_suffix = f"_{task_type}_tasks"
+
+        # Construct filename using same pattern as stage_4
+        # e.g. task_exposure_matches_all_thresholds_openai_bge20_15_10_5_1_ce0p8_0p6_onet20_core_tasks.parquet
+        bge_part = f"_bge{percentile_str}" if percentile_str else ""
+        filename = f"task_exposure_matches_all_thresholds_{model}{bge_part}{ce_part}{onet_suffix}{task_suffix}.parquet"
+        filepath = os.path.join(self.stage_4_dir, filename)
+
+        if os.path.exists(filepath):
+            logger.info(f"Using Stage 4 file: {filename}")
+            return filepath
+
+        # Fallback: try without onet suffix (older files may omit onet version)
+        alt_filename = f"task_exposure_matches_all_thresholds_{model}{bge_part}{ce_part}{task_suffix}.parquet"
+        alt_path = os.path.join(self.stage_4_dir, alt_filename)
+        if os.path.exists(alt_path):
+            logger.info(f"Using Stage 4 file (no onet suffix): {alt_filename}")
+            return alt_path
+
+        # If not found, raise informative error listing attempted names
+        raise FileNotFoundError(
+            f"Stage 4 file not found in {self.stage_4_dir}\n"
+            f"Tried: {filename}\n"
+            f"Tried: {alt_filename}\n"
+            f"You can inspect {self.stage_4_dir} for available files and adjust `bge_percentiles` / `ce_thresholds` / `model` accordingly."
+        )
 
     def _generate_config_suffix(self) -> str:
         """
@@ -1460,11 +1960,11 @@ class TaskFirmExposurePipeline:
         components = []
 
         # Add occupation processing mode
-        if self.occupation_exposure == "additional":
+        if self.exposure_table_format == "all-firm-occ-year":
             components.append("firm_occupation")
-        elif self.occupation_exposure == "only":
+        elif self.exposure_table_format == "exposed-occ-year":
             components.append("occupation_only")
-        else:  # "none"
+        else:  # "exposed-firm-occ-year"
             components.append("firm_only")
 
         # Add time variant info
@@ -1482,10 +1982,9 @@ class TaskFirmExposurePipeline:
                          top_matches_file: str = None,
                          company_file: str = None,
                          output_file: str = None,
-                         stage2_mapping_file: str = None,
                          save_onet_outputs: bool = False,
-                         onet_output_dir: str = None,
                          task_type: str = 'core',
+                         model: str = 'BGE',
                          onet_version: int = 20) -> pd.DataFrame:
         """
         Run the complete 4-step Task → Occupation × Firm AI Exposure pipeline.
@@ -1496,28 +1995,31 @@ class TaskFirmExposurePipeline:
             output_file: Output CSV path (auto-generate if None)
             stage2_mapping_file: Path to Stage 2 deduplication mapping (auto-detect if None)
             save_onet_outputs: If True, save intermediate O*NET exposure files
-            onet_output_dir: Directory for O*NET output files (defaults to data_dir)
-            
+
         Returns:
             DataFrame with final ISCO-08 occupation-firm exposure scores
         """
         logger.info("="*60)
         logger.info("STARTING 4-STEP TASK → OCCUPATION × FIRM AI EXPOSURE PIPELINE")
         logger.info("="*60)
-        
-        # Set O*NET output directory
-        if onet_output_dir is None:
-            onet_output_dir = self.data_dir
-        
         # Set top matches file (must be the unified multi-threshold file from Stage 4)
+        # Auto-detect based on task type
+        # Only auto-detect if top_matches_file is NOT provided
         if top_matches_file is None:
-            # Auto-detect based on task type
-            top_matches_file = self._find_stage4_file(task_type)
-            logger.info(f"Auto-detected Stage 4 file: {top_matches_file}")
+            logger.info(f"Auto-detecting Stage 4 file based on task_type: {task_type} and model: {model}")
+            top_matches_file = self._find_stage4_file(task_type, model)
+        else:
+            # If provided, ensure the path is correct (handle relative paths to stage_4_dir)
+            if not os.path.exists(top_matches_file):
+                potential_path = os.path.join(self.stage_4_dir, top_matches_file)
+                if os.path.exists(potential_path):
+                    top_matches_file = potential_path
+            logger.info(f"Using provided Stage 4 file: {top_matches_file}")
+        logger.info(f"Auto-detected Stage 4 file: {top_matches_file}")
 
         # Validate file exists
         if not os.path.exists(top_matches_file):
-            raise FileNotFoundError(f"Top matches file not found: {top_matches_file}")
+            raise FileNotFoundError(f"Top matches file not found: {top_matches_file} in directory: {self.stage_4_dir}")
         
         # Auto-detect company file if not provided
         if company_file is None:
@@ -1525,7 +2027,7 @@ class TaskFirmExposurePipeline:
             logger.info(f"Using company data file: {company_file}")
         
         if save_onet_outputs:
-            logger.info(f"O*NET outputs will be saved to: {onet_output_dir}")
+            logger.info(f"O*NET outputs will be saved to: {self.output_dir}")
         
         # Define other input files (using O*NET version)
         task_statements_file = os.path.join(self.data_dir, f"task_statements_{onet_version}.xlsx")
@@ -1591,13 +2093,34 @@ class TaskFirmExposurePipeline:
             logger.warning("Processing BGE-only specifications without CE filtering")
             logger.warning("="*80)
 
+        # Validate O*NET version before loading crosswalk
+        if self.onet_version >= 25:
+            raise ValueError(
+                f"Cannot use BLS SOC-10 crosswalk with O*NET v{self.onet_version}. "
+                f"O*NET 25+ uses SOC 2018 taxonomy (incompatible with SOC 2010 crosswalk)."
+            )
+
         # Load supporting data
         task_statements = self.load_task_statements(task_statements_file, core_only=True)
         task_ratings = self.load_task_ratings(task_ratings_file)
-        job_app_mapping = self.load_job_app_mapping()
+        job_app_mapping = self.load_job_app_mapping(task_type, model)
         original_jobs = self.load_original_full_dataset(company_file)  # Load full original dataset
-        esco_crosswalk = self.load_esco_onet_crosswalk(esco_onet_file)
-        isco_titles = self.load_isco_titles()
+
+        # Load BLS employment data (2018 snapshot, 6-digit SOC)
+        employment_file = os.path.join(self.data_dir, "national_M2018_dl.xlsx")
+        employment_data = self.load_employment_data(employment_file)
+
+        # Load Webb O*NET-SOC → ISCO-08 crosswalk with pre-normalized weights
+        webb_crosswalk_file = os.path.join(self.data_dir, "webb_crosswalk_clean.xls")
+        webb_crosswalk = self.load_webb_crosswalk_with_weights(
+            webb_crosswalk_file,
+            employment_data,
+            use_weights=self.use_employment_weights  # From CLI flag
+        )
+
+        # Extract ISCO titles from Webb crosswalk
+        isco_titles = webb_crosswalk[['isco08_4d', 'isco08_title']].drop_duplicates()
+        logger.info(f"Extracted {len(isco_titles):,} unique ISCO-08 titles from Webb crosswalk")
         
         # Load company mapping for Stage 6 compatibility
         company_mapping = self.load_company_mapping()
@@ -1660,7 +2183,7 @@ class TaskFirmExposurePipeline:
                 try:
                     # Run 4-step pipeline for this spec
                     task_firm_exposure = self.step2_calculate_firm_task_exposure(
-                        spec_matches, job_app_mapping, original_jobs, stage2_mapping_file
+                        spec_matches, job_app_mapping, original_jobs
                     )
                     occupation_firm_exposure = self.step3_calculate_occupation_firm_exposure(
                         task_firm_exposure, task_statements, task_ratings
@@ -1680,15 +2203,14 @@ class TaskFirmExposurePipeline:
                     # ================================================================
                     # SAVE INDIVIDUAL SPEC FILES (without suffixes)
                     # ================================================================
-                    output_dir = os.path.join(self.data_dir, 'firm_year_exposure')
-                    self._ensure_output_directory(output_dir)
+                    self._ensure_output_directory(self.output_dir)
 
                     # Generate filename for this spec
                     base_filename = self._generate_filename("onet").replace(".csv", "")
                     spec_suffix = f"_{bge_col}_{ce_col}.csv"
 
                     # Save individual O*NET file
-                    onet_spec_file = os.path.join(output_dir, f"{base_filename}{spec_suffix}")
+                    onet_spec_file = os.path.join(self.output_dir, f"{base_filename}{spec_suffix}")
                     spec_result_with_soc = spec_result.copy()
                     spec_result_with_soc.rename(columns={'onet_code': 'onet_soc'}, inplace=True)
 
@@ -1702,7 +2224,11 @@ class TaskFirmExposurePipeline:
 
                     # Crosswalk individual spec to ISCO
                     isco_spec_result = self.crosswalk_onet_to_isco(
-                        spec_result, esco_crosswalk, isco_titles, company_mapping
+                        spec_result,
+                        webb_crosswalk,
+                        isco_titles,
+                        company_mapping,
+                        use_weights=self.use_employment_weights  # From CLI flag
                     )
 
                     # ADD SPEC SUFFIXES TO ISCO EXPOSURE COLUMNS (for merged file)
@@ -1714,7 +2240,7 @@ class TaskFirmExposurePipeline:
 
                     # Save individual ISCO file (WITHOUT suffixes for standalone use)
                     isco_base_filename = self._generate_filename("isco").replace(".csv", "")
-                    isco_spec_file = os.path.join(output_dir, f"{isco_base_filename}{spec_suffix}")
+                    isco_spec_file = os.path.join(self.output_dir, f"{isco_base_filename}{spec_suffix}")
                     isco_spec_result.to_csv(isco_spec_file, index=False, encoding='utf-8')
                     logger.info(f"  ✓ Saved ISCO spec file: {os.path.basename(isco_spec_file)}")
 
@@ -1813,11 +2339,10 @@ class TaskFirmExposurePipeline:
                                                                                        if col not in ['company_id', 'onet_soc', 'onet_title', 'company_name', 'year']]
             final_onet_with_titles = final_onet_with_titles[cols]
 
-            # Save to firm_year_exposure/ folder (merged all-specs file)
-            output_dir = os.path.join(self.data_dir, 'firm_year_exposure')
-            self._ensure_output_directory(output_dir)
+            # Save to output directory (merged all-specs file)
+            self._ensure_output_directory(self.output_dir)
             base_filename = self._generate_filename("onet").replace(".csv", "")
-            onet_firm_file = os.path.join(output_dir, f"{base_filename}_all_specs.csv")
+            onet_firm_file = os.path.join(self.output_dir, f"{base_filename}_all_specs.csv")
             final_onet_with_titles.to_csv(onet_firm_file, index=False, encoding='utf-8')
             logger.info(f"✅ Saved merged O*NET firm-year exposure: {onet_firm_file}")
             
@@ -1835,12 +2360,12 @@ class TaskFirmExposurePipeline:
                                                   if col not in ['onet_code', 'onet_title']]
             onet_occupation_summary = onet_occupation_summary[cols]
             
-            onet_summary_file = os.path.join(output_dir, f"onet_occupation_exposure_summary{config_suffix}.csv")
+            onet_summary_file = os.path.join(self.output_dir, f"onet_occupation_exposure_summary{config_suffix}.csv")
             onet_occupation_summary.to_csv(onet_summary_file, index=False, encoding='utf-8')
             logger.info(f"✅ Saved O*NET occupation summary: {onet_summary_file}")
 
             # 3. Save O*NET Task-Level Exposure Table
-            onet_task_file = os.path.join(output_dir, f"onet_task_exposure{config_suffix}.csv")
+            onet_task_file = os.path.join(self.output_dir, f"onet_task_exposure{config_suffix}.csv")
             task_exposure_table.to_csv(onet_task_file, index=False, encoding='utf-8')
             logger.info(f"✅ Saved O*NET task exposure: {onet_task_file}")
             
@@ -1914,9 +2439,9 @@ class TaskFirmExposurePipeline:
         logger.info("="*50)
 
         if output_file is None:
-            self._ensure_output_directory(output_dir)
+            self._ensure_output_directory(self.output_dir)
             base_filename = self._generate_filename("isco").replace(".csv", "")
-            output_file = os.path.join(output_dir, f"{base_filename}_all_specs.csv")
+            output_file = os.path.join(self.output_dir, f"{base_filename}_all_specs.csv")
 
         isco_firm_exposure.to_csv(output_file, index=False, encoding='utf-8')
         logger.info(f"Saved merged ISCO-08 occupation-firm-year AI exposure to: {output_file}")
@@ -1944,11 +2469,16 @@ class TaskFirmExposurePipeline:
         if hampole_cols:
             # Use the first hampole column (or the one without suffix if available)
             hampole_col = 'hampole_ai_exposure_avg' if 'hampole_ai_exposure_avg' in isco_firm_exposure.columns else hampole_cols[0]
+
+            # Extract spec suffix from hampole_col and build corresponding n_ai_apps column name
+            spec_suffix = hampole_col.replace('hampole_ai_exposure_avg', '')
+            n_apps_col = f'n_ai_apps_firm_year{spec_suffix}'
+
             top_exposed = isco_firm_exposure.nlargest(10, hampole_col)
             for _, row in top_exposed.iterrows():
                 logger.info(f"  {row['isco08_4d']} @ {row['company_name']} ({row['year']:.0f}): "
                            f"AI Exposure = {row[hampole_col]:.3f} "
-                           f"({row['n_ai_apps_firm_year']:.0f} apps)")
+                           f"({row[n_apps_col]:.0f} apps)")
         else:
             logger.warning("No hampole_ai_exposure_avg column found in merged ISCO data")
         
@@ -2165,7 +2695,8 @@ def create_isco_task_sample_report(stage4_file: str, data_dir: str = "Data/",
 def main():
     """Command line interface for the O*NET → ISCO exposure pipeline."""
     parser = argparse.ArgumentParser(description="O*NET Task Exposure → ISCO-08 Occupation Exposure Pipeline")
-    
+    parser.add_argument("--stage-4-dir", type=str, default="Data/stage_4/")
+    parser.add_argument("--stage-2-dir", type=str, default="Data/stage_2/")
     parser.add_argument("--top-matches-file", type=str, default=None,
                        help="Path to Stage 4 output file (auto-detect from task type if not provided)")
     parser.add_argument("--output-file", type=str,
@@ -2181,33 +2712,36 @@ def main():
                        help="Cross-encoder thresholds to process (default: 0.8 0.6 0.4 0.2 0.0)")
     parser.add_argument("--time-invariant", action="store_true",
                        help="Use time-invariant exposure (firms exposed to all their AI apps across all years)")
-    parser.add_argument("--occupation-exposure", type=str, default="none",
-                       choices=["none", "additional", "only"],
-                       help="Occupation-level exposure mode: 'none' (firm-level only), 'additional' (occupation×firm with firm-specific portfolios), 'only' (occupation-only, constant across firms)")
+    parser.add_argument("--exposure-table-format", type=str, default="exposed-firm-occ-year",
+                       choices=["exposed-firm-occ-year", "all-firm-occ-year", "exposed-occ-year"],
+                       help="Exposure table format: 'exposed-firm-occ-year' (only firm-occupation-year combinations with exposure > 0), 'all-firm-occ-year' (all firm-occupation-year combinations including zeros), 'exposed-occ-year' (occupation-year only, constant across firms)")
     parser.add_argument("--create-sample-report", action="store_true",
                        help="Create detailed ISCO task sample report")
     parser.add_argument("--n-sample", type=int, default=10,
                        help="Number of ISCO codes to sample for report (default: 10)")
-    parser.add_argument("--stage4-file", type=str,
-                       help="Path to Stage 4 parquet file (auto-detect if not provided)")
     parser.add_argument("--threshold", type=float, default=0.6,
                        help="Cross encoder threshold for exposed tasks (default: 0.6)")
-    parser.add_argument("--stage2-mapping-file", type=str,
-                       help="Path to Stage 2 deduplication mapping file (auto-detect if not provided)")
     parser.add_argument("--jobs-file", type=str,
                        help="Path to original jobs CSV file (auto-detect if not provided)")
     parser.add_argument("--save-onet-outputs", action="store_true",
                        help="Save intermediate O*NET exposure files before ISCO crosswalk")
-    parser.add_argument("--onet-output-dir", type=str,
-                       help="Directory for O*NET output files (defaults to data-dir)")
+    parser.add_argument("--output-dir", type=str,
+                       help="Directory for all output files (both O*NET and ISCO) (defaults to Data/firm_year_exposure/)")
 
     parser.add_argument("--task-type", type=str,
                        choices=['core', 'all'],
                        default='core',
                        help="Task type: 'core' (default) or 'all'")
+    parser.add_argument("--model", type=str,
+                       default='BGE',
+                       help="Word Embedding model used in Stage 4 (default: BGE)")
 
     parser.add_argument("--onet-version", type=int, default=20,
-                       help="O*NET version to use for task statements and ratings (default: 20)")
+                       help="O*NET version (default: 20). NOTE: v25+ incompatible with BLS SOC-10 crosswalk")
+
+    parser.add_argument("--use-employment-weights", action="store_true",
+                       help="Use employment-weighted aggregation for O*NET→ISCO crosswalk (via 6-digit SOC). "
+                            "If False, uses simple mean aggregation (default).")
 
     args = parser.parse_args()
     
@@ -2257,26 +2791,30 @@ def main():
         pipeline = TaskFirmExposurePipeline(
             aggregation_method=args.aggregation,
             time_invariant=args.time_invariant,
-            occupation_exposure=args.occupation_exposure,
+            exposure_table_format=args.exposure_table_format,
             data_dir=args.data_dir,
+            stage_2_dir=args.stage_2_dir,
+            stage_4_dir=args.stage_4_dir,
+            output_dir=args.output_dir,
             bge_percentiles=args.bge_percentiles,
             ce_thresholds=args.ce_thresholds,
-            task_type=args.task_type
+            task_type=args.task_type,
+            onet_version=args.onet_version,
+            use_employment_weights=args.use_employment_weights
         )
 
         # Auto-detect Stage 4 file based on task type if not provided
         top_matches_file = args.top_matches_file
         if top_matches_file is None:
-            top_matches_file = pipeline._find_stage4_file(args.task_type)
+            top_matches_file = pipeline._find_stage4_file(args.task_type, args.model)
 
         result_df = pipeline.run_full_pipeline(
             top_matches_file=top_matches_file,
             company_file=args.jobs_file,
             output_file=args.output_file,
-            stage2_mapping_file=args.stage2_mapping_file,
             save_onet_outputs=args.save_onet_outputs,
-            onet_output_dir=args.onet_output_dir,
             task_type=args.task_type,
+            model=args.model,
             onet_version=args.onet_version
         )
         
