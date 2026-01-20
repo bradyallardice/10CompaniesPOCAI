@@ -154,10 +154,11 @@ def ndjson_stream(path):
 
 def load_data_direct(conn):
     log("🚀 Loading data directly...")
-    
+
+    BASE = Path(__file__).parent
     folders = [
-        "/Users/bradyallardice/Desktop/PhD/Projects/KurerAllardice2024/10CompaniesPOCAI/240826_panel_data_with_dg",
-        "/Users/bradyallardice/Desktop/PhD/Projects/KurerAllardice2024/10CompaniesPOCAI/250826_panel_data_01012024_30062025"
+        BASE / "240826_panel_data_with_dg",
+        BASE / "250826_panel_data_01012024_30062025"
     ]
     
     sql = """INSERT INTO public.job_postings_unified (
@@ -168,8 +169,7 @@ def load_data_direct(conn):
     
     total_processed = 0
     
-    for folder_path in folders:
-        folder = Path(folder_path)
+    for folder in folders:
         if not folder.exists():
             log(f"⚠️ Skipping {folder.name}")
             continue

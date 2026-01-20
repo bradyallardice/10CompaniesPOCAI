@@ -295,8 +295,8 @@ def build_row(obj, source_folder, source_file):
 def load_data_to_staging(conn, schema, table_name):
     """Load data from both folders into staging table"""
     log("🚀 Loading data into staging table...")
-    
-    BASE = Path("/Users/bradyallardice/Desktop/PhD/Projects/KurerAllardice2024/10CompaniesPOCAI/")
+
+    BASE = Path(__file__).parent
     FOLDERS = [
         BASE / "240826_panel_data_with_dg",
         BASE / "250826_panel_data_01012024_30062025",
