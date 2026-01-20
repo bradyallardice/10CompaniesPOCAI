@@ -15,3 +15,9 @@ torch>=2.0.0
 openpyxl>=3.0.0
 scipy>=1.9.0
 python-dotenv>=0.19.0
+
+# FAISS (optional, for Stage 4 --use-faiss mode)
+# Install ONE of the following based on your system:
+#   - For GPU (CUDA required): pip install faiss-gpu
+#   - For CPU only: pip install faiss-cpu
+# Note: faiss-gpu and faiss-cpu conflict, only install one

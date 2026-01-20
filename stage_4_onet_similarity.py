@@ -51,7 +51,11 @@ class ONETSimilarityMatcher:
                  similarity_threshold: float = 0.99,
                  batch_size: int = 256,
                  embeddings_dir: str = "Data/embeddings",
-                 use_openai_embeddings: bool = False):
+                 use_openai_embeddings: bool = False,
+                 use_faiss: bool = False,
+                 faiss_k: int = 200,
+                 faiss_index_type: str = "Flat",
+                 sample_percentiles: int = 10000000):
         """
         Initialize the matcher.
 
@@ -62,6 +66,10 @@ class ONETSimilarityMatcher:
             batch_size: Batch size for embedding computation
             embeddings_dir: Directory to store cached embeddings
             use_openai_embeddings: If True, load pre-generated OpenAI embeddings instead of BGE
+            use_faiss: If True, use FAISS ANN search for top-k apps per task (default: False)
+            faiss_k: Number of top-k apps to retrieve per task in FAISS mode (default: 200)
+            faiss_index_type: FAISS index type (default: "Flat")
+            sample_percentiles: Sample size for percentile calculation in exhaustive mode (default: 10M)
         """
         self.model_name = model_name
         self.minimum_similarity = minimum_similarity
@@ -69,6 +77,10 @@ class ONETSimilarityMatcher:
         self.batch_size = batch_size
         self.embeddings_dir = embeddings_dir
         self.use_openai_embeddings = use_openai_embeddings
+        self.use_faiss = use_faiss
+        self.faiss_k = faiss_k
+        self.faiss_index_type = faiss_index_type
+        self.sample_percentiles = sample_percentiles
 
         # Create embeddings directory if it doesn't exist
         os.makedirs(embeddings_dir, exist_ok=True)
@@ -885,7 +897,69 @@ class ONETSimilarityMatcher:
 
         logger.info(f"Embeddings shape: {embeddings.shape}")
         return embeddings
-    
+
+    def _build_faiss_index(self, embeddings: np.ndarray, index_type: str = "Flat", use_gpu: bool = True):
+        """
+        Build FAISS index on embeddings for efficient similarity search.
+
+        Args:
+            embeddings: Numpy array of embeddings (n_vectors, embedding_dim)
+            index_type: FAISS index type ("Flat" for exact search)
+            use_gpu: If True, attempt to use GPU for FAISS
+
+        Returns:
+            FAISS index object
+        """
+        try:
+            import faiss
+            faiss_available = True
+            faiss_gpu = hasattr(faiss, 'StandardGpuResources')
+            if faiss_gpu:
+                logger.info("Detected faiss-gpu")
+            else:
+                logger.info("Using faiss-cpu")
+        except ImportError:
+            raise ImportError(
+                "FAISS not installed. Please install FAISS to use --use-faiss mode:\n"
+                "  For GPU (CUDA required): pip install faiss-gpu\n"
+                "  For CPU only: pip install faiss-cpu\n"
+                "Note: faiss-gpu and faiss-cpu conflict, only install one."
+            )
+
+        # Ensure embeddings are normalized (for cosine similarity with inner product)
+        # Embeddings should already be normalized from encode(), but verify
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        if not np.allclose(norms, 1.0, atol=1e-5):
+            logger.warning("Embeddings not normalized, normalizing now...")
+            embeddings = embeddings / norms
+
+        embedding_dim = embeddings.shape[1]
+        n_vectors = embeddings.shape[0]
+
+        logger.info(f"Building FAISS index (type: {index_type}, vectors: {n_vectors}, dim: {embedding_dim})")
+
+        # Build index based on type
+        if index_type == "Flat":
+            # Flat index with inner product (cosine similarity on normalized vectors)
+            index = faiss.IndexFlatIP(embedding_dim)
+        else:
+            raise ValueError(f"Unsupported FAISS index type: {index_type}")
+
+        # Attempt GPU if requested and available
+        if use_gpu and faiss_gpu:
+            try:
+                res = faiss.StandardGpuResources()
+                index = faiss.index_cpu_to_gpu(res, 0, index)
+                logger.info("FAISS index moved to GPU")
+            except Exception as e:
+                logger.warning(f"Failed to move FAISS index to GPU: {e}. Using CPU.")
+
+        # Add vectors to index
+        index.add(embeddings.astype(np.float32))
+        logger.info(f"FAISS index built with {index.ntotal} vectors")
+
+        return index
+
     def compute_similarities_and_filter(self,
                                       apps_df: pd.DataFrame,
                                       apps_embeddings: np.ndarray,
@@ -2082,6 +2156,13 @@ class ONETSimilarityMatcher:
         # Add num_jobs column
         deduplicated_similarities['num_jobs'] = deduplicated_similarities['job_uid'].map(len)
 
+        # Add ai_app_id: create a stable hash-based ID for each unique AI application text
+        # Keep this lightweight and deterministic so downstream stages can join on it
+        import hashlib
+        deduplicated_similarities['ai_app_id'] = deduplicated_similarities['app_text'].apply(
+            lambda x: hashlib.md5(x.encode('utf-8')).hexdigest()[:8].upper()  # 8-char uppercase hex
+        )
+
         logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique (app_text, onet_task_id) pairs")
 
         # Sort both DataFrames by similarity in descending order
@@ -2111,7 +2192,11 @@ class ONETSimilarityMatcher:
             job_mapping = job_mapping_agg.copy()
             job_mapping['job_uids'] = job_mapping['job_uid'].apply(lambda x: '|'.join(sorted(x)))
             job_mapping['num_jobs'] = job_mapping['job_uid'].map(len)  # map() is faster than apply() for len
-            job_mapping = job_mapping[['app_text', 'job_uids', 'num_jobs', 'first_occurrence_tst_created']].copy()
+            # Attach ai_app_id so downstream stages (5–7) can key on a stable identifier
+            job_mapping['ai_app_id'] = job_mapping['app_text'].apply(
+                lambda x: hashlib.md5(x.encode('utf-8')).hexdigest()[:8].upper()
+            )
+            job_mapping = job_mapping[['app_text', 'ai_app_id', 'job_uids', 'num_jobs', 'first_occurrence_tst_created']].copy()
 
             logger.info(f"Created job mapping for {len(job_mapping)} unique applications (temporal ordering preserved)")
 
@@ -2294,7 +2379,7 @@ class ONETSimilarityMatcher:
             logger.info(f"Saved CORE TASKS: {core_output} ({len(unified_matches_core):,} rows)")
 
             # Task suffix
-            task_suffix = f"_{task_type}_tasks"
+            task_suffix = f"_{task_type}"
             # Save job mapping (shared for both)
             if task_type == 'core':
                 job_mapping_file = os.path.join(output_dir,
@@ -2735,6 +2820,26 @@ def parse_arguments():
                             "In per-task mode, top N%% is computed separately for each O*NET task, "
                             "resulting in variable-sized match sets that better capture task-specific AI exposure.")
 
+    parser.add_argument("--use-faiss", action="store_true",
+                       help="Enable FAISS ANN search for top-k apps per task (alternative to exhaustive search). "
+                            "FAISS mode retrieves top-k most similar apps for each O*NET task, "
+                            "filters by minimum similarity threshold, and treats all remaining pairs as matches "
+                            "(no percentile filtering). Output schema differs: no pct_XX columns in FAISS mode.")
+
+    parser.add_argument("--faiss-k", type=int, default=200,
+                       help="Number of top-k apps to retrieve per O*NET task in FAISS mode (default: 200). "
+                            "Only used when --use-faiss is enabled.")
+
+    parser.add_argument("--faiss-index-type", type=str, default="Flat",
+                       choices=["Flat"],
+                       help="FAISS index type (default: Flat for exact top-k search). "
+                            "Only used when --use-faiss is enabled.")
+
+    parser.add_argument("--sample-percentiles", type=int, default=10000000,
+                       help="Sample size for percentile calculation in exhaustive mode (default: 10,000,000). "
+                            "Randomly samples this many pairs for percentile computation instead of using all pairs. "
+                            "Ignored in FAISS mode (no percentile calculation).")
+
     return parser.parse_args()
 
 
@@ -2797,7 +2902,11 @@ def main():
             minimum_similarity=MINIMUM_SIMILARITY,
             batch_size=batch_size,
             embeddings_dir=args.embeddings_dir,
-            use_openai_embeddings=args.use_openai_embeddings
+            use_openai_embeddings=args.use_openai_embeddings,
+            use_faiss=args.use_faiss,
+            faiss_k=args.faiss_k,
+            faiss_index_type=args.faiss_index_type,
+            sample_percentiles=args.sample_percentiles
         )
     except Exception as e:
         logger.error(f"Failed to initialize matcher: {e}")
