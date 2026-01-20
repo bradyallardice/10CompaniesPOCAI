@@ -528,7 +528,7 @@ class ONETSimilarityMatcher:
             logger.warning(f"Failed to cleanup checkpoints: {e}")
 
     def _get_similarity_cache_path(self, app_texts: List[str], onet_tasks: List[str],
-                                   minimum_similarity: float) -> Path:
+                                   minimum_similarity: float, mode: str = "exhaustive") -> Path:
         """
         Generate cache file path for similarity computation results.
 
@@ -536,6 +536,7 @@ class ONETSimilarityMatcher:
             app_texts: List of AI application texts
             onet_tasks: List of O*NET task texts
             minimum_similarity: Minimum similarity threshold used
+            mode: "faiss" or "exhaustive" (default: "exhaustive")
 
         Returns:
             Path to cache file
@@ -548,13 +549,18 @@ class ONETSimilarityMatcher:
             model_abbr = self.model_name.split("/")[-1].split("-")[0]
             model_identifier = model_abbr
 
-        # Create stable deterministic hash from counts + threshold + model
-        # This ensures different embedding models have separate caches
-        content_hash = hashlib.md5(
-            (str(len(app_texts)) + "|" + str(len(onet_tasks)) + "|" + str(minimum_similarity) + "|" + model_identifier).encode()
-        ).hexdigest()[:8]
+        # Include FAISS parameters in hash if FAISS mode
+        if mode == "faiss":
+            mode_suffix = f"_faiss_k{self.faiss_k}"
+            cache_hash_input = f"{len(app_texts)}|{len(onet_tasks)}|{minimum_similarity}|{model_identifier}|faiss|{self.faiss_k}"
+        else:
+            mode_suffix = "_exhaustive"
+            cache_hash_input = f"{len(app_texts)}|{len(onet_tasks)}|{minimum_similarity}|{model_identifier}|exhaustive"
 
-        cache_filename = f"similarities_apps{len(app_texts)}_tasks{len(onet_tasks)}_min{minimum_similarity:.1f}_{model_identifier}_{content_hash}.pkl"
+        # Create stable deterministic hash
+        content_hash = hashlib.md5(cache_hash_input.encode()).hexdigest()[:8]
+
+        cache_filename = f"similarities_apps{len(app_texts)}_tasks{len(onet_tasks)}_min{minimum_similarity:.1f}{mode_suffix}_{model_identifier}_{content_hash}.pkl"
         return Path(self.embeddings_dir) / cache_filename
 
     def _load_similarity_cache(self, cache_path: Path) -> Optional[Tuple[pd.DataFrame, Optional[pd.DataFrame]]]:
@@ -598,32 +604,35 @@ class ONETSimilarityMatcher:
             return None
 
     def _save_similarity_cache(self, cache_path: Path, filtered_results_df: pd.DataFrame,
-                               all_results_df: Optional[pd.DataFrame], top_n_percent: float) -> None:
+                               all_results_df: Optional[pd.DataFrame], top_n_percent: float,
+                               mode: str = "exhaustive") -> None:
         """
         Save similarity computation results to cache.
 
         Args:
             cache_path: Path to save cache file
             filtered_results_df: Filtered similarity results
-            all_results_df: Optional all similarity results
+            all_results_df: Optional all similarity results (None in FAISS mode)
             top_n_percent: Top N percent threshold used
+            mode: "faiss" or "exhaustive" (default: "exhaustive")
         """
         try:
             cache_data = {
                 'filtered_results': filtered_results_df,
                 'all_results': all_results_df,
                 'top_n_percent': top_n_percent,
+                'mode': mode,
                 'created_at': datetime.now().isoformat()
             }
 
-            # Save global percentiles if available
+            # Save global percentiles if available (exhaustive mode only)
             if hasattr(self, 'global_percentile_thresholds') and self.global_percentile_thresholds is not None:
                 cache_data['global_percentile_thresholds'] = self.global_percentile_thresholds
 
             with open(cache_path, 'wb') as f:
                 pickle.dump(cache_data, f)
 
-            logger.info(f"Saved similarity computation results to cache")
+            logger.info(f"Saved {mode} mode similarity computation results to cache")
             logger.info(f"Cache location: {cache_path}")
 
         except Exception as e:
@@ -969,7 +978,11 @@ class ONETSimilarityMatcher:
                                       per_task_mode: bool = False,
                                       bge_percentiles: Optional[List[int]] = None) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
         """
-        Phase C: Compute similarities and apply global minimum threshold with caching.
+        Phase C: Compute similarities and apply filtering.
+
+        Branches between two modes:
+        - FAISS mode: Retrieve top-k apps per task, filter by threshold (no percentiles)
+        - Exhaustive mode: Compute all pairs, calculate percentiles, filter by percentiles
 
         Args:
             apps_df: DataFrame with application strings
@@ -977,13 +990,174 @@ class ONETSimilarityMatcher:
             onet_df: DataFrame with O*NET tasks
             onet_embeddings: Embeddings for O*NET tasks
             use_cache: Whether to use cached similarity results (default: True)
-            bge_percentiles: List of percentile thresholds for later use (default: [20, 15, 10, 5, 1])
+            per_task_mode: Use per-task percentile filtering (exhaustive mode only)
+            bge_percentiles: List of percentile thresholds (exhaustive mode only, default: [20, 15, 10, 5, 1])
+
+        Returns:
+            Tuple of (filtered_results_df, all_similarities_df)
+            - FAISS mode: all_similarities_df is None (no percentile calculation)
+            - Exhaustive mode: all_similarities_df contains sampled pairs for percentiles
+        """
+        logger.info("Phase C: Computing similarities and applying filtering")
+        logger.info(f"Mode: {'FAISS (top-k apps per task)' if self.use_faiss else 'Exhaustive (global percentiles)'}")
+        logger.info(f"Minimum similarity threshold: {self.minimum_similarity}")
+
+        # Branch between FAISS and exhaustive modes
+        if self.use_faiss:
+            return self._compute_similarities_faiss(
+                apps_df, apps_embeddings, onet_df, onet_embeddings, use_cache
+            )
+        else:
+            return self._compute_similarities_exhaustive(
+                apps_df, apps_embeddings, onet_df, onet_embeddings,
+                use_cache, per_task_mode, bge_percentiles
+            )
+
+    def _compute_similarities_faiss(self,
+                                    apps_df: pd.DataFrame,
+                                    apps_embeddings: np.ndarray,
+                                    onet_df: pd.DataFrame,
+                                    onet_embeddings: np.ndarray,
+                                    use_cache: bool = True) -> Tuple[pd.DataFrame, None]:
+        """
+        FAISS mode: For each O*NET task, retrieve top-k most similar apps.
+        All pairs above threshold are considered matches (no percentile filtering).
+
+        Args:
+            apps_df: DataFrame with application strings
+            apps_embeddings: Embeddings for application strings (will be indexed)
+            onet_df: DataFrame with O*NET tasks
+            onet_embeddings: Embeddings for O*NET tasks (will be queries)
+            use_cache: Whether to use cached results
+
+        Returns:
+            Tuple of (results_df, None) - no all_similarities_df in FAISS mode
+        """
+        logger.info(f"FAISS mode: Retrieving top-{self.faiss_k} apps per task")
+
+        # Check cache first
+        app_texts = apps_df['app_text'].unique().tolist()
+        onet_tasks = onet_df['Task'].tolist()
+        cache_path = self._get_similarity_cache_path(app_texts, onet_tasks, self.minimum_similarity, mode="faiss")
+
+        if use_cache:
+            cache_result = self._load_similarity_cache(cache_path)
+            if cache_result is not None:
+                logger.info("Using cached FAISS similarity computation results")
+                return cache_result[0], None  # Return only results_df, no all_similarities
+
+        # Step 1: Build job_uid lookup
+        logger.info("Building job_uid lookup dictionary...")
+        job_uid_lookup = {}
+        for _, row in apps_df.iterrows():
+            app_text = row['app_text']
+            job_uid = row['job_uid']
+            timestamp = row['first_occurrence_tst_created']
+
+            if app_text not in job_uid_lookup:
+                job_uid_lookup[app_text] = {}
+            job_uid_lookup[app_text][job_uid] = timestamp
+
+        logger.info(f"Built lookup for {len(job_uid_lookup)} unique apps")
+
+        # Step 2: Build FAISS index on app embeddings
+        use_gpu = self.device and self.device in ['cuda', 'mps']
+        faiss_index = self._build_faiss_index(
+            apps_embeddings,
+            index_type=self.faiss_index_type,
+            use_gpu=use_gpu
+        )
+
+        # Step 3: Create app_text lookup by index
+        unique_apps = apps_df['app_text'].unique()
+        app_idx_to_text = {i: app_text for i, app_text in enumerate(unique_apps)}
+
+        # Step 4: Loop over O*NET tasks and query FAISS
+        task_id_list = onet_df['task_id'].tolist()
+        task_text_list = onet_df['Task'].tolist()
+
+        results = []
+        n_tasks_saturated = 0  # Track how many tasks hit all k results above threshold
+
+        for task_idx, task_id in enumerate(task_id_list):
+            # Query FAISS: get top-k apps for this task
+            task_embedding = onet_embeddings[task_idx:task_idx+1]  # Shape (1, dim)
+            k_actual = min(self.faiss_k, len(apps_embeddings))
+
+            # Search returns (similarities, app_indices)
+            similarities, app_indices = faiss_index.search(task_embedding, k_actual)
+            similarities = similarities[0]  # Flatten from (1, k) to (k,)
+            app_indices = app_indices[0]
+
+            # Filter by minimum threshold
+            above_threshold = similarities >= self.minimum_similarity
+            selected_app_indices = app_indices[above_threshold]
+            selected_similarities = similarities[above_threshold]
+
+            # Track saturation (indicator that k might be too small)
+            if len(selected_app_indices) == k_actual:
+                n_tasks_saturated += 1
+
+            # For each selected app, add all job_uids to results
+            for app_idx, similarity in zip(selected_app_indices, selected_similarities):
+                app_text = app_idx_to_text[app_idx]
+                job_uid_to_timestamp = job_uid_lookup.get(app_text, {})
+
+                for job_uid, timestamp in job_uid_to_timestamp.items():
+                    results.append({
+                        'job_uid': job_uid,
+                        'app_text': app_text,
+                        'onet_task_id': task_id,
+                        'onet_task': task_text_list[task_idx],
+                        'similarity': float(similarity),
+                        'first_occurrence_tst_created': timestamp
+                    })
+
+            if (task_idx + 1) % 100 == 0:
+                logger.info(f"Processed task {task_idx + 1}/{len(task_id_list)}")
+
+        # Step 5: Convert to DataFrame
+        results_df = pd.DataFrame(results)
+        logger.info(f"FAISS mode generated {len(results_df)} matches (all above threshold {self.minimum_similarity})")
+
+        # Log saturation statistics
+        saturation_pct = 100 * n_tasks_saturated / len(task_id_list) if len(task_id_list) > 0 else 0
+        logger.info(f"Saturation: {n_tasks_saturated}/{len(task_id_list)} tasks ({saturation_pct:.1f}%) "
+                   f"had all {self.faiss_k} retrieved apps above threshold")
+        if saturation_pct > 50:
+            logger.warning(f"High saturation ({saturation_pct:.1f}%)! Consider increasing --faiss-k to avoid missing matches.")
+
+        # Save to cache
+        if use_cache:
+            self._save_similarity_cache(cache_path, results_df, None, self.minimum_similarity, mode="faiss")
+
+        return results_df, None
+
+    def _compute_similarities_exhaustive(self,
+                                        apps_df: pd.DataFrame,
+                                        apps_embeddings: np.ndarray,
+                                        onet_df: pd.DataFrame,
+                                        onet_embeddings: np.ndarray,
+                                        use_cache: bool = True,
+                                        per_task_mode: bool = False,
+                                        bge_percentiles: Optional[List[int]] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Exhaustive mode: Compute all app-task similarities, calculate global percentiles, filter by percentiles.
+        Samples pairs for percentile calculation to reduce memory usage.
+
+        Args:
+            apps_df: DataFrame with application strings
+            apps_embeddings: Embeddings for application strings
+            onet_df: DataFrame with O*NET tasks
+            onet_embeddings: Embeddings for O*NET tasks
+            use_cache: Whether to use cached results
+            per_task_mode: Use per-task percentile filtering
+            bge_percentiles: List of percentile thresholds (default: [20, 15, 10, 5, 1])
 
         Returns:
             Tuple of (filtered_results_df, all_similarities_df)
         """
-        logger.info("Phase C: Computing similarities and applying global minimum threshold")
-        logger.info(f"Minimum similarity threshold: {self.minimum_similarity}")
+        logger.info("Exhaustive mode: Computing all app-task similarities")
 
         # Set default percentiles if not provided
         if bge_percentiles is None:
@@ -992,7 +1166,7 @@ class ONETSimilarityMatcher:
         # Check cache first
         app_texts = apps_df['app_text'].unique().tolist()
         onet_tasks = onet_df['Task'].tolist()
-        cache_path = self._get_similarity_cache_path(app_texts, onet_tasks, self.minimum_similarity)
+        cache_path = self._get_similarity_cache_path(app_texts, onet_tasks, self.minimum_similarity, mode="exhaustive")
 
         if use_cache:
             cache_result = self._load_similarity_cache(cache_path)
@@ -1064,7 +1238,12 @@ class ONETSimilarityMatcher:
 
             # Accumulate results for this chunk only
             chunk_filtered_results = []
-            chunk_all_results = []  # Always collect all similarities
+            chunk_all_results = []  # Sampled similarities for percentile calculation
+
+            # Calculate sampling probability for percentile calculation
+            total_possible_pairs = len(unique_apps) * len(onet_tasks) * max(1, len(job_uid_lookup) / len(unique_apps))
+            sample_prob = min(1.0, self.sample_percentiles / total_possible_pairs)
+            logger.info(f"Sampling probability for percentiles: {sample_prob:.6f} (target: {self.sample_percentiles:,} pairs)")
 
             for local_idx, app_text in enumerate(chunk_apps):
                 global_idx = chunk_start + local_idx
@@ -1077,16 +1256,18 @@ class ONETSimilarityMatcher:
                 job_uid_to_timestamp = job_uid_lookup.get(app_text, {})
                 matching_jobs = list(job_uid_to_timestamp.keys())
 
-                # Always save all similarities for accurate percentile calculation
+                # Randomly sample similarities for percentile calculation (memory optimization)
                 for onet_idx, similarity in enumerate(similarities):
                     for job_uid in matching_jobs:
-                        chunk_all_results.append({
-                            'job_uid': job_uid,
-                            'app_text': app_text,
-                            'onet_task_id': task_id_list[onet_idx],
-                            'onet_task': task_text_list[onet_idx],
-                            'similarity': float(similarity)
-                        })
+                        # Sample for percentile calculation
+                        if np.random.random() < sample_prob:
+                            chunk_all_results.append({
+                                'job_uid': job_uid,
+                                'app_text': app_text,
+                                'onet_task_id': task_id_list[onet_idx],
+                                'onet_task': task_text_list[onet_idx],
+                                'similarity': float(similarity)
+                            })
 
                 # Apply global minimum threshold
                 above_threshold = similarities >= self.minimum_similarity
