@@ -18,6 +18,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 from datetime import datetime
+import re
 # These imports are used in the firm report functions
 # import numpy as np
 # from sklearn.feature_extraction.text import TfidfVectorizer
@@ -27,6 +28,29 @@ from datetime import datetime
 def log(msg):
     """Print timestamped log message"""
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+def log_transformation(operation_name, before_count, after_count, details=""):
+    """Log data transformation with before/after counts and loss percentage."""
+    lost = before_count - after_count
+    pct_lost = (lost / before_count * 100) if before_count > 0 else 0
+    loss_msg = f"[LOST {lost:,} ({pct_lost:.1f}%)]" if lost > 0 else "[No loss]"
+    detail_msg = f" - {details}" if details else ""
+    log(f"{operation_name}: {before_count:,} → {after_count:,} {loss_msg}{detail_msg}")
+
+def log_sample_records(df, prefix, n=5, cols=None):
+    """Log sample records for debugging."""
+    if len(df) == 0:
+        log(f"{prefix}: [empty]")
+        return
+    sample_df = df.head(n)
+    if cols:
+        # Only select columns that exist
+        cols = [c for c in cols if c in sample_df.columns]
+        if cols:
+            sample_df = sample_df[cols]
+    log(f"{prefix} (showing {min(n, len(df))} of {len(df):,}):")
+    for idx, row in sample_df.iterrows():
+        log(f"  {dict(row)}")
 
 def compute_file_hash(filepath):
     """Compute MD5 hash of file for drift detection"""
@@ -60,26 +84,34 @@ def deduplicate_jobs_within_companies(df_jobs, similarity_threshold=0.99):
         df_sorted['x28_occupations'].astype(str)
     )
 
+    before_exact_dedup = len(df_sorted)
     df_step1 = df_sorted.drop_duplicates(subset=['dedup_key'], keep='first')
-    exact_removed = initial_count - len(df_step1)
-    log(f"Removed {exact_removed:,} exact duplicates")
-    log(f"Remaining: {len(df_step1):,} jobs")
+    log_transformation(
+        "Exact deduplication by (company_id, title, x28_occupations)",
+        before_exact_dedup,
+        len(df_step1),
+        f"dedup_key='{df_sorted['dedup_key'].name}'"
+    )
 
     if len(df_step1) == 0:
         return df_step1
 
     # For jobs cache, we don't have content_clean, so we'll just use exact deduplication
     # and then extend jobs through time
-    log("Step 2: Extending unique jobs through time (2019-2025)...")
 
     # Get the earliest year for each unique job
     df_step1 = df_step1.copy()
     df_step1['start_year'] = df_step1.groupby('dedup_key')['year'].transform('min')
 
+    min_year = int(df_step1['start_year'].min())
+    max_year = 2025
+    log(f"Step 2: Extending unique jobs through time ({min_year}-{max_year})...")
+
     # Create a list to store all extended jobs
     extended_jobs = []
 
     # Group by the unique job key and extend each through time
+    base_jobs_count = len(df_step1)
     for _, group in df_step1.groupby('dedup_key'):
         base_job = group.iloc[0].copy()  # Take the earliest occurrence
         start_year = int(base_job['start_year'])
@@ -93,36 +125,27 @@ def deduplicate_jobs_within_companies(df_jobs, similarity_threshold=0.99):
     df_extended = pd.DataFrame(extended_jobs)
     df_extended = df_extended.drop(columns=['dedup_key', 'start_year'])
 
+    before_extension = len(df_step1)
+    after_extension = len(df_extended)
+    new_records = after_extension - before_extension
+    log(f"Time extension: Created {new_records:,} new job-year records ({before_extension:,} base jobs → {after_extension:,} total)")
+
     # Remove duplicates that might have been created by the extension process
+    before_final_dedup = len(df_extended)
     df_final = df_extended.drop_duplicates(subset=['company_id', 'year', 'title'], keep='first')
+    log_transformation(
+        "Final deduplication by (company_id, year, title)",
+        before_final_dedup,
+        len(df_final)
+    )
 
     log(f"✅ Job deduplication complete:")
     log(f"   Original jobs: {initial_count:,}")
-    log(f"   After exact dedup: {len(df_step1):,}")
-    log(f"   After time extension: {len(df_final):,}")
+    log(f"   After exact dedup: {before_extension:,}")
+    log(f"   After time extension: {after_extension:,}")
+    log(f"   After final dedup: {len(df_final):,}")
 
     return df_final
-
-def find_latest_ai_applications_file(data_dir):
-    """Find the latest AI applications file matching pattern ai_development*step1_extracted_step2_step3.csv"""
-    log("🔍 Looking for AI applications file...")
-
-    llm_output_dir = Path(data_dir) / "llm_output"
-    if not llm_output_dir.exists():
-        raise FileNotFoundError(f"LLM output directory not found: {llm_output_dir}")
-
-    # Find files matching pattern
-    pattern = "ai_development*step1_extracted_step2_step3.csv"
-    matching_files = list(llm_output_dir.glob(pattern))
-
-    if not matching_files:
-        raise FileNotFoundError(f"No AI applications files found matching pattern: {pattern}")
-
-    # Get the latest file by modification time
-    latest_file = max(matching_files, key=lambda f: f.stat().st_mtime)
-    log(f"✅ Found latest AI applications file: {latest_file.name}")
-
-    return str(latest_file)
 
 def load_ai_applications_data(filepath):
     """Load AI applications data and aggregate by firm-year"""
@@ -212,7 +235,7 @@ def load_ai_jobs_data(filepath):
     log(f"✅ Aggregated to {len(df_agg):,} firm-year combinations with AI jobs")
     return df_agg
 
-def generate_firm_summary_report(df_linked, df_jobs_cache, args):
+def generate_firm_summary_report(df_linked, df_jobs_cache, args, firm_report_output):
     """Generate comprehensive firm-level AI summary report"""
     log("🚀 Starting firm summary report generation...")
 
@@ -225,15 +248,13 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
         df_job_counts = df_jobs_dedup.groupby(['company_id', 'company_name', 'year']).size().reset_index(name='total_unique_job_ads')
 
         # Step 2: Load AI applications data (all apps, not just linked)
-        try:
-            ai_apps_file = find_latest_ai_applications_file(args.in_dir)
-            df_ai_apps_all = load_ai_applications_data(ai_apps_file)
-        except FileNotFoundError as e:
-            log(f"⚠️  Warning: {e}")
-            df_ai_apps_all = pd.DataFrame(columns=['company_id', 'year', 'total_ai_apps_all'])
+        ai_apps_file = args.ai_apps_file
+        log(f"Using AI applications file: {ai_apps_file}")
+        df_ai_apps_all = load_ai_applications_data(ai_apps_file)
 
         # Step 3: Load AI jobs data (unique AI jobs)
-        ai_jobs_file = Path(args.in_dir) / "ai_development_deduplicated_custom.csv"
+        ai_jobs_file = args.ai_jobs_file
+        log(f"Using AI jobs file: {ai_jobs_file}")
         df_ai_jobs = load_ai_jobs_data(ai_jobs_file)
 
         # Step 4: Extract Stage 6 linked data metrics for each specification
@@ -250,23 +271,29 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
             raise ValueError("Neither 'isco08_4d' nor 'onet_soc' columns found in Stage 6 data")
 
         # Identify all exposure columns (they follow pattern: *_exposure_avg_p{XX}_ce{YY})
-        exposure_cols = [c for c in df_linked.columns if '_exposure_avg_p' in c and '_ce' in c]
+        exposure_cols = [c for c in df_linked.columns if '_exposure_avg_' in c and '_ce' in c]
         log(f"Found {len(exposure_cols)} exposure specifications in linked data")
 
-        # Build specifications list from column names
-        # Extract specs from column names: hampole_ai_exposure_avg_p20_ce08 -> ('p20', 'ce08')
-        specifications = []
+        # Build specifications list from column names using regex
+        # Handle two naming formats:
+        # 1. ISCO format: 'pct_20_ce_0.0' from 'hampole_ai_exposure_avg_pct_20_ce_0.0'
+        # 2. O*NET format: 'p20_ce08' from 'hampole_ai_exposure_avg_p20_ce08'
+        specifications = set()
         for col in exposure_cols:
             if 'hampole' in col:
-                # Extract p{XX}_ce{YY} from column name
-                parts = col.split('_')
-                spec_str = '_'.join(parts[-2:])  # Get 'p20_ce08'
-                if spec_str not in [f"{s[0]}_{s[1]}" for s in specifications]:
-                    # Find corresponding parts
-                    pct_part = [p for p in parts if p.startswith('p')][-1]
-                    ce_part = [p for p in parts if p.startswith('ce')][-1]
-                    specifications.append((pct_part, ce_part))
+                # Try ISCO format first (pct_XX_ce_0.X)
+                match = re.search(r'(pct_\w+_ce_[\d.]+)$', col)
+                if match:
+                    spec_str = match.group(1)  # e.g., 'pct_20_ce_0.0'
+                    specifications.add(spec_str)
+                else:
+                    # Try O*NET format (pXX_ceXX)
+                    match = re.search(r'(p\d+_ce\d+)$', col)
+                    if match:
+                        spec_str = match.group(1)  # e.g., 'p20_ce08'
+                        specifications.add(spec_str)
 
+        specifications = sorted(list(specifications))
         log(f"Parsed {len(specifications)} specifications from column names")
 
         # Aggregate Stage 6 linked data by firm-year-specification
@@ -276,34 +303,31 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
         for firm_year_group, group_data in df_linked.groupby(['company_id', 'company_name', 'year']):
             company_id, company_name, year = firm_year_group
 
-            for spec_idx, (pct_col, ce_col) in enumerate(specifications):
-                # Build column names for this specification
-                hampole_col = f'hampole_ai_exposure_avg_{pct_col}_{ce_col}'
-                binary_col = f'binary_ai_exposure_avg_{pct_col}_{ce_col}'
-                apps_col = f'n_ai_apps_firm_year_{pct_col}_{ce_col}'
+            for spec_str in specifications:
+                # Build column names for this specification using full spec string
+                hampole_col = f'hampole_ai_exposure_avg_{spec_str}'
+                binary_col = f'binary_ai_exposure_avg_{spec_str}'
+                apps_col = f'n_ai_apps_firm_year_{spec_str}'
+                tasks_col = f'total_tasks_occupation_{spec_str}'
 
                 # Check if columns exist
                 if hampole_col not in group_data.columns:
-                    # Use defaults if not present
-                    total_apps = 0
-                    ai_exposed_tasks = 0
-                else:
-                    # Count firms with this specification present
-                    total_apps = group_data[apps_col].iloc[0] if apps_col in group_data.columns else 0
-                    # Count how many occupations have >0 exposure
-                    if hampole_col in group_data.columns:
-                        ai_exposed_tasks = (group_data[hampole_col] > 0).sum()
-                    else:
-                        ai_exposed_tasks = 0
+                    # Skip this specification if expected column doesn't exist
+                    continue
 
-                # Get total onet tasks (same across specs for a firm-year)
-                total_tasks = group_data['total_tasks_occupation'].sum() if 'total_tasks_occupation' in group_data.columns else 0
+                # Extract values from existing columns
+                total_apps = group_data[apps_col].iloc[0] if apps_col in group_data.columns else 0
+                # Count how many occupations have >0 exposure
+                ai_exposed_tasks = (group_data[hampole_col] > 0).sum()
+
+                # Get total onet tasks using spec-specific column
+                total_tasks = group_data[tasks_col].sum() if tasks_col in group_data.columns else 0
 
                 row = {
                     'company_id': company_id,
                     'company_name': company_name,
                     'year': year,
-                    'specification': f'{pct_col}_{ce_col}',
+                    'specification': spec_str,
                     'total_unique_job_ads': group_data['title'].nunique() if 'title' in group_data.columns else 0,
                     'total_onet_tasks': int(total_tasks),
                     'total_ai_apps_linked': int(total_apps),
@@ -323,38 +347,60 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
         # Step 5: Merge all data sources
         log("🔗 Merging data sources (long format)...")
 
-        # Start with stage6_agg (already in long format: 25 rows per firm-year)
+        # Standardize company_id types across all dataframes before merging
         df_report = stage6_agg.copy()
+        df_report['company_id'] = df_report['company_id'].astype(int)
+
+        df_job_counts['company_id'] = df_job_counts['company_id'].astype(int)
+        df_ai_apps_all['company_id'] = df_ai_apps_all['company_id'].astype(int)
+        df_ai_jobs['company_id'] = df_ai_jobs['company_id'].astype(int)
 
         # Merge job counts (1 row per firm-year) - will expand to 25 rows per spec
-        df_report = df_report.merge(
-            df_job_counts,
-            on=['company_id', 'company_name', 'year'],
-            how='left'
-        )
+        # First check if merge keys exist
+        if 'total_unique_job_ads' not in df_report.columns:
+            # Need to merge with df_job_counts
+            before_merge = len(df_report)
+            df_report = df_report.merge(
+                df_job_counts[['company_id', 'company_name', 'year', 'total_unique_job_ads']],
+                on=['company_id', 'company_name', 'year'],
+                how='left'
+            )
+            after_merge = len(df_report)
+            merge_success = after_merge / before_merge * 100 if before_merge > 0 else 0
+            log(f"Merged job counts: {before_merge:,} → {after_merge:,} ({merge_success:.1f}% retained)")
+            if 'total_unique_job_ads' not in df_report.columns:
+                raise ValueError("Failed to merge total_unique_job_ads from df_job_counts")
 
         # Merge AI applications (all) (1 row per firm-year) - will expand to 25 rows per spec
+        before_merge = len(df_report)
         df_report = df_report.merge(
             df_ai_apps_all,
             on=['company_id', 'year'],
             how='left'
         )
+        after_merge = len(df_report)
+        merge_success = after_merge / before_merge * 100 if before_merge > 0 else 0
+        log(f"Merged AI applications: {before_merge:,} → {after_merge:,} ({merge_success:.1f}% retained)")
 
         # Merge AI jobs (1 row per firm-year) - will expand to 25 rows per spec
+        before_merge = len(df_report)
         df_report = df_report.merge(
             df_ai_jobs,
             on=['company_id', 'year'],
             how='left'
         )
+        after_merge = len(df_report)
+        merge_success = after_merge / before_merge * 100 if before_merge > 0 else 0
+        log(f"Merged unique AI jobs: {before_merge:,} → {after_merge:,} ({merge_success:.1f}% retained)")
 
-        # Fill missing values with 0
-        numeric_cols = ['total_ai_apps_all', 'total_unique_ai_jobs', 'total_ai_apps_linked',
-                       'total_onet_tasks', 'ai_exposed_tasks']
-        df_report[numeric_cols] = df_report[numeric_cols].fillna(0)
+        # Fill missing values with 0 and ensure required columns exist
+        required_numeric_cols = ['total_ai_apps_all', 'total_unique_ai_jobs', 'total_ai_apps_linked',
+                                'total_onet_tasks', 'ai_exposed_tasks', 'total_unique_job_ads']
 
-        # Convert to integers where appropriate
-        for col in numeric_cols:
-            df_report[col] = df_report[col].astype(int)
+        for col in required_numeric_cols:
+            if col not in df_report.columns:
+                raise ValueError(f"Required column '{col}' missing from report after merges")
+            df_report[col] = df_report[col].fillna(0).astype(int)
 
         # Step 6: Calculate percentage and exposure metrics
         log("📊 Calculating percentage and exposure metrics...")
@@ -394,14 +440,21 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args):
         final_columns = [c for c in final_columns if c in df_report.columns]
         df_report = df_report[final_columns]
 
+        # Add specification distribution
+        spec_dist = df_report['specification'].value_counts()
+        log("Specification distribution in firm report:")
+        for spec, count in spec_dist.items():
+            pct = count / len(df_report) * 100
+            log(f"  {spec}: {count:,} ({pct:.1f}%)")
+
         # Sort by company_id, year, and specification
         df_report = df_report.sort_values(['company_id', 'year', 'specification']).reset_index(drop=True)
 
         # Save the report
-        df_report.to_csv(args.firm_report_out, index=False)
+        df_report.to_csv(firm_report_output, index=False)
 
         log(f"✅ Firm summary report generated successfully (long format)!")
-        log(f"   Report saved: {args.firm_report_out}")
+        log(f"   Report saved: {firm_report_output}")
         log(f"   Firms covered: {df_report['company_id'].nunique():,}")
         log(f"   Total firm-year-specification records: {len(df_report):,}")
         log(f"   Specifications per firm-year: 25 (5 BGE percentiles × 5 CE thresholds)")
@@ -534,9 +587,21 @@ def build_jobs_from_db(conn, year_max, fail_on_warn=True):
             # Parse X28 occupations from cached data
             log("🔧 Parsing X28 occupations from cache...")
             df_jobs['x28_codes'] = df_jobs['x28_occupations'].apply(parse_x28_occupations)
-            df_jobs_exploded = df_jobs.explode('x28_codes').reset_index(drop=True)
 
+            before_explosion = len(df_jobs)
+            df_jobs_exploded = df_jobs.explode('x28_codes').reset_index(drop=True)
+            after_explosion = len(df_jobs_exploded)
+            avg_codes = after_explosion / before_explosion if before_explosion > 0 else 0
+            log(f"X28 explosion: {before_explosion:,} → {after_explosion:,} (avg {avg_codes:.1f} codes/job)")
+
+            before_dedup = len(df_jobs_exploded)
             df_jobs_exploded = df_jobs_exploded.drop_duplicates(subset=['company_id', 'year', 'x28_codes'])
+            log_transformation(
+                "Deduplication by (company_id, year, x28_codes)",
+                before_dedup,
+                len(df_jobs_exploded)
+            )
+
             # Validate cached data
             validate_jobs_data(df_jobs_exploded, fail_on_warn)
 
@@ -577,13 +642,24 @@ def build_jobs_from_db(conn, year_max, fail_on_warn=True):
     log(f"📊 Executing job expansion query (year_max={year_max})...")
     df_jobs = pd.read_sql(sql, conn)
     log(f"✅ Retrieved {len(df_jobs):,} job-year records")
-    
+
     # Parse X28 occupations
     log("🔧 Parsing X28 occupations...")
     df_jobs['x28_codes'] = df_jobs['x28_occupations'].apply(parse_x28_occupations)
-    df_jobs_exploded = df_jobs.explode('x28_codes').reset_index(drop=True)
 
-    df_jobs_exploded = df_jobs_exploded.drop_duplicates(subset=['company_id', 'year', 'x28_key'])
+    before_explosion = len(df_jobs)
+    df_jobs_exploded = df_jobs.explode('x28_codes').reset_index(drop=True)
+    after_explosion = len(df_jobs_exploded)
+    avg_codes = after_explosion / before_explosion if before_explosion > 0 else 0
+    log(f"X28 explosion: {before_explosion:,} → {after_explosion:,} (avg {avg_codes:.1f} codes/job)")
+
+    before_dedup1 = len(df_jobs_exploded)
+    df_jobs_exploded = df_jobs_exploded.drop_duplicates(subset=['company_id', 'year', 'x28_codes'])
+    log_transformation(
+        "Deduplication by (company_id, year, x28_codes)",
+        before_dedup1,
+        len(df_jobs_exploded)
+    )
     # Validate
     validate_jobs_data(df_jobs_exploded, fail_on_warn)
 
@@ -595,6 +671,9 @@ def build_jobs_from_db(conn, year_max, fail_on_warn=True):
         log(f"💾 Saved job list to cache: {cache_file}")
     except Exception as e:
         log(f"⚠️  Cache saving failed (continuing anyway): {e}")
+
+    before_dedup2 = len(df_jobs_exploded)
+    log(f"Final jobs from database: {before_dedup2:,} records")
 
     return df_jobs_exploded
 
@@ -663,54 +742,32 @@ def load_crosswalk_isco_to_onet(filepath):
     log(f"✅ Loaded {len(crosswalk):,} ISCO→ONET mappings")
     return crosswalk
 
-def find_stage5_file(in_dir, occ_code, time_var, task_type='core'):
-    """Find Stage 5 exposure file with task type and new location support"""
+def find_stage5_file(stage5_dir, occ_code, task_type='core'):
+    """Find Stage 5 exposure file in specified directory
 
-    # Try new location first: Data/firm_year_exposure/
-    new_data_dir = Path(in_dir) / "firm_year_exposure"
+    Searches for pattern: {occ_code}_firm_year_exposure_{task_type}_tasks_all_specs.csv
+    """
     task_suffix = f"_{task_type}_tasks"
+    search_dir = Path(stage5_dir)
 
-    # New pattern: {occ_code}_firm_year_exposure_{task_type}_tasks_all_specs.csv
-    if new_data_dir.exists():
-        new_pattern = f"{occ_code}_firm_year_exposure{task_suffix}_all_specs.csv"
-        target_file = new_data_dir / new_pattern
+    if not search_dir.exists():
+        raise FileNotFoundError(f"Stage 5 directory not found: {stage5_dir}")
 
-        if target_file.exists():
-            log(f"✅ Found Stage 5 merged file: firm_year_exposure/{new_pattern}")
-            return str(target_file)
+    pattern = f"{occ_code}_firm_year_exposure{task_suffix}_all_specs.csv"
+    target_file = search_dir / pattern
 
-    # Fallback to legacy location: Data/
-    data_dir = Path(in_dir)
-    time_setting = "_year" if time_var else ""
+    if target_file.exists():
+        log(f"✅ Found Stage 5 file: {target_file.name}")
+        return str(target_file)
 
-    # Legacy pattern with task suffix
-    legacy_pattern = f"{occ_code}_firm_occupation{time_setting}_exposure{task_suffix}.csv"
-    legacy_file = data_dir / legacy_pattern
-
-    if legacy_file.exists():
-        log(f"⚠️  Using legacy file format: {legacy_pattern}")
-        return str(legacy_file)
-
-    # Legacy pattern without task suffix (backward compatibility)
-    old_pattern = f"{occ_code}_firm_occupation{time_setting}_exposure.csv"
-    old_file = data_dir / old_pattern
-
-    if old_file.exists():
-        log(f"⚠️  Using legacy file (no task type suffix): {old_pattern}")
-        return str(old_file)
-
-    # If no matches found, show available files for debugging
-    available_files = []
-    if new_data_dir.exists():
-        available_files.extend([f"firm_year_exposure/{f.name}" for f in new_data_dir.glob(f"{occ_code}_*exposure*.csv")])
-    available_files.extend([f.name for f in data_dir.glob(f"{occ_code}_*exposure*.csv")])
+    # If not found, show available files for debugging
+    available_files = list(search_dir.glob(f"{occ_code}_*exposure*.csv"))
+    available_names = [f.name for f in available_files]
 
     raise FileNotFoundError(
-        f"Stage 5 file not found. Searched for:\n"
-        f"  - firm_year_exposure/{new_pattern} (new format)\n"
-        f"  - {legacy_pattern} (legacy format)\n"
-        f"  - {old_pattern} (old legacy format)\n"
-        f"Available files: {available_files}"
+        f"Stage 5 file not found: {pattern}\n"
+        f"Searched in: {stage5_dir}\n"
+        f"Available files: {available_names if available_names else 'None found'}"
     )
 
 def load_stage5_exposures(filepath, occ_code):
@@ -739,7 +796,13 @@ def apply_crosswalks(df_jobs_exploded, x28_isco_xwalk, isco_onet_xwalk=None, tar
     log(f"🔧 Applying crosswalks to map to {target_occ.upper()}...")
 
     # Explode X28 codes (one row per code)
+    before_filter = len(df_jobs_exploded)
     df_jobs_exploded = df_jobs_exploded[df_jobs_exploded['x28_codes'].notna()].copy()
+    log_transformation(
+        "Filter: Remove jobs with null X28 codes",
+        before_filter,
+        len(df_jobs_exploded)
+    )
 
     # Ensure x28_codes are scalar values (fix for unhashable list error)
     def flatten_x28_code(x):
@@ -747,26 +810,31 @@ def apply_crosswalks(df_jobs_exploded, x28_isco_xwalk, isco_onet_xwalk=None, tar
             return x[0] if len(x) > 0 else None
         return x
 
+    before_flatten_check = len(df_jobs_exploded)
     df_jobs_exploded['x28_codes'] = df_jobs_exploded['x28_codes'].apply(flatten_x28_code)
     df_jobs_exploded = df_jobs_exploded[df_jobs_exploded['x28_codes'].notna()].copy()
+    log_transformation(
+        "Filter: Remove jobs where X28 flattening failed",
+        before_flatten_check,
+        len(df_jobs_exploded)
+    )
 
     if len(df_jobs_exploded) == 0:
         raise ValueError("❌ FATAL: No valid X28 codes after expansion")
-    print(len(df_jobs_exploded), 'DF jobs exploded size')
-    print(len(x28_isco_xwalk), 'x28_isco_xwalk size')
+
     # Map X28 to ISCO
     df_mapped = df_jobs_exploded.merge(
-        x28_isco_xwalk, 
-        left_on='x28_codes', 
-        right_on='x28_code', 
+        x28_isco_xwalk,
+        left_on='x28_codes',
+        right_on='x28_code',
         how='left'
     )
-    
+
     # Check mapping success
     unmapped_x28 = df_mapped['isco_code'].isna().sum()
     mapping_rate = ((len(df_mapped) - unmapped_x28) / len(df_mapped)) * 100
 
-    log(f"📊 X28→ISCO mapping: {mapping_rate:.1f}% success ({unmapped_x28:,} unmapped)")
+    log(f"X28→ISCO merge success: {len(df_mapped) - unmapped_x28:,} of {len(df_mapped):,} ({mapping_rate:.1f}%)")
 
     # DEBUG: Analyze X28→ISCO mapping gaps
     if unmapped_x28 > 0:
@@ -802,7 +870,16 @@ def apply_crosswalks(df_jobs_exploded, x28_isco_xwalk, isco_onet_xwalk=None, tar
         log(f"  - Obsolete X28 codes removed from crosswalk (expected)")
         log(f"  - Crosswalk completeness issues (investigate if >5% unmapped)")
     
-    if target_occ == 'onet' and isco_onet_xwalk is not None:
+    if target_occ == 'isco':
+        # ISCO pathway: Direct matching without reverse ISCO→ONET conversion
+        # Jobs and exposures both use ISCO codes - direct domain matching
+        log(f"✓ Using ISCO domain for jobs-to-exposure matching (recommended pathway)")
+
+        # Rename isco_code to isco08_4d to match Stage 5 exposure file column names
+        df_mapped = df_mapped.rename(columns={'isco_code': 'isco08_4d'})
+
+    elif target_occ == 'onet' and isco_onet_xwalk is not None:
+        # ONET pathway: Map ISCO to ONET (note: this has known information loss issues)
         # Further map ISCO to ONET with format conversion
         # X28→ISCO produces codes like '110', '210', '1111'
         # ISCO→ONET expects codes like '0110.10', '0210.2', '1111.1'
@@ -905,39 +982,60 @@ def apply_crosswalks(df_jobs_exploded, x28_isco_xwalk, isco_onet_xwalk=None, tar
         unmapped_isco = df_mapped['onet_soc'].isna().sum()
         final_mapping_rate = ((len(df_mapped) - unmapped_isco) / len(df_mapped)) * 100
 
-        log(f"📊 ISCO→ONET mapping: {final_mapping_rate:.1f}% success ({unmapped_isco:,} unmapped)")
+        log(f"ISCO→ONET merge success: {len(df_mapped) - unmapped_isco:,} of {len(df_mapped):,} ({final_mapping_rate:.1f}%)")
     
     # Remove unmapped records and return exploded format
-    occ_col = 'isco_code' if target_occ == 'isco' else 'onet_soc'
+    occ_col = 'isco08_4d' if target_occ == 'isco' else 'onet_soc'
+
+    unmapped_count = df_mapped[occ_col].isna().sum()
+    log(f"Unmapped jobs to be filtered: {unmapped_count:,}")
+
+    before_filter = len(df_mapped)
     df_final = df_mapped[df_mapped[occ_col].notna()].copy()
-    
+    log_transformation(
+        f"Filter: Remove unmapped {occ_col}",
+        before_filter,
+        len(df_final),
+        f"{unmapped_count:,} unmapped removed"
+    )
+
     # Clean up columns - remove x28_codes and x28_code columns
     cols_to_keep = ['company_id', 'company_name', 'year', 'title', occ_col]
+    before_dedup = len(df_final)
     df_final = df_final[cols_to_keep].drop_duplicates().reset_index(drop=True)
-    
+    log_transformation(
+        "Final deduplication (all columns)",
+        before_dedup,
+        len(df_final)
+    )
+
     log(f"✅ Final mapped jobs: {len(df_final):,} records")
     return df_final
 
 def link_jobs_to_exposures(df_jobs_mapped, df_exposures):
     """Core linking logic: join jobs to exposures and generate diagnostics"""
     log("🔗 Performing inner join between jobs and exposures...")
-    
+
+    jobs_count = len(df_jobs_mapped)
+    exposures_count = len(df_exposures)
+    log(f"Preparing to link: {jobs_count:,} jobs × {exposures_count:,} exposures")
+
     # Determine occupation column name
-    occ_col = 'isco_code' if 'isco_code' in df_jobs_mapped.columns else 'onet_soc'
+    occ_col = 'isco08_4d' if 'isco08_4d' in df_jobs_mapped.columns else 'onet_soc'
     exp_occ_col = 'isco08_4d' if 'isco08_4d' in df_exposures.columns else 'onet_soc'
-    
+
     # Ensure consistent data types for join keys
     df_jobs_mapped = df_jobs_mapped.copy()
     df_exposures = df_exposures.copy()
-    
+
     # Convert company_id to int for consistent joining
     df_jobs_mapped['company_id'] = df_jobs_mapped['company_id'].astype(int)
     df_exposures['company_id'] = df_exposures['company_id'].astype(int)
-    
+
     # Convert year to int for consistent joining
     df_jobs_mapped['year'] = df_jobs_mapped['year'].astype(int)
     df_exposures['year'] = df_exposures['year'].astype(int)
-    
+
     # Convert occupation codes to string for consistent joining
     df_jobs_mapped[occ_col] = df_jobs_mapped[occ_col].astype(str).str.strip()
     df_exposures[exp_occ_col] = df_exposures[exp_occ_col].astype(str).str.strip()
@@ -964,6 +1062,10 @@ def link_jobs_to_exposures(df_jobs_mapped, df_exposures):
         how='inner'
     )
 
+    after_merge = len(df_linked)
+    join_rate = (after_merge / jobs_count * 100) if jobs_count > 0 else 0
+    log(f"Inner join result: {after_merge:,} records (join rate: {join_rate:.1f}%)")
+
     # Clean up duplicate company_name columns (merge creates _x and _y suffixes)
     if 'company_name_x' in df_linked.columns and 'company_name_y' in df_linked.columns:
         # Use company_name from jobs data (usually more complete/reliable)
@@ -973,12 +1075,26 @@ def link_jobs_to_exposures(df_jobs_mapped, df_exposures):
 
     # Deduplicate to ensure only one row per (year, company, onet-soc) combination
     # Keep first occurrence to preserve data
-    initial_count = len(df_linked)
+    before_dedup = len(df_linked)
     dedup_keys = ['company_id', 'company_name', 'year', join_occ_col]
     df_linked = df_linked.drop_duplicates(subset=dedup_keys, keep='first')
 
-    if len(df_linked) != initial_count:
-        log(f"🔧 Deduplicated output: {initial_count:,} → {len(df_linked):,} records ({initial_count - len(df_linked):,} duplicates removed)")
+    if before_dedup > len(df_linked):
+        log_transformation(
+            f"Deduplication by (company_id, year, {join_occ_col})",
+            before_dedup,
+            len(df_linked),
+            "kept='first'"
+        )
+        # Show sample duplicates
+        duplicates = df_linked[df_linked.duplicated(subset=dedup_keys, keep=False)].head(10)
+        if len(duplicates) > 0:
+            log_sample_records(
+                duplicates.sort_values(dedup_keys),
+                "Sample duplicate records",
+                n=10,
+                cols=['company_id', 'year', join_occ_col, 'company_name']
+            )
 
     log(f"✅ Successfully linked {len(df_linked):,} unique job-exposure records")
 
@@ -1009,61 +1125,89 @@ def link_jobs_to_exposures(df_jobs_mapped, df_exposures):
     ].copy()
 
     log(f"📊 Unmatched jobs: {len(df_unmatched_jobs):,} records")
-    
-    # Generate unmatched exposures diagnostic  
+    if len(df_unmatched_jobs) > 0:
+        log_sample_records(
+            df_unmatched_jobs,
+            "Sample unmatched jobs",
+            n=10,
+            cols=['company_id', 'year', join_occ_col, 'company_name']
+        )
+
+    # Generate unmatched exposures diagnostic
     df_unmatched_exposures = df_exposures[
         ~df_exposures.set_index(join_keys).index.isin(
             df_linked.set_index(join_keys).index
         )
     ].copy()
-    
+
     log(f"📊 Unmatched exposures: {len(df_unmatched_exposures):,} records")
+    if len(df_unmatched_exposures) > 0:
+        log_sample_records(
+            df_unmatched_exposures,
+            "Sample unmatched exposures",
+            n=10,
+            cols=['company_id', 'year', join_occ_col]
+        )
     
     return df_linked, df_unmatched_jobs, df_unmatched_exposures
 
 def main():
     parser = argparse.ArgumentParser(description="Stage 6: Link Firm×Year Exposure to Jobs")
+    parser.add_argument('--stage5_dir', type=str, required=True,
+                       help='Path to Stage 5 input directory (e.g., Data/Testing/stage_5_core)')
+    parser.add_argument('--crosswalk_dir', type=str, default='Data',
+                       help='Path to crosswalk files directory (default: Data/)')
+    parser.add_argument('--output_dir', type=str, required=True,
+                       help='Path to output directory for all Stage 6 files')
     parser.add_argument('--job_list', choices=['job_ads', 'shp'], default='job_ads',
                        help='Source for job list')
     parser.add_argument('--occ_code', choices=['isco', 'onet'], default='isco',
-                       help='Target occupation coding system')  
+                       help='Target occupation coding system')
     parser.add_argument('--time_var', type=bool, default=True,
                        help='Use time variant exposure data')
     parser.add_argument('--year_max', type=int, default=2025,
                        help='Maximum year for job expansion')
-    parser.add_argument('--in_dir', default='Data',
-                       help='Input directory')
-    parser.add_argument('--out', default='Data/stage6_jobs_linked.csv',
-                       help='Output file path')
-    parser.add_argument('--unmatched_jobs', default='Data/stage6_unmatched_jobs.csv',
-                       help='Unmatched jobs output')
-    parser.add_argument('--unmatched_exposures', default='Data/stage6_unmatched_exposures.csv', 
-                       help='Unmatched exposures output')
     parser.add_argument('--fail_on_warn', action='store_false', default=True,
                        help='Treat warnings as errors (use --fail_on_warn to disable)')
-    parser.add_argument('--allow_drift', type=bool, default=False,
-                       help='Allow crosswalk file hash changes')
     parser.add_argument('--generate_firm_report', action='store_true',
                        help='Generate firm-level AI summary report')
-    parser.add_argument('--firm_report_out', default='Data/firm_ai_summary_report.csv',
-                       help='Output file path for firm report')
-
-    parser.add_argument('--task-type', type=str,
+    parser.add_argument('--task_type', type=str,
                        choices=['core', 'all'],
                        default='core',
                        help="Task type to process (default: core)")
+    parser.add_argument('--job_app_mapping_file', type=str,
+                       default=None,
+                       help="Optional path to Stage 4 job_app_mapping parquet to attach ai_app_id per job_uid")
+    parser.add_argument('--ai_apps_file', type=str,
+                       default=None,
+                       help="Path to Stage 3 output file containing AI applications (required if --generate_firm_report is used)")
+    parser.add_argument('--ai_jobs_file', type=str,
+                       default='Data/ai_development_deuplicated_custom.csv',
+                       help="Path to AI jobs file for firm reports ai_development_deuplicated_custom.csv (required if --generate_firm_report is used)")
 
     args = parser.parse_args()
 
-    # Update output filenames with task type suffix if using defaults
-    task_suffix = f"_{args.task_type}_tasks"
-    if args.out == 'Data/stage6_jobs_linked.csv':
-        args.out = f'Data/stage6_jobs_linked{task_suffix}.csv'
-    if args.generate_firm_report and args.firm_report_out == 'Data/firm_ai_summary_report.csv':
-        args.firm_report_out = f'Data/firm_ai_summary_report{task_suffix}.csv'
+    # Auto-generate all output paths based on output_dir, task_type, and occ_code
+    task_suffix = f"_{args.task_type}"
+    occ_suffix = f"_{args.occ_code}"
+
+    main_output = Path(args.output_dir) / f"stage6_jobs_linked{task_suffix}{occ_suffix}.csv"
+    unmatched_jobs = Path(args.output_dir) / f"stage6_unmatched_jobs{task_suffix}{occ_suffix}.csv"
+    unmatched_exposures = Path(args.output_dir) / f"stage6_unmatched_exposures{task_suffix}{occ_suffix}.csv"
+    firm_report_output = Path(args.output_dir) / f"firm_ai_summary_report{task_suffix}{occ_suffix}.csv"
 
     log("🚀 Starting Stage 6: Link Firm×Year Exposure to Jobs")
     log("=" * 60)
+
+    # Validate required directories exist and create output directory
+    if not Path(args.stage5_dir).exists():
+        raise FileNotFoundError(f"Stage 5 input directory not found: {args.stage5_dir}")
+    if not Path(args.crosswalk_dir).exists():
+        raise FileNotFoundError(f"Crosswalk directory not found: {args.crosswalk_dir}")
+
+    # Create output directory if it doesn't exist
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    log(f"✅ Output directory ready: {args.output_dir}")
 
     # Load environment and connect to database
     load_dotenv('config.env')
@@ -1086,12 +1230,12 @@ def main():
             raise NotImplementedError("SHP job list not yet implemented")
         
         # Load crosswalks
-        x28_isco_path = Path(args.in_dir) / "240711_occupation_to_ch_isco_19.csv"
+        x28_isco_path = Path(args.crosswalk_dir) / "240711_occupation_to_ch_isco_19.csv"
         x28_isco_xwalk = load_crosswalk_x28_to_isco(x28_isco_path)
-        
+
         isco_onet_xwalk = None
         if args.occ_code == 'onet':
-            isco_onet_path = Path(args.in_dir) / "ESCO_to_ONET-SOC.xlsx"
+            isco_onet_path = Path(args.crosswalk_dir) / "ESCO_to_ONET-SOC.xlsx"
             isco_onet_xwalk = load_crosswalk_isco_to_onet(isco_onet_path)
         
         # Apply crosswalks
@@ -1100,7 +1244,7 @@ def main():
         )
         
         # Load Stage 5 exposures
-        stage5_path = find_stage5_file(args.in_dir, args.occ_code, args.time_var, args.task_type)
+        stage5_path = find_stage5_file(args.stage5_dir, args.occ_code, args.task_type)
         df_exposures = load_stage5_exposures(stage5_path, args.occ_code)
         
         log(f"🔗 Linking jobs to exposures...")
@@ -1109,28 +1253,75 @@ def main():
         df_linked, df_unmatched_jobs, df_unmatched_exposures = link_jobs_to_exposures(
             df_jobs_mapped, df_exposures
         )
+
+        # Optional: attach ai_app_id per job from Stage 4 mapping so downstream analyses can trace back to apps
+        if args.job_app_mapping_file:
+            if not Path(args.job_app_mapping_file).exists():
+                log(f"⚠️  job_app_mapping_file not found: {args.job_app_mapping_file}")
+            else:
+                # We can only attach ai_app_ids if df_linked still has job_uid in it
+                if 'job_uid' not in df_linked.columns:
+                    log("⚠️  Stage 6 linked data has no 'job_uid' column; skipping ai_app_id attachment")
+                else:
+                    try:
+                        jam = pd.read_parquet(args.job_app_mapping_file)
+                        if {'job_uids', 'ai_app_id'}.issubset(jam.columns):
+                            jam_exp = jam[['job_uids', 'ai_app_id']].copy()
+                            jam_exp['job_uid'] = jam_exp['job_uids'].astype(str).str.split('|')
+                            jam_exp = jam_exp.explode('job_uid')
+                            jam_exp = jam_exp.dropna(subset=['job_uid'])
+                            jam_exp['job_uid'] = jam_exp['job_uid'].astype(str)
+                            # Aggregate ai_app_ids per job to avoid row explosion
+                            jam_grouped = jam_exp.groupby('job_uid')['ai_app_id'].agg(lambda s: sorted(set(s))).reset_index()
+                            jam_grouped.rename(columns={'ai_app_id': 'ai_app_ids'}, inplace=True)
+                            df_linked = df_linked.merge(jam_grouped, on='job_uid', how='left')
+                            log(f"✅ Attached ai_app_ids from mapping to linked jobs (coverage: {(~df_linked['ai_app_ids'].isna()).sum():,} rows)")
+                        else:
+                            log("⚠️  job_app_mapping_file missing required columns {job_uids, ai_app_id}; skipping ai_app_id attachment")
+                    except Exception as e:
+                        log(f"⚠️  Failed to attach ai_app_ids from mapping: {e}")
         
         # Save outputs
         log(f"💾 Saving results...")
-        df_linked.to_csv(args.out, index=False)
-        log(f"✅ Main results saved: {args.out}")
-        
+        df_linked.to_csv(main_output, index=False)
+        log(f"✅ Main results saved: {main_output}")
+
         if len(df_unmatched_jobs) > 0:
-            df_unmatched_jobs.to_csv(args.unmatched_jobs, index=False)
-            log(f"📋 Unmatched jobs saved: {args.unmatched_jobs}")
-        
+            df_unmatched_jobs.to_csv(unmatched_jobs, index=False)
+            log(f"📋 Unmatched jobs saved: {unmatched_jobs}")
+
         if len(df_unmatched_exposures) > 0:
-            df_unmatched_exposures.to_csv(args.unmatched_exposures, index=False)
-            log(f"📋 Unmatched exposures saved: {args.unmatched_exposures}")
+            df_unmatched_exposures.to_csv(unmatched_exposures, index=False)
+            log(f"📋 Unmatched exposures saved: {unmatched_exposures}")
         
         # Generate firm summary report if requested
         if args.generate_firm_report:
+            # Validate required files for firm report
+            if not args.ai_apps_file:
+                raise ValueError("--ai_apps_file is required when --generate_firm_report is used")
+            if not args.ai_jobs_file:
+                raise ValueError("--ai_jobs_file is required when --generate_firm_report is used")
+
             log("🚀 Generating firm summary report...")
             try:
-                generate_firm_summary_report(df_linked, df_jobs_exploded, args)
+                generate_firm_summary_report(df_linked, df_jobs_exploded, args, firm_report_output)
             except Exception as e:
                 log(f"❌ Firm report generation failed: {e}")
                 log("⚠️  Continuing with main Stage 6 processing...")
+
+        # Pipeline summary
+        log("\n" + "=" * 80)
+        log("STAGE 6 PIPELINE SUMMARY")
+        log("=" * 80)
+        log(f"Input jobs from database: {len(df_jobs_exploded):,}")
+        log(f"Jobs after crosswalks: {len(df_jobs_mapped):,}")
+        log(f"Exposure records loaded: {len(df_exposures):,}")
+        log(f"Successfully linked: {len(df_linked):,}")
+        pipeline_efficiency = (len(df_linked) / len(df_jobs_exploded) * 100) if len(df_jobs_exploded) > 0 else 0
+        log(f"Overall pipeline efficiency: {pipeline_efficiency:.1f}%")
+        log(f"Unmatched jobs: {len(df_unmatched_jobs):,}")
+        log(f"Unmatched exposures: {len(df_unmatched_exposures):,}")
+        log("=" * 80)
 
         log(f"✅ Stage 6 complete! Linked {len(df_linked):,} records")
 
