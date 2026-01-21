@@ -254,6 +254,9 @@ class EmbeddingManager:
         Raises:
             FileNotFoundError: If file appears to be Dropbox placeholder and auto-download fails
         """
+        # Resolve to absolute path for consistent handling
+        file_path = Path(file_path).resolve()
+
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -328,8 +331,11 @@ class EmbeddingManager:
             The original file in Dropbox remains untouched (stays as placeholder).
         """
         # Convert local path to Dropbox path
-        # Find the Dropbox folder root by looking for /Dropbox/ in the path
+        # First resolve to absolute path
+        file_path = Path(file_path).resolve()
         path_str = str(file_path)
+
+        # Find the Dropbox folder root by looking for /Dropbox/ in the path
         if "/Dropbox/" not in path_str:
             raise ValueError(f"File is not in Dropbox folder: {file_path}")
 
@@ -348,6 +354,36 @@ class EmbeddingManager:
             # Write to TEMP file ONLY (do NOT touch Dropbox folder at all!)
             with open(temp_file_path, 'wb') as f:
                 f.write(response.content)
+
+            # Validate download completed successfully
+            actual_size = temp_file_path.stat().st_size
+            expected_size = metadata.size
+
+            if actual_size != expected_size:
+                logger.error(f"Download size mismatch: expected {expected_size}, got {actual_size}")
+                temp_file_path.unlink()  # Delete corrupted file
+                raise IOError(
+                    f"Download corrupted: size mismatch\n"
+                    f"Expected: {expected_size} bytes\n"
+                    f"Got: {actual_size} bytes"
+                )
+
+            # Verify pickle file can be loaded (catch corruption early)
+            if temp_file_path.suffix == '.pkl':
+                logger.info(f"Validating pickle file integrity...")
+                try:
+                    import pickle
+                    with open(temp_file_path, 'rb') as f:
+                        _ = pickle.load(f)
+                    logger.info(f"✓ Pickle file validated successfully")
+                except Exception as e:
+                    logger.error(f"✗ Downloaded pickle file is CORRUPTED: {e}")
+                    temp_file_path.unlink()  # Delete corrupted file
+                    raise IOError(
+                        f"Downloaded file appears corrupted (pickle load failed):\n"
+                        f"Error: {e}\n"
+                        f"This may indicate the file in Dropbox is corrupted."
+                    )
 
             logger.debug(f"Downloaded {metadata.size} bytes to temp: {temp_file_path}")
 
