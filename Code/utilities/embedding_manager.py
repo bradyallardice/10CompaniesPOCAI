@@ -178,15 +178,16 @@ class EmbeddingManager:
                 f"Please use a more specific pattern"
             )
 
-        embedding_path = Path(matches[0])
+        embedding_path = Path(matches[0]).resolve()
 
         # Verify file is actually downloaded (not a Dropbox placeholder)
         self._verify_file_downloaded(embedding_path)
 
         # Check if file was downloaded to temp - return temp path instead
+        # Note: _verify_file_downloaded adds to _temp_path_map if downloaded
         if hasattr(self, '_temp_path_map') and embedding_path in self._temp_path_map:
             temp_path = self._temp_path_map[embedding_path]
-            logger.info(f"Embedding available (temp): {temp_path.name}")
+            logger.info(f"Returning temp path: {temp_path}")
             # Track temp path for cleanup
             if temp_path not in self.accessed_files:
                 self.accessed_files.append(temp_path)
@@ -196,7 +197,7 @@ class EmbeddingManager:
         if embedding_path not in self.accessed_files:
             self.accessed_files.append(embedding_path)
 
-        logger.info(f"Embedding available: {embedding_path.name}")
+        logger.info(f"Returning original path: {embedding_path}")
         return embedding_path
 
     def get_checkpoint_files(self, pattern: str = "*.parquet") -> List[Path]:
