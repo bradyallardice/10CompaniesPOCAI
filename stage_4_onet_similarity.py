@@ -493,11 +493,12 @@ class ONETSimilarityMatcher:
         Returns:
             DataFrame with global_index and cross_encoder_score, or None if invalid
         """
-        if not checkpoint_path.exists():
+        # Use helper method to handle Dropbox placeholders
+        checkpoint_df = self._load_checkpoint_parquet(checkpoint_path)
+        if checkpoint_df is None:
             return None
 
         try:
-            checkpoint_df = pd.read_parquet(checkpoint_path)
 
             # Validate structure
             required_cols = ['global_index', 'cross_encoder_score']
@@ -1967,7 +1968,11 @@ class ONETSimilarityMatcher:
 
                 for salvaged_file in salvaged_files:
                     try:
-                        df = pd.read_parquet(salvaged_file)
+                        # Use helper method to handle Dropbox placeholders
+                        df = self._load_checkpoint_parquet(salvaged_file)
+                        if df is None:
+                            logger.warning(f"  Skipping {salvaged_file.name}: could not load")
+                            continue
 
                         # Validate schema
                         required_cols = ['app_text', 'onet_task_id', 'cross_encoder_score']
@@ -2028,7 +2033,11 @@ class ONETSimilarityMatcher:
 
                 for chunk_file in chunk_files:
                     try:
-                        chunk_df = pd.read_parquet(chunk_file)
+                        # Use helper method to handle Dropbox placeholders
+                        chunk_df = self._load_checkpoint_parquet(chunk_file)
+                        if chunk_df is None:
+                            logger.warning(f"  Skipping {chunk_file.name}: could not load")
+                            continue
                         # Validate schema
                         required_cols = ['app_text', 'onet_task_id', 'cross_encoder_score']
                         if all(col in chunk_df.columns for col in required_cols):
@@ -3002,12 +3011,10 @@ def _cross_encoder_worker_function(worker_id: int,
             if pairs_processed - last_checkpoint_at >= checkpoint_interval:
                 try:
                     # Load existing checkpoint if it exists to preserve prior work
-                    existing_df = None
-                    if checkpoint_path.exists():
-                        try:
-                            existing_df = pd.read_parquet(checkpoint_path)
-                        except Exception as e:
-                            logger.warning(f"Worker {worker_id}: Could not load existing checkpoint: {e}")
+                    # Use helper method to handle Dropbox placeholders
+                    existing_df = self._load_checkpoint_parquet(checkpoint_path)
+                    if existing_df is None:
+                        logger.debug(f"Worker {worker_id}: No existing checkpoint found")
 
                     # Create new data for this checkpoint interval (ALL scores so far to avoid index overlap)
                     # Use content-based keys for robust checkpoint resumption
@@ -3055,12 +3062,10 @@ def _cross_encoder_worker_function(worker_id: int,
     if enable_checkpointing and checkpoint_path is not None:
         try:
             # Load existing checkpoint if it exists to preserve prior work
-            existing_df = None
-            if checkpoint_path.exists():
-                try:
-                    existing_df = pd.read_parquet(checkpoint_path)
-                except Exception as e:
-                    logger.warning(f"Worker {worker_id}: Could not load existing checkpoint: {e}")
+            # Use helper method to handle Dropbox placeholders
+            existing_df = self._load_checkpoint_parquet(checkpoint_path)
+            if existing_df is None:
+                logger.debug(f"Worker {worker_id}: No existing checkpoint found")
 
             # Create final checkpoint data using content-based keys
             final_checkpoint_df = pd.DataFrame({
