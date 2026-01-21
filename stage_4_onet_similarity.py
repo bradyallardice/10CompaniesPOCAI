@@ -26,6 +26,9 @@ import argparse
 import pickle
 import gc
 
+# Embedding manager for Dropbox auto-download and cleanup
+from Code.utilities.embedding_manager import EmbeddingManager
+
 # Embedding and ML libraries
 try:
     from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -84,6 +87,14 @@ class ONETSimilarityMatcher:
 
         # Create embeddings directory if it doesn't exist
         os.makedirs(embeddings_dir, exist_ok=True)
+
+        # Initialize embedding manager for Dropbox auto-download
+        self.embedding_manager = EmbeddingManager(
+            embeddings_dir=embeddings_dir,
+            auto_download=True,
+            auto_cleanup=False  # Manual cleanup via CLI flag
+        )
+        logger.info("Embedding manager initialized")
 
         # Initialize model only if not using OpenAI embeddings
         if not use_openai_embeddings:
@@ -250,7 +261,13 @@ class ONETSimilarityMatcher:
         texts_hash = self._compute_texts_hash(texts)
         cache_path = self._get_embedding_cache_path(texts_hash, prefix)
 
-        if not os.path.exists(cache_path):
+        # Use embedding manager to verify/download file
+        try:
+            cache_filename = os.path.basename(cache_path)
+            actual_path = self.embedding_manager.get_embedding_path(cache_filename)
+            cache_path = str(actual_path)
+        except FileNotFoundError as e:
+            logger.debug(f"Embedding not found in cache: {e}")
             return None
 
         try:
@@ -263,7 +280,7 @@ class ONETSimilarityMatcher:
                 logger.warning(f"Cache validation failed for {cache_path}")
                 return None
 
-            logger.info(f"Loaded embeddings from cache: {cache_path}")
+            logger.info(f"Loaded embeddings from cache: {os.path.basename(cache_path)}")
             return cache_data['embeddings']
 
         except Exception as e:
@@ -289,12 +306,15 @@ class ONETSimilarityMatcher:
         sorted_texts = ''.join(sorted(texts))
         texts_hash = hashlib.md5(sorted_texts.encode()).hexdigest()[:8]
         cache_filename = f"openai_text-embedding-3-large_{text_type}_{texts_hash}.pkl"
-        cache_path = Path(self.embeddings_dir) / cache_filename
 
-        if not cache_path.exists():
+        # Use embedding manager to get file path (handles Dropbox sync verification)
+        try:
+            cache_path = self.embedding_manager.get_embedding_path(cache_filename)
+        except FileNotFoundError:
             raise FileNotFoundError(
-                f"OpenAI embeddings cache not found: {cache_path}\n"
-                f"Generate with: python3 generate_openai_embeddings.py --task-type core"
+                f"No OpenAI embeddings found matching: {cache_filename}\n"
+                f"Please ensure Dropbox has synced embeddings or regenerate with:\n"
+                f"python3 generate_openai_embeddings.py --task-type core"
             )
 
         try:
@@ -3162,6 +3182,14 @@ def parse_arguments():
                             "to avoid memory exhaustion. Lower values use less memory but may be slower. "
                             "Typical range: 5M-20M rows depending on available RAM.")
 
+    parser.add_argument("--cleanup-embeddings", action="store_true",
+                       help="Cleanup local embeddings after processing (saves ~59GB). "
+                            "Files remain in Dropbox cloud.")
+
+    parser.add_argument("--cleanup-checkpoints-only", action="store_true",
+                       help="Cleanup only checkpoint files (saves ~30-40GB). "
+                            "Keeps main embeddings for faster reruns.")
+
     return parser.parse_args()
 
 
@@ -3312,6 +3340,17 @@ def main():
         print("VALIDATING TASK_ID TO TASK_TEXT ALIGNMENT")
         print("="*60)
         validate_task_id_alignment(args.output_dir, onet_version=args.onet_version)
+
+        # Optional: Cleanup embeddings to save disk space
+        if args.cleanup_embeddings:
+            logger.info("Cleaning up embeddings (files remain in Dropbox cloud)...")
+            matcher.embedding_manager.cleanup()
+            logger.info("Cleanup complete - saved ~59GB of disk space")
+
+        if args.cleanup_checkpoints_only:
+            logger.info("Cleaning up checkpoint files only...")
+            matcher.embedding_manager.cleanup_checkpoints_only()
+            logger.info("Cleanup complete - saved ~30-40GB of disk space")
 
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")

@@ -46,3 +46,11 @@ Data/validation_metrics_*.json
 !Data/performance_history_*.csv
 !Data/top_10_matches.csv
 !Data/job_app_mapping.csv
+
+# Embeddings and similarity matrices (large files - ~48GB total)
+# These are stored in Dropbox but excluded from Git
+# Use Code/utilities/embedding_manager.py to download/cleanup as needed
+Data/embeddings/*.pkl
+Data/embeddings/checkpoints/
+Data/embeddings/cross_encoder_checkpoints/
+Data/embeddings/openai_text-embedding-3-large_*.pkl
