@@ -590,7 +590,13 @@ class ONETSimilarityMatcher:
         Returns:
             Tuple of (filtered_results_df, all_results_df), or None if cache invalid
         """
-        if not cache_path.exists():
+        # Use embedding manager to verify/download file
+        try:
+            cache_filename = os.path.basename(cache_path)
+            actual_path = self.embedding_manager.get_embedding_path(cache_filename)
+            cache_path = actual_path
+        except FileNotFoundError as e:
+            logger.debug(f"Similarity cache not found: {e}")
             return None
 
         try:
@@ -621,6 +627,32 @@ class ONETSimilarityMatcher:
 
         except Exception as e:
             logger.warning(f"Failed to load similarity cache from {cache_path}: {e}")
+            return None
+
+    def _load_checkpoint_parquet(self, checkpoint_path: Path) -> Optional[pd.DataFrame]:
+        """
+        Load checkpoint parquet file with Dropbox auto-download support.
+
+        Args:
+            checkpoint_path: Path to checkpoint file
+
+        Returns:
+            DataFrame if loaded successfully, None if file doesn't exist or is invalid
+        """
+        # Use embedding manager to verify/download file if it's a placeholder
+        try:
+            checkpoint_filename = os.path.basename(checkpoint_path)
+            # Try to get the file through embedding manager
+            actual_path = self.embedding_manager.get_embedding_path(checkpoint_filename)
+            checkpoint_path = actual_path
+        except FileNotFoundError:
+            # File doesn't exist - this is normal for first run
+            return None
+
+        try:
+            return pd.read_parquet(checkpoint_path)
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint {checkpoint_path.name}: {e}")
             return None
 
     def _save_similarity_cache(self, cache_path: Path, filtered_results_df: pd.DataFrame,
@@ -1237,13 +1269,15 @@ class ONETSimilarityMatcher:
             chunk_checkpoint_filtered = checkpoint_prefix.parent / f"{checkpoint_prefix.name}_chunk_{chunk_start}_{chunk_end}_filtered.parquet"
             chunk_checkpoint_all = checkpoint_prefix.parent / f"{checkpoint_prefix.name}_chunk_{chunk_start}_{chunk_end}_all.parquet"
 
-            if chunk_checkpoint_filtered.exists():
+            # Try to load checkpoint (handles Dropbox placeholders via embedding manager)
+            chunk_filtered_df = self._load_checkpoint_parquet(chunk_checkpoint_filtered)
+            if chunk_filtered_df is not None:
                 logger.info(f"Loading checkpoint for chunk {chunk_start}-{chunk_end}")
-                chunk_filtered_df = pd.read_parquet(chunk_checkpoint_filtered)
                 filtered_results_df = pd.concat([filtered_results_df, chunk_filtered_df], ignore_index=True)
 
-                if chunk_checkpoint_all.exists():
-                    chunk_all_df = pd.read_parquet(chunk_checkpoint_all)
+                # Try to load all-similarities checkpoint too
+                chunk_all_df = self._load_checkpoint_parquet(chunk_checkpoint_all)
+                if chunk_all_df is not None:
                     all_results_df = pd.concat([all_results_df, chunk_all_df], ignore_index=True)
 
                 logger.info(f"Skipping processing for chunk {chunk_start}-{chunk_end} (already checkpointed)")
