@@ -11,6 +11,14 @@ A. Deduplicate AI-application strings
 B. Embed texts using BGE-large model
 C. Similarity computation and top n% filter
 D. Output formatting with validation checks
+
+python3 stage_4_onet_similarity.py \
+  --step3-file Data/Testing/stage_3/1000_company_test/final_output_1000_sample.csv \
+  --output-dir Data/Testing/stage_4/1000_company_test/skip_ce/ \
+  --embeddings-dir Data/embeddings \
+  --onet-version 20 \
+  --task-type core --onet-file Data/task_statements_20.xlsx \
+  --dedup-chunk-size 5000000
 """
 
 import pandas as pd
@@ -20,6 +28,7 @@ from datetime import datetime
 import logging
 from typing import List, Tuple, Optional, Dict
 import hashlib
+import faiss
 import re
 from pathlib import Path
 import argparse
@@ -42,6 +51,40 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def write_large_parquet_compressed(df, output_path, chunk_size=10_000_000):
+    """
+    Write large DataFrame to single parquet file with ZSTD compression.
+
+    Uses pyarrow for memory-efficient chunked writing to avoid OOM on large datasets.
+
+    Args:
+        df: DataFrame to write
+        output_path: Path to output parquet file
+        chunk_size: Rows per chunk for writing (default: 10M)
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    logger.info(f"Writing {len(df):,} rows to {output_path}")
+    logger.info(f"Using ZSTD compression (level 9) in {chunk_size:,}-row chunks")
+
+    # Convert to Arrow Table in chunks
+    schema = pa.Schema.from_pandas(df.head(1))
+
+    with pq.ParquetWriter(output_path, schema,
+                         compression='zstd', compression_level=9) as writer:
+        for start in tqdm(range(0, len(df), chunk_size), desc="Writing parquet"):
+            end = min(start + chunk_size, len(df))
+            chunk = df.iloc[start:end]
+            table = pa.Table.from_pandas(chunk, schema=schema)
+            writer.write_table(table)
+
+    # Log file size
+    file_size_gb = os.path.getsize(output_path) / (1024**3)
+    logger.info(f"Parquet file written: {file_size_gb:.2f} GB")
+
 
 class ONETSimilarityMatcher:
     """
@@ -1785,28 +1828,124 @@ class ONETSimilarityMatcher:
             else:
                 logger.info(f"All {len(cross_encoder_scores)} scores retrieved from cache")
 
-        # Compute scores if not cached or cache incomplete
+        # Try checkpoint loading if cache not available
+        checkpoint_scores = None
+        missing_pairs = []
+
         if cached_scores is None:
-            logger.info("Computing cross-encoder scores...")
+            # Checkpoint detection and resume logic
+            checkpoint_dir = Path(self.embeddings_dir) / "cross_encoder_checkpoints"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+            run_hash = self._generate_run_hash(app_texts, onet_task_ids, cross_encoder_model)
+
+            # Detect and load existing checkpoints
+            existing_checkpoints = {}
+
+            # First, try to load salvaged checkpoints
+            salvaged_dir = checkpoint_dir / "salvaged"
+            if salvaged_dir.exists():
+                safe_model_name = cross_encoder_model.replace("/", "_").replace("-", "_")
+                salvaged_pattern = f"ce_worker*_{safe_model_name}_total{len(similarity_df)}_{run_hash}.parquet"
+                salvaged_files = sorted(salvaged_dir.glob(salvaged_pattern))
+                if salvaged_files:
+                    logger.info(f"Found {len(salvaged_files)} salvaged checkpoints")
+
+                    salvaged_dfs = []
+                    for salvaged_file in salvaged_files:
+                        try:
+                            df = self._load_checkpoint_parquet(salvaged_file)
+                            if df is None:
+                                continue
+                            required_cols = ['app_text', 'onet_task_id', 'cross_encoder_score']
+                            if not all(col in df.columns for col in required_cols):
+                                continue
+                            if df['app_text'].isna().any() or df['onet_task_id'].isna().any() or df['cross_encoder_score'].isna().any():
+                                continue
+                            salvaged_dfs.append(df)
+                            logger.info(f"  ✓ Loaded {salvaged_file.name}: {len(df):,} rows")
+                        except Exception as e:
+                            logger.warning(f"Failed to load {salvaged_file.name}: {e}")
+
+                    if salvaged_dfs:
+                        merged_df = pd.concat(salvaged_dfs, ignore_index=True)
+                        merged_df = merged_df.drop_duplicates(subset=['app_text', 'onet_task_id'], keep='last')
+                        existing_checkpoints['salvaged'] = merged_df
+                        logger.info(f"✓ Loaded {len(merged_df):,} unique pairs from salvaged checkpoints")
+
+            # Then try chunk-based checkpoints
+            if 'salvaged' not in existing_checkpoints and checkpoint_dir.exists():
+                safe_model_name = cross_encoder_model.replace("/", "_").replace("-", "_")
+                chunk_pattern = f"ce_chunk_*_{safe_model_name}_total{len(similarity_df)}_{run_hash}.parquet"
+                chunk_files = sorted(checkpoint_dir.glob(chunk_pattern))
+
+                for chunk_file in chunk_files:
+                    try:
+                        chunk_df = self._load_checkpoint_parquet(chunk_file)
+                        if chunk_df is None:
+                            continue
+                        required_cols = ['app_text', 'onet_task_id', 'cross_encoder_score']
+                        if all(col in chunk_df.columns for col in required_cols):
+                            existing_checkpoints[chunk_file.name] = chunk_df
+                            logger.debug(f"Loaded {chunk_file.name}: {len(chunk_df)} pairs")
+                    except Exception as e:
+                        logger.warning(f"Could not load {chunk_file.name}: {e}")
+
+            # Build checkpoint scores lookup
+            if existing_checkpoints:
+                logger.info(f"Found {len(existing_checkpoints)} valid checkpoints")
+                all_checkpoint_dfs = list(existing_checkpoints.values())
+                merged_checkpoints = pd.concat(all_checkpoint_dfs, ignore_index=True)
+
+                if 'app_text' in merged_checkpoints.columns and 'onet_task_id' in merged_checkpoints.columns:
+                    merged_checkpoints = merged_checkpoints.drop_duplicates(subset=['app_text', 'onet_task_id'], keep='last')
+                    checkpoint_scores = {
+                        (row['app_text'], row['onet_task_id']): row['cross_encoder_score']
+                        for _, row in merged_checkpoints.iterrows()
+                    }
+                    logger.info(f"Loaded {len(checkpoint_scores):,} checkpoint scores")
+
+            # Check coverage
+            if checkpoint_scores:
+                cross_encoder_scores = []
+                for i, (app, task_id) in enumerate(zip(app_texts, onet_task_ids)):
+                    key = (app, task_id)
+                    if key in checkpoint_scores:
+                        cross_encoder_scores.append(checkpoint_scores[key])
+                    else:
+                        cross_encoder_scores.append(None)
+                        missing_pairs.append(i)
+
+                if not missing_pairs:
+                    logger.info(f"✓ All {len(cross_encoder_scores):,} pairs found in checkpoints")
+                else:
+                    logger.info(f"Checkpoints cover {len(cross_encoder_scores) - len(missing_pairs):,} pairs")
+                    logger.info(f"Computing {len(missing_pairs):,} missing pairs...")
+
+        # Compute scores if not cached and not fully checkpointed
+        if cached_scores is None and (not checkpoint_scores or missing_pairs):
+            if not checkpoint_scores:
+                logger.info("Computing cross-encoder scores...")
+                cross_encoder_scores = []
+                missing_pairs = list(range(len(app_texts)))
 
             # Initialize cross-encoder
             try:
-                # Initialize cross-encoder with explicit device handling
                 cross_encoder = CrossEncoder(cross_encoder_model, device=self.device)
-
-                # Ensure model is on correct device (redundant but safe)
                 if hasattr(cross_encoder, 'model'):
                     cross_encoder.model.to(self.device)
             except Exception as e:
                 logger.error(f"Failed to load cross-encoder model: {e}")
                 raise
 
-            # Prepare input pairs for cross-encoder
-            pairs = [[app, task] for app, task in zip(app_texts, onet_tasks)]
+            # Prepare input pairs for cross-encoder (only missing pairs)
+            if checkpoint_scores and missing_pairs:
+                pairs = [[app_texts[i], onet_tasks[i]] for i in missing_pairs]
+            else:
+                pairs = [[app, task] for app, task in zip(app_texts, onet_tasks)]
 
-            # Run cross-encoder inference in batches with progress tracking
-            cross_encoder_scores = []
-
+            # Run cross-encoder inference
+            computed_scores = []
             for i in tqdm(range(0, len(pairs), batch_size), desc="Cross-encoder batches"):
                 batch_pairs = pairs[i:i + batch_size]
                 batch_scores = cross_encoder.predict(batch_pairs)
@@ -1817,7 +1956,17 @@ class ONETSimilarityMatcher:
                 elif hasattr(batch_scores, 'tolist'):
                     batch_scores = batch_scores.tolist()
 
-                cross_encoder_scores.extend(batch_scores)
+                computed_scores.extend(batch_scores)
+
+            # Merge computed scores with checkpoint scores
+            if checkpoint_scores and missing_pairs:
+                # Fill in missing scores with computed ones
+                for idx, score in zip(missing_pairs, computed_scores):
+                    cross_encoder_scores[idx] = score
+                logger.info(f"Merged {len(computed_scores):,} newly computed scores with checkpoint scores")
+            else:
+                # No checkpoints, use all computed scores
+                cross_encoder_scores = computed_scores
 
             # Save to cache
             if use_cache:
@@ -2365,6 +2514,278 @@ class ONETSimilarityMatcher:
 
         return validated_df, validation_report
 
+    def _estimate_global_percentiles_adaptive(self, app_embeddings, onet_embeddings,
+                                              bge_percentiles, random_seed=42):
+        """
+        Estimate global percentile thresholds via adaptive random sampling.
+
+        Target: ~10M samples for reliable percentile estimation
+        Adaptive scaling:
+        - n_app_samples = min(int(sqrt(n_apps) * 100), 50000)
+        - n_task_samples = max(200, int(0.01 * n_tasks))
+
+        Args:
+            app_embeddings: Array of app embeddings (n_apps, embed_dim)
+            onet_embeddings: Array of O*NET task embeddings (n_tasks, embed_dim)
+            bge_percentiles: List of percentiles to compute (e.g., [20, 15, 10, 5, 1])
+            random_seed: Random seed for reproducibility
+
+        Returns:
+            dict: {percentile: threshold_value}
+        """
+        np.random.seed(random_seed)
+        n_apps, embed_dim = app_embeddings.shape
+        n_tasks = len(onet_embeddings)
+
+        # Adaptive sample sizes (×100 multiplier for ~10M target)
+        n_app_samples = min(int(np.sqrt(n_apps) * 100), 50000, n_apps)
+        n_task_samples = min(max(200, int(0.01 * n_tasks)), n_tasks)
+
+        logger.info(f"Adaptive sampling: {n_app_samples} apps × {n_task_samples} tasks")
+        logger.info(f"Total sample pairs: {n_app_samples * n_task_samples:,}")
+
+        # Random sampling
+        app_indices = np.random.choice(n_apps, size=n_app_samples, replace=False)
+        sampled_similarities = []
+
+        for app_idx in tqdm(app_indices, desc="Sampling similarities"):
+            task_indices = np.random.choice(n_tasks, size=n_task_samples, replace=False)
+            app_vec = app_embeddings[app_idx:app_idx+1]  # (1, embed_dim)
+            task_vecs = onet_embeddings[task_indices]     # (n_task_samples, embed_dim)
+            sims = np.dot(app_vec, task_vecs.T)[0]        # (n_task_samples,)
+            sampled_similarities.extend(sims)
+
+        # Calculate percentile thresholds
+        sampled_array = np.array(sampled_similarities)
+        thresholds = {}
+        for p in sorted(bge_percentiles, reverse=True):
+            threshold = np.percentile(sampled_array, 100 - p)
+            thresholds[p] = threshold
+            logger.info(f"  Estimated p{p}: {threshold:.4f}")
+
+        return thresholds
+
+    def _compute_similarities_faiss_range(self, app_embeddings, onet_embeddings,
+                                         min_threshold, app_texts, onet_df,
+                                         job_uid_lookup, chunk_size=10000):
+        """
+        Use FAISS range_search to find all pairs above threshold.
+
+        Args:
+            app_embeddings: Array of app embeddings (n_apps, embed_dim)
+            onet_embeddings: Array of O*NET task embeddings (n_tasks, embed_dim)
+            min_threshold: Minimum similarity threshold (max of 0.3 and global p95)
+            app_texts: List of application texts (for mapping back to original data)
+            onet_df: O*NET task DataFrame with columns ['task_id', 'Task', ...]
+            job_uid_lookup: Dict mapping app_text -> [(job_uid, timestamp), ...]
+            chunk_size: Apps per chunk for memory efficiency (default: 10000)
+
+        Returns:
+            pd.DataFrame with columns: app_text, onet_task_id, onet_task, similarity,
+                                      cross_encoder_score, ai_app_id, job_uid
+        """
+
+        # Verify normalization
+        norms = np.linalg.norm(onet_embeddings, axis=1, keepdims=True)
+        if not np.allclose(norms, 1.0, atol=1e-5):
+            logger.warning("Task embeddings not normalized, normalizing now")
+            onet_embeddings = onet_embeddings / norms
+
+        norms_app = np.linalg.norm(app_embeddings, axis=1, keepdims=True)
+        if not np.allclose(norms_app, 1.0, atol=1e-5):
+            logger.warning("App embeddings not normalized, normalizing now")
+            app_embeddings = app_embeddings / norms_app
+
+        # Build FAISS index on task embeddings
+        embed_dim = onet_embeddings.shape[1]
+        index = faiss.IndexFlatIP(embed_dim)
+
+        # Try to move to GPU if available, otherwise use CPU
+        if hasattr(faiss, 'StandardGpuResources'):
+            try:
+                res = faiss.StandardGpuResources()
+                gpu_index = faiss.index_cpu_to_gpu(res, 0, index)
+                gpu_index.add(onet_embeddings.astype(np.float32))
+                search_index = gpu_index
+                logger.info(f"FAISS IndexFlatIP built on GPU with {len(onet_embeddings)} tasks")
+            except Exception as e:
+                logger.warning(f"GPU initialization failed: {e}")
+                logger.warning("Falling back to CPU")
+                index.add(onet_embeddings.astype(np.float32))
+                search_index = index
+                logger.info(f"FAISS IndexFlatIP built on CPU with {len(onet_embeddings)} tasks")
+        else:
+            # CPU fallback (for macOS development)
+            index.add(onet_embeddings.astype(np.float32))
+            search_index = index
+            logger.info(f"FAISS IndexFlatIP built on CPU with {len(onet_embeddings)} tasks")
+        logger.info(f"Range search threshold: {min_threshold:.4f}")
+
+        # Process apps in chunks for memory efficiency
+        all_pairs = []
+
+        for chunk_start in tqdm(range(0, len(app_embeddings), chunk_size),
+                                desc="Range search"):
+            chunk_end = min(chunk_start + chunk_size, len(app_embeddings))
+            app_chunk = app_embeddings[chunk_start:chunk_end].astype(np.float32)
+
+            # FAISS range_search returns (lims, distances, indices)
+            lims, distances, indices = search_index.range_search(app_chunk, min_threshold)
+
+            # Parse results
+            for i in range(len(app_chunk)):
+                app_idx = chunk_start + i
+                start = lims[i]
+                end = lims[i + 1]
+
+                if start == end:  # No matches for this app
+                    continue
+
+                task_indices = indices[start:end]
+                similarities = distances[start:end]
+
+                # Get app data
+                app_text = app_texts[app_idx]
+                ai_app_id = hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper()
+
+                # Get all job UIDs for this app
+                job_uids_list = [uid for uid, ts in job_uid_lookup.get(app_text, [])]
+
+                # Create pairs
+                for task_idx, sim in zip(task_indices, similarities):
+                    task_row = onet_df.iloc[task_idx]
+
+                    all_pairs.append({
+                        'app_text': app_text,
+                        'onet_task_id': int(task_row['task_id']),
+                        'onet_task': task_row['Task'],
+                        'similarity': float(sim),
+                        'cross_encoder_score': np.nan,  # Fill with CE later if enabled
+                        'ai_app_id': ai_app_id,
+                        'job_uid': job_uids_list
+                    })
+
+        # Convert to DataFrame
+        pairs_df = pd.DataFrame(all_pairs)
+        logger.info(f"Range search complete: {len(pairs_df):,} pairs found")
+
+        return pairs_df
+
+    def _add_percentile_columns(self, pairs_df, percentile_thresholds):
+        """
+        Add boolean columns for each percentile threshold.
+
+        Args:
+            pairs_df: DataFrame with (app_text, onet_task_id, similarity, ...)
+            percentile_thresholds: Dict {percentile: threshold_value}
+
+        Returns:
+            DataFrame with added pct_XX columns
+        """
+        logger.info("Adding percentile boolean columns")
+
+        for p in sorted(percentile_thresholds.keys(), reverse=True):
+            threshold = percentile_thresholds[p]
+            col_name = f'pct_{int(p):02d}'
+            pairs_df[col_name] = pairs_df['similarity'] >= threshold
+
+            n_matches = pairs_df[col_name].sum()
+            logger.info(f"  {col_name}: {n_matches:,} pairs above {threshold:.4f}")
+
+        return pairs_df
+
+    def _generate_task_summary(self, pairs_df, job_uid_lookup):
+        """
+        Generate task-level exposure summary with comprehensive statistics.
+
+        Aggregates per onet_task_id:
+        - n_apps_matched: Count of unique apps (by app_text)
+        - n_unique_companies: Count of unique job_uids across all apps
+        - mean_similarity, median_similarity, p95_similarity, std_similarity
+        - top_10_app_ids: Array of top 10 ai_app_ids by similarity
+        - earliest_timestamp, latest_timestamp: Temporal range
+
+        Args:
+            pairs_df: DataFrame with columns (app_text, onet_task_id, ai_app_id, similarity, job_uid, ...)
+            job_uid_lookup: Dict mapping app_text -> [(job_uid, timestamp), ...]
+
+        Returns:
+            DataFrame with one row per onet_task_id
+        """
+        logger.info("Generating task-level exposure summary")
+
+        # First, explode job_uid lists to count unique companies
+        # But keep original df intact for other aggregations
+        pairs_exploded = pairs_df.explode('job_uid')
+
+        # Aggregate statistics per task
+        agg_dict = {
+            'app_text': 'nunique',  # Unique apps
+            'ai_app_id': 'nunique',  # Should be same as app_text
+            'similarity': ['mean', 'median', lambda x: np.percentile(x, 95), 'std']
+        }
+
+        # Include onet_task if present (should always be present)
+        if 'onet_task' in pairs_df.columns:
+            agg_dict['onet_task'] = 'first'  # Get the task text (same for all rows with same task_id)
+
+        summary = pairs_df.groupby('onet_task_id').agg(agg_dict).reset_index()
+
+        # Flatten column names
+        if 'onet_task' in pairs_df.columns:
+            summary.columns = ['onet_task_id', 'n_apps_matched', 'n_unique_app_ids',
+                              'mean_similarity', 'median_similarity',
+                              'p95_similarity', 'std_similarity', 'onet_task']
+        else:
+            summary.columns = ['onet_task_id', 'n_apps_matched', 'n_unique_app_ids',
+                              'mean_similarity', 'median_similarity',
+                              'p95_similarity', 'std_similarity']
+
+        # Count unique companies per task
+        company_counts = pairs_exploded.groupby('onet_task_id')['job_uid'].nunique().reset_index()
+        company_counts.columns = ['onet_task_id', 'n_unique_companies']
+        summary = summary.merge(company_counts, on='onet_task_id')
+
+        # Get top 10 apps per task (by similarity)
+        def get_top_10(group):
+            return group.nlargest(10, 'similarity')['ai_app_id'].tolist()
+
+        top_apps = pairs_df.groupby('onet_task_id').apply(get_top_10, include_groups=False).reset_index()
+        top_apps.columns = ['onet_task_id', 'top_10_app_ids']
+        summary = summary.merge(top_apps, on='onet_task_id')
+
+        # Get temporal range (earliest and latest timestamps)
+        # Need to look up timestamps from job_uid_lookup
+        def get_timestamp_range(group):
+            all_timestamps = []
+            for app_text in group['app_text'].unique():
+                if app_text in job_uid_lookup:
+                    timestamps = [ts for _, ts in job_uid_lookup[app_text]]
+                    all_timestamps.extend(timestamps)
+
+            if all_timestamps:
+                return pd.Series({
+                    'earliest_timestamp': min(all_timestamps),
+                    'latest_timestamp': max(all_timestamps)
+                })
+            else:
+                return pd.Series({
+                    'earliest_timestamp': pd.NaT,
+                    'latest_timestamp': pd.NaT
+                })
+
+        timestamps = pairs_df.groupby('onet_task_id').apply(get_timestamp_range, include_groups=False).reset_index()
+        summary = summary.merge(timestamps, on='onet_task_id')
+
+        logger.info(f"Task summary generated: {len(summary)} tasks")
+
+        # Log some basic stats
+        logger.info(f"  Mean apps per task: {summary['n_apps_matched'].mean():.1f}")
+        logger.info(f"  Median apps per task: {summary['n_apps_matched'].median():.1f}")
+        logger.info(f"  Max apps per task: {summary['n_apps_matched'].max()}")
+
+        return summary
+
     def run_full_pipeline(self,
                          step3_file_path: str,
                          onet_file_path: str,
@@ -2383,7 +2804,10 @@ class ONETSimilarityMatcher:
                          task_type: str = 'both',
                          per_task_mode: bool = False,
                          onet_version: Optional[str] = None,
-                         dedup_chunk_size: int = 10_000_000) -> Tuple[pd.DataFrame, dict]:
+                         dedup_chunk_size: int = 10_000_000,
+                         use_range_search: bool = False,
+                         random_seed: int = 42,
+                         range_chunk_size: int = 10000) -> Tuple[pd.DataFrame, dict, List[str]]:
         """
         Run the complete pipeline from Step 3 output to O*NET similarity matches.
 
@@ -2465,7 +2889,227 @@ class ONETSimilarityMatcher:
             onet_df = onet_df_full
             onet_embeddings = onet_embeddings_full
             logger.info(f"Using all {len(onet_df)} O*NET tasks (including SOC 15)")
-        
+
+        # RANGE SEARCH MODE vs. EXHAUSTIVE MODE
+        if use_range_search:
+            logger.info("=" * 80)
+            logger.info("RANGE SEARCH MODE ENABLED")
+            logger.info("=" * 80)
+
+            # Build job_uid_lookup early (Phase 1 requirement from plan)
+            # Use dedup_df which already has app_text and job_uid columns from deduplication
+            logger.info("Phase 1: Building job_uid_lookup from deduplicated data")
+            job_uid_lookup = {}
+            for _, row in dedup_df.iterrows():
+                app_text = row['app_text']
+                job_uid = row['job_uid']
+                timestamp = row.get('first_occurrence_tst_created', None)
+
+                if app_text not in job_uid_lookup:
+                    job_uid_lookup[app_text] = []
+                job_uid_lookup[app_text].append((job_uid, timestamp))
+
+            # Sort by timestamp (earliest first)
+            for app_text in job_uid_lookup:
+                job_uid_lookup[app_text].sort(key=lambda x: x[1] if x[1] is not None else pd.Timestamp.max)
+
+            logger.info(f"Built job_uid_lookup with {len(job_uid_lookup)} unique apps")
+
+            # Phase 2: Adaptive sampling for global percentiles
+            logger.info("Phase 2: Estimating global percentiles via adaptive sampling")
+            percentile_thresholds = self._estimate_global_percentiles_adaptive(
+                apps_embeddings, onet_embeddings, bge_percentiles, random_seed
+            )
+
+            # Phase 3: FAISS range search
+            # Find the minimum threshold needed to capture ALL percentiles
+            # For each percentile, apply max(minimum_similarity, pct_threshold), then take the minimum
+            threshold_values = [max(self.minimum_similarity, percentile_thresholds[p]) for p in bge_percentiles]
+            min_threshold = min(threshold_values)
+
+            # Determine which percentile corresponds to this threshold
+            min_pct = max([p for p in bge_percentiles if max(self.minimum_similarity, percentile_thresholds[p]) == min_threshold])
+
+            logger.info(f"Phase 3: Running FAISS range search with threshold {min_threshold:.4f}")
+            logger.info(f"  Threshold captures all percentiles: {sorted(bge_percentiles, reverse=True)}")
+            logger.info(f"  Using p{min_pct} threshold (least restrictive)")
+            for p in sorted(bge_percentiles, reverse=True):
+                effective_thresh = max(self.minimum_similarity, percentile_thresholds[p])
+                logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}, effective {effective_thresh:.4f}")
+
+            # Get app_texts list matching embedding order
+            app_texts = dedup_df['app_text'].unique().tolist()
+
+            pairs_df = self._compute_similarities_faiss_range(
+                apps_embeddings, onet_embeddings, min_threshold,
+                app_texts, onet_df, job_uid_lookup, range_chunk_size
+            )
+
+            # Phase 4: Add percentile boolean columns
+            logger.info("Phase 4: Adding percentile boolean columns")
+            pairs_df = self._add_percentile_columns(pairs_df, percentile_thresholds)
+
+            # Phase 4b: Add CE columns (required for Stage 5 compatibility)
+            if skip_cross_encoder:
+                logger.info("Phase 4b: Adding CE threshold columns (all False - CE skipped)")
+                for ce_thresh in ce_thresholds:
+                    col_name = f'ce_{ce_thresh:.1f}'
+                    pairs_df[col_name] = False
+                    logger.info(f"  {col_name}: 0 matches (CE skipped)")
+
+            # Phase 5: Write to parquet
+            # Build filename matching exhaustive mode pattern
+            if self.use_openai_embeddings:
+                model_suffix = "_openai"
+            else:
+                model_abbr = self.model_name.split("/")[-1].split("-")[0]
+                model_suffix = f"_{model_abbr}"
+
+            percentile_str = "_".join(str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
+                                      for p in sorted(bge_percentiles, reverse=True))
+            ce_percentile_str = "_".join(f"{c:.1f}".replace(".", "p") for c in sorted(ce_thresholds, reverse=True) if c > 0.0)
+            ce_suffix = f"_ce{ce_percentile_str}" if ce_percentile_str else ""
+            onet_suffix = f"_onet{onet_version}" if onet_version else ""
+
+            output_file = os.path.join(
+                output_dir,
+                f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{task_type}.parquet"
+            )
+
+            logger.info("Phase 5: Writing results to compressed parquet")
+            write_large_parquet_compressed(pairs_df, output_file)
+
+            # Phase 6: Generate task summary (per task diagnostics)
+            logger.info("Phase 6: Generating task-level exposure summary")
+            task_summary_df = self._generate_task_summary(pairs_df, job_uid_lookup)
+
+            task_summary_file = os.path.join(
+                output_dir,
+                f"task_summary{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{task_type}.parquet"
+            )
+            task_summary_df.to_parquet(task_summary_file, compression='snappy')
+            logger.info(f"Saved task summary to: {task_summary_file}")
+
+            # Phase 6b: Build job→application mapping (app-level, not task-level)
+            logger.info("Phase 6b: Building job→application mapping for downstream stages")
+            job_mapping_records = []
+            for app_text, uid_ts_list in job_uid_lookup.items():
+                ordered_uids = [uid for uid, _ in uid_ts_list]
+                unique_uids = list(dict.fromkeys(ordered_uids))
+                first_ts = uid_ts_list[0][1] if uid_ts_list else None
+                job_mapping_records.append({
+                    'app_text': app_text,
+                    'ai_app_id': hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper(),
+                    'job_uids': '|'.join(sorted(unique_uids)),
+                    'num_jobs': len(unique_uids),
+                    'first_occurrence_tst_created': first_ts
+                })
+
+            job_mapping_df = pd.DataFrame(job_mapping_records)
+
+            job_mapping_file = os.path.join(
+                output_dir,
+                f"job_app_mapping{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{task_type}.parquet"
+            )
+            job_mapping_df.to_parquet(job_mapping_file, compression='snappy', index=False)
+            logger.info(f"Saved job mapping to: {job_mapping_file} ({len(job_mapping_df):,} app-task rows)")
+
+            # Phase 7: Optional cross-encoder validation
+            if not skip_cross_encoder:
+                logger.info("Phase 7: Running cross-encoder on top percentile matches")
+                # Filter to highest percentile (p1 typically)
+                highest_percentile = min(bge_percentiles)
+                ce_col = f'pct_{int(highest_percentile):02d}'
+                ce_input_df = pairs_df[pairs_df[ce_col]].copy()
+
+                logger.info(f"Running CE on {len(ce_input_df):,} pairs (p{highest_percentile} threshold)")
+
+                # Use existing cross-encoder validation methods (handles caching, checkpoints, etc.)
+                num_workers = getattr(self, 'num_workers', 1)  # Get from instance if set
+                if num_workers > 1:
+                    logger.info(f"Parallel cross-encoder validation ({num_workers} workers)")
+                    ce_validated_df, ce_report = self.validate_with_cross_encoder_parallel(
+                        similarity_df=ce_input_df,
+                        cross_encoder_model=cross_encoder_model,
+                        threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds
+                        batch_size=cross_encoder_batch_size,
+                        num_workers=num_workers,
+                        use_cache=use_cross_encoder_cache
+                    )
+                else:
+                    logger.info("Serial cross-encoder validation")
+                    ce_validated_df, ce_report = self.validate_with_cross_encoder(
+                        similarity_df=ce_input_df,
+                        cross_encoder_model=cross_encoder_model,
+                        threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds
+                        batch_size=cross_encoder_batch_size,
+                        use_cache=use_cross_encoder_cache
+                    )
+
+                # Merge CE scores back into pairs_df
+                # ce_validated_df has cross_encoder_score column
+                pairs_df.loc[ce_validated_df.index, 'cross_encoder_score'] = ce_validated_df['cross_encoder_score']
+
+                logger.info(f"Cross-encoder complete. Mean CE score: {ce_validated_df['cross_encoder_score'].mean():.4f}")
+
+                # Add CE threshold boolean columns (required for Stage 5)
+                logger.info("Adding CE threshold boolean columns")
+                for ce_thresh in ce_thresholds:
+                    col_name = f'ce_{ce_thresh:.1f}'
+                    if ce_thresh == 0.0:
+                        # ce_0.0 means "no CE filtering" - always True
+                        pairs_df[col_name] = True
+                        match_count = len(pairs_df)
+                        logger.info(f"  {col_name}: {match_count:,} matches (no CE filtering)")
+                    else:
+                        # Apply threshold only where CE score exists (NaN will become False)
+                        pairs_df[col_name] = (
+                            (pairs_df['cross_encoder_score'] >= ce_thresh) &
+                            pairs_df['cross_encoder_score'].notna()
+                        )
+                        match_count = pairs_df[col_name].sum()
+                        logger.info(f"  {col_name}: {match_count:,} matches")
+
+                # Re-write parquet with CE scores and threshold columns
+                logger.info("Re-writing parquet with cross-encoder scores and threshold columns")
+                write_large_parquet_compressed(pairs_df, output_file)
+            else:
+                logger.info("Phase 7: Skipping cross-encoder validation (--skip-cross-encoder)")
+
+            logger.info("=" * 80)
+            logger.info("RANGE SEARCH MODE COMPLETE")
+            logger.info(f"Output file: {output_file}")
+            logger.info(f"Job mapping file: {job_mapping_file}")
+            logger.info(f"Task summary file: {task_summary_file}")
+            logger.info("=" * 80)
+
+            # For compatibility with return signature, create validation_metrics
+            unique_apps = pairs_df['app_text'].nunique()
+            total_pairs = len(pairs_df)
+            validation_metrics = {
+                'mode': 'range_search',
+                'total_unique_applications': unique_apps,
+                'total_matches': total_pairs,
+                'coverage_percent': 100.0,  # All apps in range search have matches
+                'avg_matches_per_app': total_pairs / unique_apps if unique_apps > 0 else 0,
+                'similarity_stats': {
+                    'min': pairs_df['similarity'].min(),
+                    'max': pairs_df['similarity'].max(),
+                    'mean': pairs_df['similarity'].mean(),
+                    'median': pairs_df['similarity'].median()
+                },
+                'total_pairs': total_pairs,
+                'unique_apps': unique_apps,
+                'unique_tasks': pairs_df['onet_task_id'].nunique(),
+                'percentile_thresholds': percentile_thresholds
+            }
+
+            # Only return files that carry task_id/task text for downstream alignment validation
+            output_files = [output_file, task_summary_file]
+
+            return pairs_df, validation_metrics, output_files
+
+        # EXHAUSTIVE MODE (existing code path)
         # Phase C: Compute similarities and filter
         results_df, all_similarities_df = self.compute_similarities_and_filter(
             dedup_df, apps_embeddings, onet_df, onet_embeddings,
@@ -2537,7 +3181,6 @@ class ONETSimilarityMatcher:
 
         # Add ai_app_id: create a stable hash-based ID for each unique AI application text
         # Keep this lightweight and deterministic so downstream stages can join on it
-        import hashlib
         deduplicated_similarities['ai_app_id'] = deduplicated_similarities['app_text'].apply(
             lambda x: hashlib.md5(x.encode('utf-8')).hexdigest()[:8].upper()  # 8-char uppercase hex
         )
@@ -2661,6 +3304,8 @@ class ONETSimilarityMatcher:
         # Split logic: Process core tasks and/or all tasks separately with their own percentile calculations
         job_mapping_file = None
         final_return_df = None
+        core_output = None
+        all_output = None
 
         # For 'core' mode: we'll delete unified_matches after processing core tasks
         # For 'all' mode: we'll delete unified_matches after processing all tasks
@@ -2924,7 +3569,14 @@ class ONETSimilarityMatcher:
 
         logger.info("Step 4 pipeline completed successfully!")
 
-        return final_return_df, validation_metrics
+        # Return output filenames for validation
+        output_files = []
+        if task_type in ('core', 'both'):
+            output_files.append(core_output)
+        if task_type in ('all', 'both'):
+            output_files.append(all_output)
+
+        return final_return_df, validation_metrics, output_files
 
 
 def _cross_encoder_worker_function(worker_id: int,
@@ -3229,6 +3881,19 @@ def parse_arguments():
                        help="Cleanup only checkpoint files (saves ~30-40GB). "
                             "Keeps main embeddings for faster reruns.")
 
+    parser.add_argument("--use-range-search", action="store_true",
+                       help="Use FAISS range_search instead of exhaustive mode (requires GPU). "
+                            "Range search finds ALL pairs above a threshold without K-cap, "
+                            "ideal for large-scale (150k apps × 15k tasks) processing.")
+
+    parser.add_argument("--random-seed", type=int, default=42,
+                       help="Random seed for percentile sampling (default: 42). "
+                            "Ensures reproducible percentile estimates across runs.")
+
+    parser.add_argument("--range-chunk-size", type=int, default=10000,
+                       help="Apps per chunk in FAISS range search (default: 10000). "
+                            "Lower values reduce GPU memory usage but may be slower.")
+
     return parser.parse_args()
 
 
@@ -3245,7 +3910,31 @@ def main():
     USE_APPS_CACHE = not args.no_apps_cache
     BGE_PERCENTILES = args.bge_percentiles
     CE_THRESHOLDS = args.ce_thresholds
-    
+
+    # FAISS requirement check for range search mode
+    if args.use_range_search:
+        try:
+            import faiss
+            if not hasattr(faiss, 'StandardGpuResources'):
+                logger.warning("=" * 80)
+                logger.warning("GPU FAISS not available - using CPU FAISS for testing")
+                logger.warning("=" * 80)
+                logger.warning("For production use at scale (150k apps), GPU is strongly recommended")
+                logger.warning("")
+                logger.warning("Installation instructions:")
+                logger.warning("  macOS (development/testing): pip install faiss-cpu")
+                logger.warning("  Linux with CUDA (production): pip install faiss-gpu")
+                logger.warning("=" * 80)
+                logger.info("Range search mode enabled (CPU fallback)")
+            else:
+                logger.info("Range search mode enabled (GPU acceleration available)")
+        except ImportError:
+            logger.error("FAISS not installed.")
+            logger.error("Install with:")
+            logger.error("  macOS (development/testing): pip install faiss-cpu")
+            logger.error("  Linux with CUDA (production): pip install faiss-gpu")
+            return
+
     # File paths
     if args.step3_file:
         step3_file = args.step3_file
@@ -3342,7 +4031,7 @@ def main():
     
     # Run pipeline
     try:
-        results_df, validation_metrics = matcher.run_full_pipeline(
+        results_df, validation_metrics, output_files = matcher.run_full_pipeline(
             step3_file_path=step3_file,
             onet_file_path=onet_file,
             output_dir=args.output_dir,
@@ -3360,7 +4049,10 @@ def main():
             task_type=args.task_type,
             per_task_mode=args.per_task,
             onet_version=args.onet_version,
-            dedup_chunk_size=args.dedup_chunk_size
+            dedup_chunk_size=args.dedup_chunk_size,
+            use_range_search=args.use_range_search,
+            random_seed=args.random_seed,
+            range_chunk_size=args.range_chunk_size
         )
         
         # Print summary
@@ -3378,7 +4070,11 @@ def main():
         print("\n" + "="*60)
         print("VALIDATING TASK_ID TO TASK_TEXT ALIGNMENT")
         print("="*60)
-        validate_task_id_alignment(args.output_dir, onet_version=args.onet_version)
+        validate_task_id_alignment(
+            output_files=output_files,
+            onet_file=onet_file,
+            onet_version=args.onet_version
+        )
 
         # Optional: Cleanup embeddings to save disk space
         if args.cleanup_embeddings:
@@ -3396,39 +4092,23 @@ def main():
         raise
 
 
-def validate_task_id_alignment(output_dir, onet_version=None):
+def validate_task_id_alignment(output_files, onet_file, onet_version=None):
     """
     Validate that each onet_task_id in Stage 4 output has the correct onet_task text.
 
     For every row: task_text should match what Task ID actually contains in O*NET source.
     If any mismatch is found, raises AssertionError.
-    """
-    import glob
 
+    Args:
+        output_files: List of output parquet file paths to validate
+        onet_file: Path to O*NET source file
+        onet_version: O*NET version number (for logging)
+    """
     logger.info("Validating task_id to task_text alignment...")
 
-    # Find the output parquet file
-    output_pattern = os.path.join(output_dir, "task_exposure_matches_all_thresholds*.parquet")
-    output_files = glob.glob(output_pattern)
-
     if not output_files:
-        logger.warning(f"No output parquet files found matching {output_pattern}")
+        logger.warning("No output files provided for validation")
         return
-
-    output_file = output_files[0]
-    logger.info(f"Loading output file: {output_file}")
-    output = pd.read_parquet(output_file)
-
-    # Load O*NET source for validation
-    # Get project root by finding the Data directory
-    current_dir = os.path.dirname(os.path.abspath(output_dir))
-    while current_dir and current_dir != "/":
-        if os.path.exists(os.path.join(current_dir, "Data", f"task_statements_{onet_version or '20'}.xlsx")):
-            onet_file = os.path.join(current_dir, "Data", f"task_statements_{onet_version or '20'}.xlsx")
-            break
-        current_dir = os.path.dirname(current_dir)
-    else:
-        onet_file = os.path.join(os.getcwd(), "Data", f"task_statements_{onet_version or '20'}.xlsx")
 
     if not os.path.exists(onet_file):
         logger.warning(f"O*NET source file not found: {onet_file}, skipping validation")
@@ -3440,46 +4120,57 @@ def validate_task_id_alignment(output_dir, onet_version=None):
     # Build lookup: Task ID -> Task text
     onet_lookup = dict(zip(onet_source['Task ID'].astype(int), onet_source['Task']))
 
-    logger.info(f"Checking {len(output):,} rows for task_id/task_text alignment...")
-
-    mismatches = []
-    for idx, row in output.iterrows():
-        task_id = int(row['onet_task_id'])
-        actual_text = row['onet_task']
-
-        if task_id not in onet_lookup:
-            mismatches.append({
-                'row': idx,
-                'task_id': task_id,
-                'error': 'Task ID not found in O*NET source'
-            })
+    # Validate each output file
+    all_passed = True
+    for output_file in output_files:
+        if output_file is None:
             continue
 
-        expected_text = onet_lookup[task_id]
-        if actual_text != expected_text:
-            mismatches.append({
-                'row': idx,
-                'task_id': task_id,
-                'expected': expected_text[:60],
-                'actual': actual_text[:60]
-            })
+        logger.info(f"Validating file: {os.path.basename(output_file)}")
+        output = pd.read_parquet(output_file)
+        logger.info(f"Checking {len(output):,} rows for task_id/task_text alignment...")
 
-    if mismatches:
-        logger.error(f"❌ VALIDATION FAILED: Found {len(mismatches)} mismatches")
-        for i, mismatch in enumerate(mismatches[:5]):  # Show first 5
-            logger.error(f"   Row {mismatch['row']}, Task ID {mismatch['task_id']}")
-            if 'error' in mismatch:
-                logger.error(f"      Error: {mismatch['error']}")
-            else:
-                logger.error(f"      Expected: {mismatch['expected']}...")
-                logger.error(f"      Got: {mismatch['actual']}...")
-        if len(mismatches) > 5:
-            logger.error(f"   ... and {len(mismatches) - 5} more mismatches")
-        raise AssertionError(f"Task ID alignment validation failed: {len(mismatches)} mismatches found")
+        mismatches = []
+        for idx, row in output.iterrows():
+            task_id = int(row['onet_task_id'])
+            actual_text = row['onet_task']
 
-    logger.info("✅ VALIDATION PASSED: All task_ids match their task_text")
-    logger.info(f"   Validated {len(output):,} rows successfully")
-    logger.info(f"   Task ID range: {output['onet_task_id'].min()} - {output['onet_task_id'].max()}")
+            if task_id not in onet_lookup:
+                mismatches.append({
+                    'row': idx,
+                    'task_id': task_id,
+                    'error': 'Task ID not found in O*NET source'
+                })
+                continue
+
+            expected_text = onet_lookup[task_id]
+            if actual_text != expected_text:
+                mismatches.append({
+                    'row': idx,
+                    'task_id': task_id,
+                    'expected': expected_text[:60],
+                    'actual': actual_text[:60]
+                })
+
+        if mismatches:
+            all_passed = False
+            logger.error(f"❌ VALIDATION FAILED for {os.path.basename(output_file)}: Found {len(mismatches)} mismatches")
+            for i, mismatch in enumerate(mismatches[:5]):  # Show first 5
+                logger.error(f"   Row {mismatch['row']}, Task ID {mismatch['task_id']}")
+                if 'error' in mismatch:
+                    logger.error(f"      Error: {mismatch['error']}")
+                else:
+                    logger.error(f"      Expected: {mismatch['expected']}...")
+                    logger.error(f"      Got: {mismatch['actual']}...")
+            if len(mismatches) > 5:
+                logger.error(f"   ... and {len(mismatches) - 5} more mismatches")
+        else:
+            logger.info(f"✅ VALIDATION PASSED for {os.path.basename(output_file)}")
+            logger.info(f"   Validated {len(output):,} rows successfully")
+            logger.info(f"   Task ID range: {output['onet_task_id'].min()} - {output['onet_task_id'].max()}")
+
+    if not all_passed:
+        raise AssertionError(f"Task ID alignment validation failed for one or more output files")
 
 
 if __name__ == "__main__":
