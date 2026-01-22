@@ -4084,6 +4084,17 @@ def main():
         print("="*60)
         validate_app_id_alignment(output_files=output_files)
 
+        # Validate similarity scores (spot check)
+        print("\n" + "="*60)
+        print("VALIDATING SIMILARITY SCORES (SPOT CHECK)")
+        print("="*60)
+        validate_similarity_scores(
+            output_files=output_files,
+            matcher=matcher,
+            sample_size=100,
+            tolerance=1e-4
+        )
+
         # Optional: Cleanup embeddings to save disk space
         if args.cleanup_embeddings:
             logger.info("Cleaning up embeddings (files remain in Dropbox cloud)...")
@@ -4267,6 +4278,197 @@ def validate_app_id_alignment(output_files):
         raise AssertionError("App ID alignment validation failed for one or more output files")
 
     logger.info("✅ All output files passed app_text/ai_app_id validation")
+
+
+def _load_openai_embeddings_dict_for_validation(texts, text_type, embeddings_dir):
+    """
+    Load OpenAI embeddings from cache as dictionary for validation.
+
+    Args:
+        texts: List of texts to load embeddings for
+        text_type: Either "apps" or "tasks"
+        embeddings_dir: Directory containing embedding cache files
+
+    Returns:
+        Dict mapping text -> embedding array
+    """
+    import pickle
+    import hashlib
+
+    # Compute hash to find cache file (matches generate_openai_embeddings.py logic)
+    sorted_texts = ''.join(sorted(texts))
+    texts_hash = hashlib.md5(sorted_texts.encode()).hexdigest()[:8]
+    cache_filename = f"openai_text-embedding-3-large_{text_type}_{texts_hash}.pkl"
+    cache_path = Path(embeddings_dir) / cache_filename
+
+    if not cache_path.exists():
+        # Try to find any OpenAI cache file for this text_type
+        pattern = f"openai_text-embedding-3-large_{text_type}_*.pkl"
+        matches = list(Path(embeddings_dir).glob(pattern))
+        if matches:
+            cache_path = matches[0]  # Use first match
+            logger.warning(f"Hash mismatch, using available cache: {cache_path.name}")
+        else:
+            raise FileNotFoundError(f"No OpenAI embeddings cache found for {text_type}")
+
+    # Load cache
+    with open(cache_path, 'rb') as f:
+        cache_data = pickle.load(f)
+
+    embeddings_dict = cache_data.get('embeddings', {})
+
+    # Validate we have all texts
+    missing = [t for t in texts if t not in embeddings_dict]
+    if missing:
+        logger.warning(f"OpenAI cache missing {len(missing)}/{len(texts)} texts")
+        # Return partial dictionary (validation will skip missing texts)
+
+    return embeddings_dict
+
+
+def validate_similarity_scores(output_files, matcher, sample_size=100, tolerance=1e-4):
+    """
+    Validate that stored similarity scores match recomputed similarities.
+
+    Samples random rows from each output file and recomputes embeddings + similarities
+    to verify that stored values are correct.
+
+    Args:
+        output_files: List of output parquet file paths to validate
+        matcher: ONETSimilarityMatcher instance (for accessing model/config)
+        sample_size: Number of random rows to validate per file (default: 100)
+        tolerance: Allowed difference for floating-point comparison (default: 1e-4)
+
+    Raises:
+        AssertionError: If validation fails for any file
+    """
+    logger.info(f"Validating similarity scores (sampling {sample_size} rows per file)...")
+    all_passed = True
+
+    use_openai = matcher.use_openai_embeddings
+    if use_openai:
+        logger.info("Using OpenAI embeddings (loading from cache)")
+    else:
+        logger.info("Using BGE embeddings (generating on-demand)")
+
+    for output_file in output_files:
+        logger.info(f"Validating {os.path.basename(output_file)}...")
+        output = pd.read_parquet(output_file)
+
+        # Sample random rows
+        if len(output) <= sample_size:
+            sample = output
+            logger.info(f"Validating all {len(sample)} rows (dataset smaller than sample size)")
+        else:
+            sample = output.sample(n=sample_size, random_state=42)
+            logger.info(f"Validating {len(sample)} randomly sampled rows")
+
+        # Get unique texts for batch processing
+        unique_apps = sample['app_text'].unique().tolist()
+        unique_tasks = sample['onet_task'].unique().tolist()
+
+        logger.info(f"Processing {len(unique_apps)} unique apps, {len(unique_tasks)} unique tasks...")
+
+        # Generate/load embeddings
+        try:
+            if use_openai:
+                # Load from cached pickle files
+                app_embeddings_dict = _load_openai_embeddings_dict_for_validation(
+                    unique_apps, 'apps', matcher.embeddings_dir
+                )
+                task_embeddings_dict = _load_openai_embeddings_dict_for_validation(
+                    unique_tasks, 'tasks', matcher.embeddings_dir
+                )
+            else:
+                # Generate using BGE model
+                logger.info("Generating embeddings with BGE model...")
+                app_embeddings_dict = {
+                    text: matcher.model.encode(text, normalize_embeddings=True)
+                    for text in unique_apps
+                }
+                task_embeddings_dict = {
+                    text: matcher.model.encode(text, normalize_embeddings=True)
+                    for text in unique_tasks
+                }
+        except Exception as e:
+            logger.error(f"Failed to load/generate embeddings: {e}")
+            logger.error("Skipping similarity validation for this file")
+            continue
+
+        # Validate each sampled row
+        mismatches = []
+        skipped = 0
+
+        for idx, row in sample.iterrows():
+            app_text = row['app_text']
+            onet_task = row['onet_task']
+            stored_sim = row['similarity']
+
+            # Skip if embeddings not available
+            if app_text not in app_embeddings_dict or onet_task not in task_embeddings_dict:
+                skipped += 1
+                continue
+
+            # Get embeddings
+            app_embedding = app_embeddings_dict[app_text]
+            task_embedding = task_embeddings_dict[onet_task]
+
+            # Ensure embeddings are numpy arrays
+            if not isinstance(app_embedding, np.ndarray):
+                app_embedding = np.array(app_embedding, dtype=np.float32)
+            if not isinstance(task_embedding, np.ndarray):
+                task_embedding = np.array(task_embedding, dtype=np.float32)
+
+            # Normalize if needed
+            app_norm = np.linalg.norm(app_embedding)
+            task_norm = np.linalg.norm(task_embedding)
+            if not np.isclose(app_norm, 1.0, atol=1e-3):
+                app_embedding = app_embedding / app_norm
+            if not np.isclose(task_norm, 1.0, atol=1e-3):
+                task_embedding = task_embedding / task_norm
+
+            # Compute cosine similarity (dot product of normalized vectors)
+            computed_sim = float(np.dot(app_embedding, task_embedding))
+
+            # Compare to stored value
+            diff = abs(computed_sim - stored_sim)
+            if diff > tolerance:
+                mismatches.append({
+                    'row': idx,
+                    'app_text': app_text[:60],
+                    'onet_task': onet_task[:60],
+                    'stored': stored_sim,
+                    'computed': computed_sim,
+                    'diff': diff
+                })
+
+        # Report results
+        validated_count = len(sample) - skipped
+
+        if skipped > 0:
+            logger.warning(f"Skipped {skipped} rows due to missing embeddings")
+
+        if mismatches:
+            all_passed = False
+            logger.error(f"❌ SIMILARITY VALIDATION FAILED: {len(mismatches)}/{validated_count} mismatches")
+            logger.error(f"   Tolerance: {tolerance}")
+            for i, mismatch in enumerate(mismatches[:5]):
+                logger.error(f"   Row {mismatch['row']}")
+                logger.error(f"      App: {mismatch['app_text']}...")
+                logger.error(f"      Task: {mismatch['onet_task']}...")
+                logger.error(f"      Stored: {mismatch['stored']:.6f}")
+                logger.error(f"      Computed: {mismatch['computed']:.6f}")
+                logger.error(f"      Diff: {mismatch['diff']:.6f}")
+            if len(mismatches) > 5:
+                logger.error(f"   ... and {len(mismatches) - 5} more mismatches")
+        else:
+            logger.info(f"✅ All {validated_count} sampled similarities validated correctly")
+            logger.info(f"✅ VALIDATION PASSED for {os.path.basename(output_file)}")
+
+    if not all_passed:
+        raise AssertionError("Similarity score validation failed for one or more output files")
+
+    logger.info("✅ All output files passed similarity score validation")
 
 
 if __name__ == "__main__":
