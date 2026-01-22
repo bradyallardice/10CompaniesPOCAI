@@ -3018,12 +3018,13 @@ class ONETSimilarityMatcher:
             # Phase 7: Optional cross-encoder validation
             if not skip_cross_encoder:
                 logger.info("Phase 7: Running cross-encoder on top percentile matches")
-                # Filter to highest percentile (p1 typically)
-                highest_percentile = min(bge_percentiles)
-                ce_col = f'pct_{int(highest_percentile):02d}'
+                # Filter to broadest percentile (p20 typically) to match exhaustive mode behavior
+                # This ensures CE scores are available for all BGE percentile levels
+                max_bge_percentile = max(bge_percentiles)
+                ce_col = f'pct_{int(max_bge_percentile):02d}'
                 ce_input_df = pairs_df[pairs_df[ce_col]].copy()
 
-                logger.info(f"Running CE on {len(ce_input_df):,} pairs (p{highest_percentile} threshold)")
+                logger.info(f"Running CE on top {max_bge_percentile}% ({len(ce_input_df):,} pairs)")
 
                 # Use existing cross-encoder validation methods (handles caching, checkpoints, etc.)
                 num_workers = getattr(self, 'num_workers', 1)  # Get from instance if set
