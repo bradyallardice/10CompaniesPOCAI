@@ -685,9 +685,10 @@ class ONETSimilarityMatcher:
         """
         # Use embedding manager to verify/download file if it's a placeholder
         try:
-            checkpoint_filename = os.path.basename(checkpoint_path)
+            # Get relative path from embeddings_dir (handles subdirectories like cross_encoder_checkpoints/)
+            checkpoint_relpath = os.path.relpath(checkpoint_path, self.embeddings_dir)
             # Try to get the file through embedding manager
-            actual_path = self.embedding_manager.get_embedding_path(checkpoint_filename)
+            actual_path = self.embedding_manager.get_embedding_path(checkpoint_relpath)
             checkpoint_path = actual_path
         except FileNotFoundError:
             # File doesn't exist - this is normal for first run
