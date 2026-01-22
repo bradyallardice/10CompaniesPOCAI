@@ -4078,6 +4078,12 @@ def main():
             onet_version=args.onet_version
         )
 
+        # Validate app_text to ai_app_id alignment
+        print("\n" + "="*60)
+        print("VALIDATING APP_TEXT TO AI_APP_ID ALIGNMENT")
+        print("="*60)
+        validate_app_id_alignment(output_files=output_files)
+
         # Optional: Cleanup embeddings to save disk space
         if args.cleanup_embeddings:
             logger.info("Cleaning up embeddings (files remain in Dropbox cloud)...")
@@ -4173,6 +4179,94 @@ def validate_task_id_alignment(output_files, onet_file, onet_version=None):
 
     if not all_passed:
         raise AssertionError(f"Task ID alignment validation failed for one or more output files")
+
+
+def validate_app_id_alignment(output_files):
+    """
+    Validate that each ai_app_id in Stage 4 output matches the MD5 hash of app_text.
+
+    For every row: ai_app_id should equal hashlib.md5(app_text).hexdigest()[:8].upper()
+    If any mismatch is found, raises AssertionError.
+
+    Checks:
+    1. ai_app_id == hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper()
+    2. No hash collisions (multiple app_texts mapping to same ai_app_id)
+
+    Args:
+        output_files: List of output parquet file paths to validate
+
+    Raises:
+        AssertionError: If validation fails for any file
+    """
+    logger.info("Validating app_text to ai_app_id alignment...")
+    all_passed = True
+
+    for output_file in output_files:
+        logger.info(f"Validating {os.path.basename(output_file)}...")
+        output = pd.read_parquet(output_file)
+
+        # Skip if no ai_app_id column (shouldn't happen but defensive)
+        if 'ai_app_id' not in output.columns or 'app_text' not in output.columns:
+            logger.warning(f"Skipping {output_file}: missing required columns")
+            continue
+
+        logger.info(f"Checking {len(output):,} rows for app_text/ai_app_id alignment...")
+
+        mismatches = []
+        for idx, row in output.iterrows():
+            app_text = row['app_text']
+            actual_id = row['ai_app_id']
+
+            # Compute expected ID
+            expected_id = hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper()
+
+            # Check if they match
+            if actual_id != expected_id:
+                mismatches.append({
+                    'row': idx,
+                    'app_text': app_text[:60],  # Truncate for display
+                    'expected': expected_id,
+                    'actual': actual_id
+                })
+
+        # Check for collisions (multiple app_texts with same ai_app_id)
+        collision_check = output.groupby('ai_app_id')['app_text'].nunique()
+        collisions = collision_check[collision_check > 1]
+
+        # Report results
+        if mismatches:
+            all_passed = False
+            logger.error(f"❌ VALIDATION FAILED: Found {len(mismatches)} ID mismatches in {os.path.basename(output_file)}")
+            for i, mismatch in enumerate(mismatches[:5]):
+                logger.error(f"   Row {mismatch['row']}")
+                logger.error(f"      App text: {mismatch['app_text']}...")
+                logger.error(f"      Expected ID: {mismatch['expected']}")
+                logger.error(f"      Got ID: {mismatch['actual']}")
+            if len(mismatches) > 5:
+                logger.error(f"   ... and {len(mismatches) - 5} more mismatches")
+        else:
+            logger.info(f"✅ All app_text/ai_app_id pairs validated correctly")
+
+        if len(collisions) > 0:
+            all_passed = False
+            logger.error(f"❌ COLLISION DETECTED: {len(collisions)} ai_app_ids map to multiple app_texts")
+            for ai_app_id, count in list(collisions.items())[:5]:
+                affected_texts = output[output['ai_app_id'] == ai_app_id]['app_text'].unique()
+                logger.error(f"   ID {ai_app_id} maps to {count} different texts:")
+                for text in affected_texts[:3]:
+                    logger.error(f"      - {text[:60]}...")
+            if len(collisions) > 5:
+                logger.error(f"   ... and {len(collisions) - 5} more collisions")
+        else:
+            logger.info(f"✅ No hash collisions detected")
+
+        if not (mismatches or len(collisions) > 0):
+            logger.info(f"✅ VALIDATION PASSED for {os.path.basename(output_file)}")
+
+    if not all_passed:
+        raise AssertionError("App ID alignment validation failed for one or more output files")
+
+    logger.info("✅ All output files passed app_text/ai_app_id validation")
 
 
 if __name__ == "__main__":
