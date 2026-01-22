@@ -2647,7 +2647,7 @@ class ONETSimilarityMatcher:
 
                 # Get app data
                 app_text = app_texts[app_idx]
-                ai_app_id = hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper()
+                ai_app_id = hashlib.md5(app_text.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
 
                 # Get all job UIDs for this app
                 job_uids_list = [uid for uid, ts in job_uid_lookup.get(app_text, [])]
@@ -3000,7 +3000,7 @@ class ONETSimilarityMatcher:
                 first_ts = uid_ts_list[0][1] if uid_ts_list else None
                 job_mapping_records.append({
                     'app_text': app_text,
-                    'ai_app_id': hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper(),
+                    'ai_app_id': hashlib.md5(app_text.encode('utf-8')).hexdigest().upper(),  # 32-char uppercase hex (full MD5)
                     'job_uids': '|'.join(sorted(unique_uids)),
                     'num_jobs': len(unique_uids),
                     'first_occurrence_tst_created': first_ts
@@ -3184,7 +3184,7 @@ class ONETSimilarityMatcher:
         # Add ai_app_id: create a stable hash-based ID for each unique AI application text
         # Keep this lightweight and deterministic so downstream stages can join on it
         deduplicated_similarities['ai_app_id'] = deduplicated_similarities['app_text'].apply(
-            lambda x: hashlib.md5(x.encode('utf-8')).hexdigest()[:8].upper()  # 8-char uppercase hex
+            lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
         )
 
         logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique (app_text, onet_task_id) pairs")
@@ -3218,7 +3218,7 @@ class ONETSimilarityMatcher:
             job_mapping['num_jobs'] = job_mapping['job_uid'].map(len)  # map() is faster than apply() for len
             # Attach ai_app_id so downstream stages (5–7) can key on a stable identifier
             job_mapping['ai_app_id'] = job_mapping['app_text'].apply(
-                lambda x: hashlib.md5(x.encode('utf-8')).hexdigest()[:8].upper()
+                lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
             )
             job_mapping = job_mapping[['app_text', 'ai_app_id', 'job_uids', 'num_jobs', 'first_occurrence_tst_created']].copy()
 
@@ -4196,11 +4196,11 @@ def validate_app_id_alignment(output_files):
     """
     Validate that each ai_app_id in Stage 4 output matches the MD5 hash of app_text.
 
-    For every row: ai_app_id should equal hashlib.md5(app_text).hexdigest()[:8].upper()
+    For every row: ai_app_id should equal hashlib.md5(app_text).hexdigest().upper()
     If any mismatch is found, raises AssertionError.
 
     Checks:
-    1. ai_app_id == hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper()
+    1. ai_app_id == hashlib.md5(app_text.encode('utf-8')).hexdigest().upper()
     2. No hash collisions (multiple app_texts mapping to same ai_app_id)
 
     Args:
@@ -4229,7 +4229,7 @@ def validate_app_id_alignment(output_files):
             actual_id = row['ai_app_id']
 
             # Compute expected ID
-            expected_id = hashlib.md5(app_text.encode('utf-8')).hexdigest()[:8].upper()
+            expected_id = hashlib.md5(app_text.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
 
             # Check if they match
             if actual_id != expected_id:
