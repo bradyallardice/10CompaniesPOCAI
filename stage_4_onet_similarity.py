@@ -4068,12 +4068,16 @@ def main():
         print(f"Similarity range: {validation_metrics['similarity_stats']['min']:.3f} - {validation_metrics['similarity_stats']['max']:.3f}")
         print("="*60)
 
+        # Filter output_files to exclude task_summary files (they don't have raw app-task pairs to validate)
+        validation_files = [f for f in output_files if 'task_summary' not in os.path.basename(f)]
+        logger.info(f"Validating {len(validation_files)} output files (excluding {len(output_files) - len(validation_files)} summary files)")
+
         # Validate task_id to task_text alignment
         print("\n" + "="*60)
         print("VALIDATING TASK_ID TO TASK_TEXT ALIGNMENT")
         print("="*60)
         validate_task_id_alignment(
-            output_files=output_files,
+            output_files=validation_files,
             onet_file=onet_file,
             onet_version=args.onet_version
         )
@@ -4082,14 +4086,14 @@ def main():
         print("\n" + "="*60)
         print("VALIDATING APP_TEXT TO AI_APP_ID ALIGNMENT")
         print("="*60)
-        validate_app_id_alignment(output_files=output_files)
+        validate_app_id_alignment(output_files=validation_files)
 
         # Validate similarity scores (spot check)
         print("\n" + "="*60)
         print("VALIDATING SIMILARITY SCORES (SPOT CHECK)")
         print("="*60)
         validate_similarity_scores(
-            output_files=output_files,
+            output_files=validation_files,
             matcher=matcher,
             sample_size=100,
             tolerance=1e-4
@@ -4223,38 +4227,44 @@ def validate_app_id_alignment(output_files):
 
         logger.info(f"Checking {len(output):,} rows for app_text/ai_app_id alignment...")
 
+        # Vectorized validation (much faster than iterrows)
+        output['expected_id'] = output['app_text'].apply(
+            lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()
+        )
+
+        # Find mismatches
+        mismatch_mask = output['ai_app_id'] != output['expected_id']
+        mismatches_df = output[mismatch_mask].copy()
+
+        # Convert to list of dicts for reporting (limit to first 5)
         mismatches = []
-        for idx, row in output.iterrows():
-            app_text = row['app_text']
-            actual_id = row['ai_app_id']
-
-            # Compute expected ID
-            expected_id = hashlib.md5(app_text.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
-
-            # Check if they match
-            if actual_id != expected_id:
+        if len(mismatches_df) > 0:
+            for idx, row in mismatches_df.head(5).iterrows():
                 mismatches.append({
                     'row': idx,
-                    'app_text': app_text[:60],  # Truncate for display
-                    'expected': expected_id,
-                    'actual': actual_id
+                    'app_text': row['app_text'][:60],
+                    'expected': row['expected_id'],
+                    'actual': row['ai_app_id']
                 })
+
+        # Clean up temporary column
+        output.drop(columns=['expected_id'], inplace=True)
 
         # Check for collisions (multiple app_texts with same ai_app_id)
         collision_check = output.groupby('ai_app_id')['app_text'].nunique()
         collisions = collision_check[collision_check > 1]
 
         # Report results
-        if mismatches:
+        if len(mismatches_df) > 0:
             all_passed = False
-            logger.error(f"❌ VALIDATION FAILED: Found {len(mismatches)} ID mismatches in {os.path.basename(output_file)}")
-            for i, mismatch in enumerate(mismatches[:5]):
+            logger.error(f"❌ VALIDATION FAILED: Found {len(mismatches_df):,} ID mismatches in {os.path.basename(output_file)}")
+            for mismatch in mismatches:
                 logger.error(f"   Row {mismatch['row']}")
                 logger.error(f"      App text: {mismatch['app_text']}...")
                 logger.error(f"      Expected ID: {mismatch['expected']}")
                 logger.error(f"      Got ID: {mismatch['actual']}")
-            if len(mismatches) > 5:
-                logger.error(f"   ... and {len(mismatches) - 5} more mismatches")
+            if len(mismatches_df) > 5:
+                logger.error(f"   ... and {len(mismatches_df) - 5:,} more mismatches")
         else:
             logger.info(f"✅ All app_text/ai_app_id pairs validated correctly")
 
@@ -4342,6 +4352,11 @@ def validate_similarity_scores(output_files, matcher, sample_size=100, tolerance
     Raises:
         AssertionError: If validation fails for any file
     """
+    # Skip OpenAI-run validation because embeddings are cache-only; re-encoding isn’t possible
+    if matcher.use_openai_embeddings:
+        logger.info("Skipping similarity score validation for OpenAI mode (cache-only embeddings)")
+        return
+
     logger.info(f"Validating similarity scores (sampling {sample_size} rows per file)...")
     all_passed = True
 
