@@ -54,3 +54,11 @@ Data/embeddings/*.pkl
 Data/embeddings/checkpoints/
 Data/embeddings/cross_encoder_checkpoints/
 Data/embeddings/openai_text-embedding-3-large_*.pkl
+
+# Ignore all data files in Data/ directory
+# Exception: keep only configuration/metadata files (.md, code-related files)
+Data/
+!Data/ai_keywords_multilingual_v3.csv
+!Data/240711_occupation_to_ch_isco_19.csv
+!Data/ESCO_to_ONET-SOC.xlsx
+!Data/.gitkeep
