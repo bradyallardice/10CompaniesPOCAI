@@ -38,6 +38,20 @@ import gc
 # Embedding manager for Dropbox auto-download and cleanup
 from Code.utilities.embedding_manager import EmbeddingManager
 
+# OpenAI embeddings utility functions
+from Code.utilities.generate_openai_embeddings import (
+    embed_with_openai_api,
+    save_embedding_cache,
+    load_embedding_cache,
+    generate_cache_key,
+    get_openai_cache_path,
+    load_ai_applications,
+    load_onet_tasks,
+    OPENAI_MODEL,
+    OPENAI_DIMS,
+    OPENAI_PRICING_PER_MTK
+)
+
 # Embedding and ML libraries
 try:
     from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -127,6 +141,9 @@ class ONETSimilarityMatcher:
         self.faiss_k = faiss_k
         self.faiss_index_type = faiss_index_type
         self.sample_percentiles = sample_percentiles
+
+        # Force regenerate flag (set by CLI)
+        self.force_regenerate_openai = False
 
         # Create embeddings directory if it doesn't exist
         os.makedirs(embeddings_dir, exist_ok=True)
@@ -330,64 +347,367 @@ class ONETSimilarityMatcher:
             logger.warning(f"Failed to load embeddings from cache {cache_path}: {e}")
             return None
 
+    def _check_openai_cache(self, texts: List[str], text_type: str) -> Optional[Path]:
+        """
+        Check if OpenAI embeddings exist in cache.
+
+        Args:
+            texts: List of texts to check for
+            text_type: Either "apps" or "tasks"
+
+        Returns:
+            Path to cache file if exists, None otherwise
+        """
+        cache_key = generate_cache_key(texts)
+        cache_path = get_openai_cache_path(Path(self.embeddings_dir), text_type, cache_key)
+
+        if cache_path.exists():
+            logger.debug(f"OpenAI cache found: {cache_path.name}")
+            return cache_path
+        else:
+            logger.debug(f"OpenAI cache not found: {cache_path.name}")
+            return None
+
+    def _validate_openai_cache(self, cache_path: Path, texts: List[str]) -> bool:
+        """
+        Validate that OpenAI cache contains all required texts.
+
+        Args:
+            cache_path: Path to cache file
+            texts: List of texts that should be in cache
+
+        Returns:
+            True if cache is valid
+
+        Raises:
+            ValueError: If cache is corrupted or incomplete
+        """
+        try:
+            cache_data = load_embedding_cache(cache_path)
+            if cache_data is None:
+                raise ValueError(f"Failed to load cache: {cache_path}")
+
+            embeddings_dict = cache_data.get('embeddings', {})
+            metadata = cache_data.get('metadata', {})
+
+            # Validate dimensions
+            if metadata.get('dimensions') != OPENAI_DIMS:
+                raise ValueError(
+                    f"Cache dimension mismatch: expected {OPENAI_DIMS}, "
+                    f"got {metadata.get('dimensions')}"
+                )
+
+            # Validate all texts present
+            missing_texts = [t for t in texts if t not in embeddings_dict]
+            if missing_texts:
+                raise ValueError(
+                    f"OpenAI cache corrupted or incomplete: {cache_path}\n"
+                    f"Missing {len(missing_texts)} embeddings.\n"
+                    f"Options:\n"
+                    f"  1. Delete cache: rm {cache_path}\n"
+                    f"  2. Regenerate: python3 stage_4_onet_similarity.py ... --force-regenerate-openai"
+                )
+
+            logger.info(f"OpenAI cache validated: {cache_path.name}")
+            return True
+
+        except Exception as e:
+            raise ValueError(f"Cache validation failed: {e}")
+
+    def _get_user_approval_for_api_call(self, texts: List[str], text_type: str) -> bool:
+        """
+        Display cost estimate and get user approval for OpenAI API call.
+
+        Args:
+            texts: List of texts to embed
+            text_type: Either "apps" or "tasks"
+
+        Returns:
+            True if user approves
+
+        Raises:
+            RuntimeError: If user does not approve (UserAbortError)
+        """
+        # Calculate token estimates
+        avg_tokens_per_text = 20 if text_type == "apps" else 18
+        estimated_tokens = len(texts) * avg_tokens_per_text
+
+        # Calculate cost estimate
+        estimated_cost = (estimated_tokens / 1_000_000) * OPENAI_PRICING_PER_MTK
+
+        # Print approval prompt
+        text_desc = "AI Applications" if text_type == "apps" else "O*NET Tasks"
+        print("\n" + "=" * 60)
+        print("OPENAI API CALL REQUIRED")
+        print("=" * 60)
+        print(f"Missing {text_type} embeddings for Stage 4 similarity computation.\n")
+        print(f"{text_desc}: {len(texts):,} texts (~{estimated_tokens:,} tokens)")
+        print(f"Estimated cost: ${estimated_cost:.4f}\n")
+        print("This will call the OpenAI API to generate embeddings.")
+        print("Embeddings will be cached for future use.\n")
+
+        # Get user input
+        try:
+            user_input = input("Continue with API call? (yes/no): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n")
+            raise RuntimeError(
+                "OpenAI embedding generation cancelled by user.\n"
+                "Cannot proceed without embeddings.\n\n"
+                "Options:\n"
+                "  1. Run separately: python3 Code/utilities/generate_openai_embeddings.py ...\n"
+                "  2. Rerun Stage 4 with --use-openai-embeddings and approve API call\n"
+                "  3. Use BGE embeddings instead (remove --use-openai-embeddings flag)"
+            )
+
+        if user_input != "yes":
+            raise RuntimeError(
+                "OpenAI embedding generation cancelled by user.\n"
+                "Cannot proceed without embeddings.\n\n"
+                "Options:\n"
+                "  1. Run separately: python3 Code/utilities/generate_openai_embeddings.py ...\n"
+                "  2. Rerun Stage 4 with --use-openai-embeddings and approve API call\n"
+                "  3. Use BGE embeddings instead (remove --use-openai-embeddings flag)"
+            )
+
+        logger.info("User approved OpenAI API call")
+        return True
+
+    def _generate_openai_embeddings(self, texts: List[str], text_type: str) -> Dict[str, np.ndarray]:
+        """
+        Generate OpenAI embeddings via API and save to cache.
+
+        Args:
+            texts: List of texts to embed
+            text_type: Either "apps" or "tasks"
+
+        Returns:
+            Dictionary mapping text -> embedding array
+
+        Raises:
+            ValueError: If OPENAI_API_KEY not set
+            RuntimeError: If API call fails
+        """
+        # Check API key
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError(
+                "OPENAI_API_KEY environment variable not set.\n"
+                "Set it with: export OPENAI_API_KEY='sk-...'"
+            )
+
+        logger.info(f"Generating OpenAI embeddings for {len(texts):,} {text_type}")
+
+        # Generate embeddings via API
+        try:
+            embeddings_dict, total_tokens = embed_with_openai_api(
+                texts=texts,
+                batch_size=100,
+                max_retries=5
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"OpenAI API call failed after retries.\n"
+                f"Error: {e}\n"
+                f"Check your API key and network connection."
+            )
+
+        # Save to cache
+        cache_key = generate_cache_key(texts)
+        cache_path = get_openai_cache_path(Path(self.embeddings_dir), text_type, cache_key)
+        save_embedding_cache(embeddings_dict, cache_path, total_tokens, text_type)
+
+        logger.info(f"OpenAI embeddings generated and cached: {cache_path.name}")
+        return embeddings_dict
+
+    def _load_or_generate_openai_embeddings(self,
+                                           texts: List[str],
+                                           text_type: str,
+                                           force_regenerate: bool = False) -> np.ndarray:
+        """
+        Load OpenAI embeddings from cache or generate if missing.
+
+        This is the main orchestration method that handles the complete workflow:
+        1. Check cache (unless force_regenerate)
+        2. If cache valid: load and return
+        3. If cache missing/invalid or force_regenerate: get approval, generate, cache, return
+
+        Args:
+            texts: List of texts to embed
+            text_type: Either "apps" or "tasks"
+            force_regenerate: If True, regenerate even if cache exists
+
+        Returns:
+            Embeddings array with shape (len(texts), OPENAI_DIMS)
+
+        Raises:
+            ValueError: If cache validation fails or API key missing
+            RuntimeError: If user declines approval or API call fails
+        """
+        # Check if we need to generate
+        need_generation = force_regenerate
+
+        if not force_regenerate:
+            # Check cache
+            cache_path = self._check_openai_cache(texts, text_type)
+
+            if cache_path is not None:
+                # Validate cache
+                try:
+                    self._validate_openai_cache(cache_path, texts)
+
+                    # Load from cache
+                    cache_data = load_embedding_cache(cache_path)
+                    embeddings_dict = cache_data['embeddings']
+
+                    # Build embeddings array in correct order
+                    embeddings = np.array([embeddings_dict[t] for t in texts], dtype=np.float32)
+
+                    logger.info(f"Loaded OpenAI embeddings from cache: {cache_path.name}")
+                    return embeddings
+
+                except ValueError as e:
+                    logger.warning(f"Cache validation failed: {e}")
+                    need_generation = True
+            else:
+                need_generation = True
+
+        # Generate if needed
+        if need_generation:
+            logger.info(f"OpenAI embeddings not in cache or force regenerate requested")
+
+            # Get user approval for API call
+            self._get_user_approval_for_api_call(texts, text_type)
+
+            # Generate embeddings
+            embeddings_dict = self._generate_openai_embeddings(texts, text_type)
+
+            # Build embeddings array in correct order
+            embeddings = np.array([embeddings_dict[t] for t in texts], dtype=np.float32)
+
+            return embeddings
+
     def _load_openai_embeddings(self, texts: List[str], text_type: str = "apps") -> Optional[np.ndarray]:
         """
-        Load pre-generated OpenAI embeddings from cache (generated by generate_openai_embeddings.py).
+        Load OpenAI embeddings from cache or generate if missing.
+
+        This method now automatically generates embeddings via OpenAI API if cache is missing
+        (with user approval and cost transparency). Previously it was cache-only.
 
         Args:
             texts: List of texts to find embeddings for
             text_type: Either "apps" or "tasks"
 
         Returns:
-            Embeddings array if found and complete, None otherwise
+            Embeddings array with shape (len(texts), OPENAI_DIMS)
 
         Raises:
-            FileNotFoundError: If OpenAI cache file not found
-            ValueError: If embeddings incomplete or mismatch
+            ValueError: If cache validation fails or API key missing
+            RuntimeError: If user declines approval or API call fails
         """
-        # Compute hash to find cache file (matches generate_openai_embeddings.py)
-        sorted_texts = ''.join(sorted(texts))
-        texts_hash = hashlib.md5(sorted_texts.encode()).hexdigest()[:8]
-        cache_filename = f"openai_text-embedding-3-large_{text_type}_{texts_hash}.pkl"
+        # Use new load-or-generate helper method
+        force_regenerate = getattr(self, 'force_regenerate_openai', False)
+        return self._load_or_generate_openai_embeddings(
+            texts=texts,
+            text_type=text_type,
+            force_regenerate=force_regenerate
+        )
 
-        # Use embedding manager to get file path (handles Dropbox sync verification)
-        try:
-            cache_path = self.embedding_manager.get_embedding_path(cache_filename)
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                f"No OpenAI embeddings found matching: {cache_filename}\n"
-                f"Please ensure Dropbox has synced embeddings or regenerate with:\n"
-                f"python3 generate_openai_embeddings.py --task-type core"
-            )
+    def check_openai_cache_and_report(self, step3_file: str, onet_version: int) -> None:
+        """
+        Check OpenAI cache status and print report with cost estimates (dry-run mode).
 
-        try:
-            with open(cache_path, 'rb') as f:
-                cache_data = pickle.load(f)
+        This method displays cache status and estimated costs without generating embeddings
+        or running similarity computation. It exits the program after displaying the report.
 
-            embeddings_dict = cache_data.get('embeddings', {})
-            metadata = cache_data.get('metadata', {})
+        Args:
+            step3_file: Path to Stage 3 output CSV file
+            onet_version: O*NET version number
 
-            # Validate that we have embeddings for all texts
-            missing_texts = [t for t in texts if t not in embeddings_dict]
-            if missing_texts:
-                logger.error(f"Missing {len(missing_texts)} embeddings from OpenAI cache")
-                logger.error(f"First 5 missing: {missing_texts[:5]}")
-                raise ValueError(f"OpenAI cache incomplete: missing {len(missing_texts)}/{len(texts)} embeddings")
+        """
+        logger.info("=" * 60)
+        logger.info("OpenAI Cache Status Check")
+        logger.info("=" * 60)
 
-            # Build embeddings array in correct order
-            embeddings = np.array([embeddings_dict[t] for t in texts], dtype=np.float32)
+        # Load AI applications
+        logger.info(f"Loading AI applications from: {step3_file}")
+        apps = load_ai_applications(Path(step3_file))
+        logger.info(f"Loaded {len(apps):,} deduplicated AI applications")
 
-            logger.info(f"Loaded OpenAI embeddings from cache: {cache_path.name}")
-            logger.info(f"  Model: {metadata.get('model')}, Dimensions: {metadata.get('dimensions')}")
-            logger.info(f"  Texts: {len(texts):,}, Total tokens: {metadata.get('total_tokens', 'unknown'):,}")
+        # Load O*NET tasks
+        # Note: We need to load tasks based on onet_version and include_soc_15 flag
+        # For now, assume core tasks and include_soc_15=False (default)
+        logger.info(f"Loading O*NET tasks (version {onet_version})")
+        tasks = load_onet_tasks(
+            onet_version=onet_version,
+            task_type='core',  # Match Stage 4 typical usage
+            include_soc_15=False  # Default behavior
+        )
+        logger.info(f"Loaded {len(tasks):,} O*NET tasks")
 
-            return embeddings
+        # Generate cache keys
+        apps_hash = generate_cache_key(apps)
+        tasks_hash = generate_cache_key(tasks)
 
-        except FileNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to load OpenAI embeddings from {cache_path}: {e}")
-            raise ValueError(f"Failed to load OpenAI cache: {e}")
+        # Check cache files
+        apps_cache = get_openai_cache_path(Path(self.embeddings_dir), "apps", apps_hash)
+        tasks_cache = get_openai_cache_path(Path(self.embeddings_dir), "tasks", tasks_hash)
+
+        apps_exists = apps_cache.exists()
+        tasks_exists = tasks_cache.exists()
+
+        # Print report
+        print("\n" + "=" * 60)
+        print("CACHE STATUS REPORT")
+        print("=" * 60)
+        print(f"\nAI Applications:")
+        print(f"  Count: {len(apps):,}")
+        print(f"  Cache: {'✓ EXISTS' if apps_exists else '✗ MISSING'}")
+        print(f"  File: {apps_cache.name}")
+
+        print(f"\nO*NET Tasks:")
+        print(f"  Count: {len(tasks):,}")
+        print(f"  Cache: {'✓ EXISTS' if tasks_exists else '✗ MISSING'}")
+        print(f"  File: {tasks_cache.name}")
+
+        # Calculate costs if generation needed
+        if not apps_exists or not tasks_exists:
+            print("\n" + "=" * 60)
+            print("COST ESTIMATE FOR MISSING EMBEDDINGS")
+            print("=" * 60)
+
+            total_cost = 0.0
+
+            if not apps_exists:
+                apps_tokens = len(apps) * 20  # ~20 tokens per app
+                apps_cost = (apps_tokens / 1_000_000) * OPENAI_PRICING_PER_MTK
+                total_cost += apps_cost
+                print(f"\nApps embeddings:")
+                print(f"  Estimated tokens: ~{apps_tokens:,}")
+                print(f"  Estimated cost: ${apps_cost:.4f}")
+
+            if not tasks_exists:
+                tasks_tokens = len(tasks) * 18  # ~18 tokens per task
+                tasks_cost = (tasks_tokens / 1_000_000) * OPENAI_PRICING_PER_MTK
+                total_cost += tasks_cost
+                print(f"\nTasks embeddings:")
+                print(f"  Estimated tokens: ~{tasks_tokens:,}")
+                print(f"  Estimated cost: ${tasks_cost:.4f}")
+
+            if not apps_exists and not tasks_exists:
+                print(f"\nTotal estimated cost: ${total_cost:.4f}")
+
+            print("\n" + "=" * 60)
+            print("Next steps:")
+            print("  1. Run Stage 4 with --use-openai-embeddings (will prompt for approval)")
+            print("  2. Or pre-generate: python3 Code/utilities/generate_openai_embeddings.py ...")
+            print("=" * 60)
+        else:
+            print("\n" + "=" * 60)
+            print("✓ All embeddings cached - no API calls needed")
+            print("=" * 60)
+
+        logger.info("Cache check complete")
 
     def _get_ce_cache_path(self, app_texts: List[str], onet_task_ids: List[str],
                            model_name: str) -> Path:
@@ -2950,6 +3270,12 @@ class ONETSimilarityMatcher:
             logger.info("Phase 4: Adding percentile boolean columns")
             pairs_df = self._add_percentile_columns(pairs_df, percentile_thresholds)
 
+            # Phase 4a: Add minimum threshold boolean column
+            logger.info(f"Phase 4a: Adding minimum threshold column (>= {self.minimum_similarity})")
+            pairs_df['above_min_threshold'] = pairs_df['similarity'] >= self.minimum_similarity
+            above_min_count = pairs_df['above_min_threshold'].sum()
+            logger.info(f"  above_min_threshold: {above_min_count:,} pairs above {self.minimum_similarity}")
+
             # Phase 4b: Add CE columns (required for Stage 5 compatibility)
             if skip_cross_encoder:
                 logger.info("Phase 4b: Adding CE threshold columns (all False - CE skipped)")
@@ -3367,6 +3693,12 @@ class ONETSimilarityMatcher:
                     match_count = unified_matches_core[pct_name].sum()
                     logger.info(f"  {pct_name}: {match_count:,} matches")
 
+                # Add minimum threshold boolean column
+                logger.info(f"Computing minimum threshold column (>= {self.minimum_similarity})")
+                unified_matches_core['above_min_threshold'] = unified_matches_core['similarity'] >= self.minimum_similarity
+                above_min_count = unified_matches_core['above_min_threshold'].sum()
+                logger.info(f"  above_min_threshold: {above_min_count:,} matches")
+
             # Create boolean columns for all cross-encoder thresholds (with NaN handling)
             logger.info("Computing cross-encoder threshold columns for CORE TASKS")
             for ce_thresh in ce_thresholds:
@@ -3470,6 +3802,12 @@ class ONETSimilarityMatcher:
                 unified_matches_all[pct_name] = unified_matches_all['similarity'] >= threshold
                 match_count = unified_matches_all[pct_name].sum()
                 logger.info(f"  {pct_name}: {match_count:,} matches")
+
+            # Add minimum threshold boolean column
+            logger.info(f"Computing minimum threshold column (>= {self.minimum_similarity})")
+            unified_matches_all['above_min_threshold'] = unified_matches_all['similarity'] >= self.minimum_similarity
+            above_min_count = unified_matches_all['above_min_threshold'].sum()
+            logger.info(f"  above_min_threshold: {above_min_count:,} matches")
 
             # Create boolean columns for all cross-encoder thresholds (with NaN handling)
             logger.info("Computing cross-encoder threshold columns for ALL TASKS")
@@ -3778,7 +4116,13 @@ def parse_arguments():
                        help="Embedding model name (default: BAAI/bge-large-en-v1.5)")
 
     parser.add_argument("--use-openai-embeddings", action="store_true",
-                       help="Load pre-generated OpenAI text-embedding-3-large embeddings from cache (generated by generate_openai_embeddings.py)")
+                       help="Use OpenAI text-embedding-3-large embeddings (loads from cache or generates via API with user approval)")
+
+    parser.add_argument("--force-regenerate-openai", action="store_true",
+                       help="Force regenerate OpenAI embeddings even if cache exists (only works with --use-openai-embeddings)")
+
+    parser.add_argument("--check-openai-cache-only", action="store_true",
+                       help="Check OpenAI cache status and estimated costs without generating embeddings (only works with --use-openai-embeddings)")
 
     parser.add_argument("--step3-file", type=str, default=None,
                        help="Path to Step 3 output file (auto-detect latest if not specified)")
@@ -3905,6 +4249,21 @@ def main():
     """
     args = parse_arguments()
 
+    # Validate OpenAI-specific flags
+    if args.use_openai_embeddings:
+        # Validate mutually exclusive flags
+        if args.force_regenerate_openai and args.check_openai_cache_only:
+            logger.error("Cannot use both --force-regenerate-openai and --check-openai-cache-only together")
+            return
+    else:
+        # Validate flags not used without --use-openai-embeddings
+        if args.force_regenerate_openai:
+            logger.error("--force-regenerate-openai requires --use-openai-embeddings")
+            return
+        if args.check_openai_cache_only:
+            logger.error("--check-openai-cache-only requires --use-openai-embeddings")
+            return
+
     # Configuration from arguments
     MINIMUM_SIMILARITY = args.minimum_similarity
     ENABLE_FUZZY_DEDUP = args.enable_fuzzy_dedup
@@ -3991,6 +4350,15 @@ def main():
     except Exception as e:
         logger.error(f"Failed to initialize matcher: {e}")
         return
+
+    # Set OpenAI-specific flags
+    if args.use_openai_embeddings:
+        matcher.force_regenerate_openai = args.force_regenerate_openai
+
+        # Handle check-only mode
+        if args.check_openai_cache_only:
+            matcher.check_openai_cache_and_report(step3_file, args.onet_version)
+            return  # Exit before running pipeline
 
     # Override device if requested (only for BGE embeddings)
     if not args.use_openai_embeddings and args.force_device != "auto":

@@ -3,6 +3,16 @@ Stage 7: AI Exposure Analysis and Visualization
 
 Comprehensive analysis and visualization of AI exposure results from Stages 5 and 6.
 Generates firm-level, occupation-level, firm×occupation, task-level, and summary analyses.
+
+python3 stage_7_analyze_results.py \         
+--stage5-dir Data/Testing/stage_5/1000_company_test/skip_ce/ \
+--stage6-dir Data/Testing/stage_6/1000_company_test/skip_ce/ \
+--stage6-suffix _core_isco \
+--stage4-file Data/Testing/stage_5/1000_company_test/skip_ce/ \
+--output-dir Data/Testing/stage_7/1000_company_test/skip_ce/ \
+--percentile pct_05 \
+--task-type core
+
 """
 
 import pandas as pd

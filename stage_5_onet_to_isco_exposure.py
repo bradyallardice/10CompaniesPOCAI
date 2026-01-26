@@ -11,8 +11,15 @@ Step 4: AI intensity adjustment using log(1 + N_apps)
 
 Then crosswalks results to ISCO-08 for integration with survey data.
 
-Author: Claude Code Assistant  
-Date: September 2025
+python3 stage_5_onet_to_isco_exposure.py \
+    --top-matches-file task_exposure_matches_all_thresholds_openai_bge20_15_10_5_1_ce0p8_0p6_0p4_0p2_onet20_core.parquet \
+    --output-file isco_exposure_results.csv \
+    --stage-4-dir Data/Testing/stage_4_openai/1000_company_test/ \
+    --stage-2-dir Data/Testing/stage_2/1000_company_sample/skip_ce/ \
+    --save-onet-outputs \
+    --output-dir Data/Testing/stage_5_openai/1000_company_test/skip_ce/ \
+    --model openai
+    --use-employment-weights
 """
 
 import pandas as pd
@@ -44,7 +51,8 @@ class TaskFirmExposurePipeline:
                  ce_thresholds: List[float] = None,
                  task_type: str = 'core',
                  onet_version: int = 20,
-                 use_employment_weights: bool = False):
+                 use_employment_weights: bool = False,
+                 apply_min_threshold: bool = True):
         """
         Initialize the multi-specification exposure pipeline.
 
@@ -64,6 +72,7 @@ class TaskFirmExposurePipeline:
             task_type: Task type ('core' or 'all')
             onet_version: O*NET version (default: 20). BLS SOC-10→ISCO-08 crosswalk only compatible with v20
             use_employment_weights: If True, use employment-weighted aggregation for O*NET→ISCO crosswalk via 6-digit SOC
+            apply_min_threshold: If True (default), filter matches by both percentile AND minimum similarity threshold (above_min_threshold column)
         """
         self.aggregation_method = aggregation_method
         self.time_invariant = time_invariant
@@ -75,6 +84,7 @@ class TaskFirmExposurePipeline:
         self.task_type = task_type
         self.onet_version = onet_version
         self.use_employment_weights = use_employment_weights
+        self.apply_min_threshold = apply_min_threshold
 
         # Validate O*NET version compatibility with BLS SOC-10 crosswalk
         if onet_version >= 25:
@@ -1923,10 +1933,10 @@ class TaskFirmExposurePipeline:
         onet_suffix = f"_onet{self.onet_version}" if getattr(self, 'onet_version', None) else ""
 
         # Task suffix
-        task_suffix = f"_{task_type}_tasks"
+        task_suffix = f"_{task_type}"
 
         # Construct filename using same pattern as stage_4
-        # e.g. task_exposure_matches_all_thresholds_openai_bge20_15_10_5_1_ce0p8_0p6_onet20_core_tasks.parquet
+        # e.g. task_exposure_matches_all_thresholds_openai_bge20_15_10_5_1_ce0p8_0p6_onet20_core.parquet
         bge_part = f"_bge{percentile_str}" if percentile_str else ""
         filename = f"task_exposure_matches_all_thresholds_{model}{bge_part}{ce_part}{onet_suffix}{task_suffix}.parquet"
         filepath = os.path.join(self.stage_4_dir, filename)
@@ -2164,15 +2174,22 @@ class TaskFirmExposurePipeline:
             logger.info(f"\n[{spec_idx}/{len(specifications)}] {bge_col} × {ce_col}")
 
             # Filter matches for this specification
-            # When CE is missing and we're using ce_0.0, skip the CE column in the AND logic
+            # Build filter mask: always use percentile, optionally add minimum threshold and CE
             if ce_col == 'ce_0.0' and not ce_scores_exist:
                 # CE is missing, so use BGE filter only (ce_0.0 is effectively always True)
-                spec_matches = task_app_matches[task_app_matches[bge_col]].copy()
+                filter_mask = task_app_matches[bge_col]
             else:
                 # Normal case: apply both BGE and CE filters
-                spec_matches = task_app_matches[
-                    task_app_matches[bge_col] & task_app_matches[ce_col]
-                ].copy()
+                filter_mask = task_app_matches[bge_col] & task_app_matches[ce_col]
+
+            # Apply minimum threshold filter if enabled and column exists
+            if self.apply_min_threshold and 'above_min_threshold' in task_app_matches.columns:
+                filter_mask = filter_mask & task_app_matches['above_min_threshold']
+                logger.info(f"  Applying minimum threshold filter (above_min_threshold column)")
+            elif self.apply_min_threshold:
+                logger.warning(f"  Minimum threshold filtering requested but 'above_min_threshold' column not found - skipping")
+
+            spec_matches = task_app_matches[filter_mask].copy()
             match_count = len(spec_matches)
             logger.info(f"  Matches: {match_count:,}")
 
@@ -2699,8 +2716,6 @@ def main():
     parser.add_argument("--stage-2-dir", type=str, default="Data/stage_2/")
     parser.add_argument("--top-matches-file", type=str, default=None,
                        help="Path to Stage 4 output file (auto-detect from task type if not provided)")
-    parser.add_argument("--output-file", type=str,
-                       help="Output CSV file path (auto-generate if not provided)")
     parser.add_argument("--aggregation", type=str, default="mean",
                        choices=["mean"],
                        help="Aggregation method for O*NET → ISCO (default: mean)")
@@ -2712,6 +2727,8 @@ def main():
                        help="Cross-encoder thresholds to process (default: 0.8 0.6 0.4 0.2 0.0)")
     parser.add_argument("--time-invariant", action="store_true",
                        help="Use time-invariant exposure (firms exposed to all their AI apps across all years)")
+    parser.add_argument("--ignore-min-threshold", action="store_true",
+                       help="Ignore minimum similarity threshold (use percentile columns only, not above_min_threshold)")
     parser.add_argument("--exposure-table-format", type=str, default="exposed-firm-occ-year",
                        choices=["exposed-firm-occ-year", "all-firm-occ-year", "exposed-occ-year"],
                        help="Exposure table format: 'exposed-firm-occ-year' (only firm-occupation-year combinations with exposure > 0), 'all-firm-occ-year' (all firm-occupation-year combinations including zeros), 'exposed-occ-year' (occupation-year only, constant across firms)")
@@ -2800,7 +2817,8 @@ def main():
             ce_thresholds=args.ce_thresholds,
             task_type=args.task_type,
             onet_version=args.onet_version,
-            use_employment_weights=args.use_employment_weights
+            use_employment_weights=args.use_employment_weights,
+            apply_min_threshold=not args.ignore_min_threshold
         )
 
         # Auto-detect Stage 4 file based on task type if not provided
@@ -2811,7 +2829,7 @@ def main():
         result_df = pipeline.run_full_pipeline(
             top_matches_file=top_matches_file,
             company_file=args.jobs_file,
-            output_file=args.output_file,
+            output_file=None,  # always use auto-generated isco_firm_year_exposure* filename
             save_onet_outputs=args.save_onet_outputs,
             task_type=args.task_type,
             model=args.model,

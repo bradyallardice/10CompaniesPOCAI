@@ -5,6 +5,11 @@ OpenAI Text Embedding Generation Script
 Generates and caches OpenAI text-embedding-3-large embeddings for AI applications
 and O*NET tasks. These embeddings can later be used by Stage 4 as an alternative to BGE.
 
+**Integration with Stage 4**: Stage 4 now automatically calls this module when
+`--use-openai-embeddings` is used. It checks cache first, and if missing, generates
+embeddings with user approval. This script remains available for manual pre-generation
+or regeneration of corrupted caches.
+
 Features:
 - Cache-first: Always loads from cache by default, never calls API unless needed
 - Batched API calls: Processes texts in configurable batches with exponential backoff
@@ -13,7 +18,7 @@ Features:
 - Check-only mode: Verify cache status without generating embeddings
 - Force regeneration: Rebuild cache even if it already exists
 
-Usage:
+Usage (Standalone):
     # Generate embeddings for AI apps and core tasks
     export OPENAI_API_KEY="sk-..."
     python3 generate_openai_embeddings.py \\
@@ -40,6 +45,19 @@ Usage:
         --onet-version 20 \\
         --task-type core \\
         --force-regenerate
+
+Usage (Via Stage 4):
+    # Stage 4 automatically generates embeddings if cache missing
+    python3 stage_4_onet_similarity.py \\
+        --use-openai-embeddings \\
+        --step3-file Data/test.csv \\
+        --onet-version 20
+
+When to use standalone script:
+- Pre-generating embeddings before running Stage 4
+- Regenerating corrupted cache files
+- Testing with different O*NET versions or task types
+- Manual cost inspection and approval workflow
 """
 
 import pandas as pd
@@ -70,6 +88,26 @@ logger = logging.getLogger(__name__)
 OPENAI_MODEL = "text-embedding-3-large"
 OPENAI_DIMS = 3072
 OPENAI_PRICING_PER_MTK = 0.13  # $0.13 per 1M tokens
+
+# Export list for module import
+__all__ = [
+    # Core embedding functions
+    'embed_with_openai_api',
+    'save_embedding_cache',
+    'load_embedding_cache',
+    'generate_cache_key',
+    'get_openai_cache_path',
+    # Data loading functions
+    'load_ai_applications',
+    'load_onet_tasks',
+    'canonicalize_text',
+    # Utility functions
+    'check_cache_status',
+    # Constants
+    'OPENAI_MODEL',
+    'OPENAI_DIMS',
+    'OPENAI_PRICING_PER_MTK',
+]
 
 
 def generate_cache_key(texts: List[str]) -> str:

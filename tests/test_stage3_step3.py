@@ -126,7 +126,7 @@ class TestStage3Step3:
         assert result_path is None, "Step 3 should return None when pipeline stops due to style validation failures"
         
         # Verify malformed file exists (Step 3 creates this and stops)
-        malformed_path = Path(f"/Users/bradyallardice/Desktop/PhD/Projects/KurerAllardice2024/10CompaniesPOCAI/Data/custom_step3_step3_input_malformed.csv")
+        malformed_path = Path(__file__).parent.parent / "Data" / "custom_step3_step3_input_malformed.csv"
         assert malformed_path.exists(), "Step 3 should create malformed file when pipeline stops"
         
         malformed_df = pd.read_csv(malformed_path, dtype=str)
@@ -208,7 +208,7 @@ class TestStage3Step3:
         assert result_path is None, "Step 3 should return None when all responses fail style validation"
         
         # All rows should be in malformed file
-        malformed_path = Path(f"/Users/bradyallardice/Desktop/PhD/Projects/KurerAllardice2024/10CompaniesPOCAI/Data/custom_step3_step3_input_malformed.csv")
+        malformed_path = Path(__file__).parent.parent / "Data" / "custom_step3_step3_input_malformed.csv"
         assert malformed_path.exists(), "Malformed file should be created when all responses fail style validation"
         malformed_df = pd.read_csv(malformed_path)
         assert len(malformed_df) == 3, "All 3 rows should be in malformed file"

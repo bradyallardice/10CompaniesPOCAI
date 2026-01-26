@@ -7,6 +7,12 @@ in a year, producing a clean, analysis-safe table keyed by (company_id, year, ti
 
 Author: Adapted from Allardice/Kurer methodology
 Date: September 2025
+
+python3 stage_6_link_exposure_to_jobs.py \
+--stage5_dir Data/Testing/stage_5/functionality_test/skip_ce/ \
+--output_dir Data/Testing/stage_6/functionality_test/skip_ce/ \
+--occ_code isco --generate_firm_report --task_type core --job_app_mapping_file Data/Testing/stage_4/functionality_test/skip_ce/job_app_mapping_bge_bge20_15_10_5_1_ce0p8_0p6_0p4_0p2_onet20_core.parquet \
+--ai_apps_file Data/Testing/stage_3/functionality_test/test_200_apps.csv
 """
 
 import argparse
@@ -1182,7 +1188,7 @@ def main():
                        default=None,
                        help="Path to Stage 3 output file containing AI applications (required if --generate_firm_report is used)")
     parser.add_argument('--ai_jobs_file', type=str,
-                       default='Data/ai_development_deuplicated_custom.csv',
+                       default='Data/ai_development_deduplicated_custom.csv',
                        help="Path to AI jobs file for firm reports ai_development_deuplicated_custom.csv (required if --generate_firm_report is used)")
 
     args = parser.parse_args()
@@ -1261,7 +1267,7 @@ def main():
             else:
                 # We can only attach ai_app_ids if df_linked still has job_uid in it
                 if 'job_uid' not in df_linked.columns:
-                    log("⚠️  Stage 6 linked data has no 'job_uid' column; skipping ai_app_id attachment")
+                    log("⚠️  Stage 6 linked data has no 'job_uid' column; skipping ai_app_id attachment. This is because the cache we are using only has job, title, and company, not job uid")
                 else:
                     try:
                         jam = pd.read_parquet(args.job_app_mapping_file)

@@ -32,14 +32,14 @@
 - **No new files**: Modify existing files only (unless explicitly requested)
 - **Preserve structure**: Keep original file organization and naming
 - **Use absolute paths**: Never relative paths
-- **Validate everything**: Check types, missing values, ranges, assumptions
+- **Validate everything**: Check types, missing values, ranges, assumptions, and ensure that the data that goes into each step can be properly traced back to the step before and validated, and no data gets lost or changed along the way
 - **Understand Consequences of Changes**: When suggesting changes for a found bug, first state the risk of the changes, the downstream effects of the change, and how we will validate the changes.
 - **Understand Consequences of Changes**: When suggesting changes for a found bug, first state the risk of the changes, the downstream effects of the change, and how we will validate the changes.
 
 ### Data Quality
 - **No NaN values** in critical output columns (post-processing validation required)
 - **Report diagnostics**: Always provide mapping coverage and unmatched records
-- **Validate schemas**: Verify expected columns and data types before proceeding
+- **Validate schemas**: Verify expected columns and data types and data correctness before proceeding
 - **Provide Summariess**: Always add in summaries at the end of scripts showing data quality summaries.
 → See @.claude/rules/data-quality.md for validation requirements
 
@@ -102,6 +102,8 @@ Three-step LLM prompting: extract → separate → filter
 
 ### Stage 4: O*NET Similarity Analysis
 Deduplicate AI applications, create embeddings, calculate task similarity
+- Embeddings: BGE (default) or OpenAI text-embedding-3-large (with `--use-openai-embeddings`)
+- OpenAI embeddings: Automatic cache-or-generate with cost transparency and user approval
 - Output: AI applications matched to O*NET tasks (95th percentile threshold)
 
 ### Stage 5: Firm-Occupation Exposure

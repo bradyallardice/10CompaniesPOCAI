@@ -122,6 +122,11 @@ Deduplicate AI applications and calculate similarity to O*NET occupational tasks
 ### Process
 1. **Deduplicate AI Applications**: Remove duplicate tasks from Stage 3 output, saving mapping file
 2. **Create Text Embeddings**: Generate embeddings for all deduplicated AI tasks and O*NET tasks
+   - **BGE Embeddings** (default): Generated on-the-fly or loaded from cache using BAAI/bge-large-en-v1.5
+   - **OpenAI Embeddings** (optional): text-embedding-3-large via `--use-openai-embeddings`
+     - Automatically checks cache first
+     - If missing: prompts for approval with cost estimate, then generates via OpenAI API
+     - Embeddings cached for future reuse
 3. **Calculate Similarities** (two modes available):
    - **Exhaustive mode** (default): Compute all app-task similarities, calculate global percentiles, filter by percentiles
    - **FAISS mode** (optional): Retrieve top-k apps per task, filter by threshold (faster, different matching logic)
@@ -130,6 +135,41 @@ Deduplicate AI applications and calculate similarity to O*NET occupational tasks
    - FAISS: All retrieved pairs above 0.3 threshold are AI-exposed (no percentile filtering)
 5. **Optional Cross Encoder**: Run subset through cross encoder for refined results
 6. **Output**: CSV file mapping AI tasks to O*NET tasks for Stage 5
+
+### OpenAI Embeddings Integration
+
+**Usage**:
+```bash
+# Automatic mode (cache or generate with approval)
+python3 stage_4_onet_similarity.py \
+  --use-openai-embeddings \
+  --step3-file Data/test.csv \
+  --onet-version 20
+
+# Check cache status only (no API calls)
+python3 stage_4_onet_similarity.py \
+  --use-openai-embeddings \
+  --check-openai-cache-only \
+  --step3-file Data/test.csv \
+  --onet-version 20
+
+# Force regenerate embeddings (overwrites cache)
+python3 stage_4_onet_similarity.py \
+  --use-openai-embeddings \
+  --force-regenerate-openai \
+  --step3-file Data/test.csv \
+  --onet-version 20
+```
+
+**Behavior**:
+- If cache exists: Loads embeddings from cache (no API call)
+- If cache missing: Shows cost estimate → requests user approval → generates via API → saves to cache
+- Standalone script still available for pre-generation: `python3 Code/utilities/generate_openai_embeddings.py ...`
+
+**Cost Control**:
+- Transparent cost estimates before API calls (~$0.08-0.10 for typical dataset)
+- Requires explicit "yes" approval from user
+- Embeddings cached and reused across runs
 
 ### FAISS Optimization (Optional)
 
