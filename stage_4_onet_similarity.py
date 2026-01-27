@@ -112,6 +112,7 @@ class ONETSimilarityMatcher:
                  batch_size: int = 256,
                  embeddings_dir: str = "Data/embeddings",
                  use_openai_embeddings: bool = False,
+                 no_min_similarity_filter: bool = False,
                  use_faiss: bool = False,
                  faiss_k: int = 200,
                  faiss_index_type: str = "Flat",
@@ -126,6 +127,9 @@ class ONETSimilarityMatcher:
             batch_size: Batch size for embedding computation
             embeddings_dir: Directory to store cached embeddings
             use_openai_embeddings: If True, load pre-generated OpenAI embeddings instead of BGE
+            no_min_similarity_filter: If True, do not filter candidate pairs by minimum_similarity in Stage 4.
+                Stage 4 will still write an 'above_min_threshold' boolean column and downstream stages can decide
+                whether to apply it. WARNING: this can substantially increase output size (especially in range_search).
             use_faiss: If True, use FAISS ANN search for top-k apps per task (default: False)
             faiss_k: Number of top-k apps to retrieve per task in FAISS mode (default: 200)
             faiss_index_type: FAISS index type (default: "Flat")
@@ -137,6 +141,7 @@ class ONETSimilarityMatcher:
         self.batch_size = batch_size
         self.embeddings_dir = embeddings_dir
         self.use_openai_embeddings = use_openai_embeddings
+        self.no_min_similarity_filter = no_min_similarity_filter
         self.use_faiss = use_faiss
         self.faiss_k = faiss_k
         self.faiss_index_type = faiss_index_type
@@ -641,7 +646,7 @@ class ONETSimilarityMatcher:
         tasks = load_onet_tasks(
             onet_version=onet_version,
             task_type='core',  # Match Stage 4 typical usage
-            include_soc_15=False  # Default behavior
+            include_soc_15=include_soc_15  # Default behavior
         )
         logger.info(f"Loaded {len(tasks):,} O*NET tasks")
 
@@ -934,12 +939,15 @@ class ONETSimilarityMatcher:
             model_identifier = model_abbr
 
         # Include FAISS parameters in hash if FAISS mode
+        min_filter_tag = "nofilter" if self.no_min_similarity_filter else "minfilter"
         if mode == "faiss":
-            mode_suffix = f"_faiss_k{self.faiss_k}"
-            cache_hash_input = f"{len(app_texts)}|{len(onet_tasks)}|{minimum_similarity}|{model_identifier}|faiss|{self.faiss_k}"
+            mode_suffix = f"_faiss_k{self.faiss_k}_{min_filter_tag}"
+            cache_hash_input = (
+                f"{len(app_texts)}|{len(onet_tasks)}|{minimum_similarity}|{model_identifier}|faiss|{self.faiss_k}|{min_filter_tag}"
+            )
         else:
-            mode_suffix = "_exhaustive"
-            cache_hash_input = f"{len(app_texts)}|{len(onet_tasks)}|{minimum_similarity}|{model_identifier}|exhaustive"
+            mode_suffix = f"_exhaustive_{min_filter_tag}"
+            cache_hash_input = f"{len(app_texts)}|{len(onet_tasks)}|{minimum_similarity}|{model_identifier}|exhaustive|{min_filter_tag}"
 
         # Create stable deterministic hash
         content_hash = hashlib.md5(cache_hash_input.encode()).hexdigest()[:8]
@@ -1506,14 +1514,18 @@ class ONETSimilarityMatcher:
             similarities = similarities[0]  # Flatten from (1, k) to (k,)
             app_indices = app_indices[0]
 
-            # Filter by minimum threshold
-            above_threshold = similarities >= self.minimum_similarity
-            selected_app_indices = app_indices[above_threshold]
-            selected_similarities = similarities[above_threshold]
+            # Filter by minimum threshold (optional; downstream can decide via above_min_threshold)
+            if self.no_min_similarity_filter:
+                selected_app_indices = app_indices
+                selected_similarities = similarities
+            else:
+                above_threshold = similarities >= self.minimum_similarity
+                selected_app_indices = app_indices[above_threshold]
+                selected_similarities = similarities[above_threshold]
 
-            # Track saturation (indicator that k might be too small)
-            if len(selected_app_indices) == k_actual:
-                n_tasks_saturated += 1
+                # Track saturation (indicator that k might be too small)
+                if len(selected_app_indices) == k_actual:
+                    n_tasks_saturated += 1
 
             # For each selected app, add all job_uids to results
             for app_idx, similarity in zip(selected_app_indices, selected_similarities):
@@ -1535,14 +1547,27 @@ class ONETSimilarityMatcher:
 
         # Step 5: Convert to DataFrame
         results_df = pd.DataFrame(results)
-        logger.info(f"FAISS mode generated {len(results_df)} matches (all above threshold {self.minimum_similarity})")
+        # Always compute above_min_threshold for downstream filtering decisions
+        if not results_df.empty:
+            results_df['above_min_threshold'] = results_df['similarity'] >= self.minimum_similarity
+        else:
+            results_df['above_min_threshold'] = pd.Series(dtype=bool)
+
+        if self.no_min_similarity_filter:
+            logger.info(
+                f"FAISS mode generated {len(results_df)} matches (top-{self.faiss_k} per task; "
+                f"above_min_threshold computed separately)"
+            )
+        else:
+            logger.info(f"FAISS mode generated {len(results_df)} matches (all >= {self.minimum_similarity})")
 
         # Log saturation statistics
-        saturation_pct = 100 * n_tasks_saturated / len(task_id_list) if len(task_id_list) > 0 else 0
-        logger.info(f"Saturation: {n_tasks_saturated}/{len(task_id_list)} tasks ({saturation_pct:.1f}%) "
-                   f"had all {self.faiss_k} retrieved apps above threshold")
-        if saturation_pct > 50:
-            logger.warning(f"High saturation ({saturation_pct:.1f}%)! Consider increasing --faiss-k to avoid missing matches.")
+        if not self.no_min_similarity_filter:
+            saturation_pct = 100 * n_tasks_saturated / len(task_id_list) if len(task_id_list) > 0 else 0
+            logger.info(f"Saturation: {n_tasks_saturated}/{len(task_id_list)} tasks ({saturation_pct:.1f}%) "
+                       f"had all {self.faiss_k} retrieved apps above threshold")
+            if saturation_pct > 50:
+                logger.warning(f"High saturation ({saturation_pct:.1f}%)! Consider increasing --faiss-k to avoid missing matches.")
 
         # Save to cache
         if use_cache:
@@ -1580,10 +1605,27 @@ class ONETSimilarityMatcher:
         if bge_percentiles is None:
             bge_percentiles = [20, 15, 10, 5, 1]
 
+        # Candidate retention floor:
+        # - Default (historical): keep only pairs >= minimum_similarity
+        # - If --no-min-similarity-filter: keep pairs above the loosest percentile threshold (estimated)
+        #   and write above_min_threshold separately for downstream choice.
+        if self.no_min_similarity_filter:
+            logger.info(
+                "No-min-similarity-filter enabled: exhaustive mode will retain pairs above the loosest "
+                "estimated percentile threshold (not >= --minimum-similarity) and write above_min_threshold separately."
+            )
+            est_thresholds = self._estimate_global_percentiles_adaptive(
+                apps_embeddings, onet_embeddings, bge_percentiles, random_seed=42
+            )
+            selection_floor = min(est_thresholds[p] for p in bge_percentiles)
+            logger.info(f"Exhaustive candidate floor (min of estimated percentiles): {selection_floor:.4f}")
+        else:
+            selection_floor = self.minimum_similarity
+
         # Check cache first
         app_texts = apps_df['app_text'].unique().tolist()
         onet_tasks = onet_df['Task'].tolist()
-        cache_path = self._get_similarity_cache_path(app_texts, onet_tasks, self.minimum_similarity, mode="exhaustive")
+        cache_path = self._get_similarity_cache_path(app_texts, onet_tasks, selection_floor, mode="exhaustive")
 
         if use_cache:
             cache_result = self._load_similarity_cache(cache_path)
@@ -1616,7 +1658,7 @@ class ONETSimilarityMatcher:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         # Create checkpoint identifier based on cache path
-        cache_filename = f"similarities_apps{len(app_texts)}_tasks{len(onet_tasks)}_min{self.minimum_similarity:.1f}"
+        cache_filename = f"similarities_apps{len(app_texts)}_tasks{len(onet_tasks)}_min{selection_floor:.3f}"
         checkpoint_prefix = checkpoint_dir / cache_filename
 
         filtered_results_df = pd.DataFrame()
@@ -1688,8 +1730,8 @@ class ONETSimilarityMatcher:
                                 'similarity': float(similarity)
                             })
 
-                # Apply global minimum threshold
-                above_threshold = similarities >= self.minimum_similarity
+                # Apply candidate retention floor (see selection_floor above)
+                above_threshold = similarities >= selection_floor
                 selected_indices = np.where(above_threshold)[0]
 
                 # Create filtered results for this application
@@ -1737,7 +1779,7 @@ class ONETSimilarityMatcher:
 
             logger.info(f"Chunk complete. Current memory: {filtered_results_df.memory_usage(deep=True).sum() / 1e6:.1f} MB")
 
-        logger.info(f"Generated {len(filtered_results_df)} filtered similarity matches (above threshold {self.minimum_similarity})")
+        logger.info(f"Generated {len(filtered_results_df)} filtered similarity matches (above threshold {selection_floor:.4f})")
         logger.info(f"Generated {len(all_results_df)} total similarity matches")
 
         # Calculate global percentile threshold on ALL similarity scores
@@ -3007,7 +3049,14 @@ class ONETSimilarityMatcher:
 
         for p in sorted(percentile_thresholds.keys(), reverse=True):
             threshold = percentile_thresholds[p]
-            col_name = f'pct_{int(p):02d}'
+            # Match naming used elsewhere in the codebase:
+            # - ints: pct_20, pct_05, pct_01
+            # - floats: pct_0p1 (for 0.1)
+            if isinstance(p, (int, float)) and p == int(p):
+                col_name = f'pct_{int(p):02d}'
+            else:
+                pct_str = f'{p:.1f}'.replace('.', 'p')
+                col_name = f'pct_{pct_str}'
             pairs_df[col_name] = pairs_df['similarity'] >= threshold
 
             n_matches = pairs_df[col_name].sum()
@@ -3153,6 +3202,7 @@ class ONETSimilarityMatcher:
         logger.info("Starting Step 4: O*NET Similarity Matching Pipeline")
         logger.info(f"Model: {self.model_name}")
         logger.info(f"Minimum similarity threshold: {self.minimum_similarity}")
+        logger.info(f"Stage 4 minimum-similarity filtering: {'DISABLED (write above_min_threshold for downstream)' if self.no_min_similarity_filter else 'ENABLED (filter candidates by minimum_similarity)'}")
         logger.info(f"Batch size: {self.batch_size}")
         logger.info(f"Device: {self.device}")
         logger.info(f"O*NET cache: {'enabled' if use_onet_cache else 'disabled'}")
@@ -3173,9 +3223,14 @@ class ONETSimilarityMatcher:
         dedup_df.to_parquet(dedup_file, index=False)
         logger.info(f"Saved deduplicated applications to: {dedup_file}")
         
-        # Load O*NET tasks - always load FULL set first (for embedding cache compatibility)
-        # Then filter after embedding to reuse cached embeddings
-        onet_df_full = self.load_onet_tasks(onet_file_path, include_soc_15=True, filter_supplements=False)
+        # Load O*NET tasks. We respect --include-soc-15 here so OpenAI/BGE caches line up with the
+        # exact task set the user intends to run (avoids unnecessary embedding generation / API calls).
+        onet_df_full = self.load_onet_tasks(
+                            onet_file_path,
+                            include_soc_15=include_soc_15,
+                            filter_supplements=False
+                        )
+
 
         # Phase B: Embed texts
         unique_app_texts = dedup_df['app_text'].unique().tolist()
@@ -3243,20 +3298,42 @@ class ONETSimilarityMatcher:
             )
 
             # Phase 3: FAISS range search
-            # Find the minimum threshold needed to capture ALL percentiles
-            # For each percentile, apply max(minimum_similarity, pct_threshold), then take the minimum
-            threshold_values = [max(self.minimum_similarity, percentile_thresholds[p]) for p in bge_percentiles]
+            # Find the minimum threshold needed to capture ALL percentiles.
+            #
+            # By default, Stage 4 historically "baked in" --minimum-similarity during candidate generation
+            # (max(minimum_similarity, percentile_threshold)). That makes downstream pct_XX columns trivial
+            # when percentile thresholds are below minimum_similarity.
+            #
+            # If --no-min-similarity-filter is enabled, we generate candidates based ONLY on percentile
+            # thresholds and write above_min_threshold as a separate boolean column for downstream choice.
+            if self.no_min_similarity_filter:
+                threshold_values = [percentile_thresholds[p] for p in bge_percentiles]
+            else:
+                threshold_values = [max(self.minimum_similarity, percentile_thresholds[p]) for p in bge_percentiles]
             min_threshold = min(threshold_values)
 
             # Determine which percentile corresponds to this threshold
-            min_pct = max([p for p in bge_percentiles if max(self.minimum_similarity, percentile_thresholds[p]) == min_threshold])
+            if self.no_min_similarity_filter:
+                min_pct = max([p for p in bge_percentiles if percentile_thresholds[p] == min_threshold])
+            else:
+                min_pct = max([p for p in bge_percentiles if max(self.minimum_similarity, percentile_thresholds[p]) == min_threshold])
 
             logger.info(f"Phase 3: Running FAISS range search with threshold {min_threshold:.4f}")
             logger.info(f"  Threshold captures all percentiles: {sorted(bge_percentiles, reverse=True)}")
             logger.info(f"  Using p{min_pct} threshold (least restrictive)")
             for p in sorted(bge_percentiles, reverse=True):
-                effective_thresh = max(self.minimum_similarity, percentile_thresholds[p])
-                logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}, effective {effective_thresh:.4f}")
+                if self.no_min_similarity_filter:
+                    logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}")
+                else:
+                    effective_thresh = max(self.minimum_similarity, percentile_thresholds[p])
+                    logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}, effective {effective_thresh:.4f}")
+
+            if (not self.no_min_similarity_filter) and any(percentile_thresholds[p] < self.minimum_similarity for p in bge_percentiles):
+                logger.warning(
+                    "Percentile thresholds are below --minimum-similarity. "
+                    "This will make some pct_XX columns trivially True for all retained pairs. "
+                    "To keep pct_XX columns independent of --minimum-similarity, rerun with --no-min-similarity-filter."
+                )
 
             # Get app_texts list matching embedding order
             app_texts = dedup_df['app_text'].unique().tolist()
@@ -4099,6 +4176,11 @@ def parse_arguments():
 
     parser.add_argument("--minimum-similarity", type=float, default=0.3,
                        help="Minimum BGE similarity threshold for keeping pairs (default: 0.3)")
+
+    parser.add_argument("--no-min-similarity-filter", action="store_true",
+                       help="Do not filter candidate pairs by --minimum-similarity in Stage 4. "
+                            "Stage 4 will still write an 'above_min_threshold' boolean column and downstream "
+                            "stages can decide whether to apply it. WARNING: can substantially increase output size.")
     
     parser.add_argument("--enable-fuzzy-dedup", action="store_true",
                        help="Enable fuzzy deduplication clustering")
@@ -4342,6 +4424,7 @@ def main():
             batch_size=batch_size,
             embeddings_dir=args.embeddings_dir,
             use_openai_embeddings=args.use_openai_embeddings,
+            no_min_similarity_filter=args.no_min_similarity_filter,
             use_faiss=args.use_faiss,
             faiss_k=args.faiss_k,
             faiss_index_type=args.faiss_index_type,
@@ -4855,4 +4938,6 @@ def validate_similarity_scores(output_files, matcher, sample_size=100, tolerance
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.set_start_method('spawn', force=True)
     main()
