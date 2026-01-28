@@ -3291,228 +3291,289 @@ class ONETSimilarityMatcher:
 
             logger.info(f"Built job_uid_lookup with {len(job_uid_lookup)} unique apps")
 
-            # Phase 2: Adaptive sampling for global percentiles
-            logger.info("Phase 2: Estimating global percentiles via adaptive sampling")
-            percentile_thresholds = self._estimate_global_percentiles_adaptive(
-                apps_embeddings, onet_embeddings, bge_percentiles, random_seed
-            )
-
-            # Phase 3: FAISS range search
-            # Find the minimum threshold needed to capture ALL percentiles.
+            # Decide which task set(s) to run.
             #
-            # By default, Stage 4 historically "baked in" --minimum-similarity during candidate generation
-            # (max(minimum_similarity, percentile_threshold)). That makes downstream pct_XX columns trivial
-            # when percentile thresholds are below minimum_similarity.
+            # IMPORTANT: In range-search mode we must apply task-type filtering BEFORE:
+            # - estimating percentile thresholds
+            # - running FAISS range_search
             #
-            # If --no-min-similarity-filter is enabled, we generate candidates based ONLY on percentile
-            # thresholds and write above_min_threshold as a separate boolean column for downstream choice.
-            if self.no_min_similarity_filter:
-                threshold_values = [percentile_thresholds[p] for p in bge_percentiles]
+            # Otherwise, a "core" run will incorrectly include Supplemental tasks and the
+            # percentile thresholds will be computed on the wrong task universe.
+            if task_type == 'both':
+                task_runs = ['core', 'all']
+            elif task_type in ('core', 'all'):
+                task_runs = [task_type]
             else:
-                threshold_values = [max(self.minimum_similarity, percentile_thresholds[p]) for p in bge_percentiles]
-            min_threshold = min(threshold_values)
+                raise ValueError(f"Invalid task_type for range-search mode: {task_type!r}")
 
-            # Determine which percentile corresponds to this threshold
-            if self.no_min_similarity_filter:
-                min_pct = max([p for p in bge_percentiles if percentile_thresholds[p] == min_threshold])
-            else:
-                min_pct = max([p for p in bge_percentiles if max(self.minimum_similarity, percentile_thresholds[p]) == min_threshold])
+            output_files = []
+            validation_metrics = {
+                'mode': 'range_search',
+                'task_type': task_type,
+                'by_task_type': {}
+            }
+            last_pairs_df = None
 
-            logger.info(f"Phase 3: Running FAISS range search with threshold {min_threshold:.4f}")
-            logger.info(f"  Threshold captures all percentiles: {sorted(bge_percentiles, reverse=True)}")
-            logger.info(f"  Using p{min_pct} threshold (least restrictive)")
-            for p in sorted(bge_percentiles, reverse=True):
-                if self.no_min_similarity_filter:
-                    logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}")
+            for out_task_type in task_runs:
+                # Filter task dataframe + embeddings for this run
+                if out_task_type == 'core':
+                    core_mask = (onet_df['Task Type'] == 'Core')
+                    onet_df_run = onet_df[core_mask].copy().reset_index(drop=True)
+                    onet_embeddings_run = onet_embeddings[core_mask]
                 else:
-                    effective_thresh = max(self.minimum_similarity, percentile_thresholds[p])
-                    logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}, effective {effective_thresh:.4f}")
+                    # 'all' includes Core + Supplemental + any missing Task Type rows (if present)
+                    onet_df_run = onet_df.copy().reset_index(drop=True)
+                    onet_embeddings_run = onet_embeddings
 
-            if (not self.no_min_similarity_filter) and any(percentile_thresholds[p] < self.minimum_similarity for p in bge_percentiles):
-                logger.warning(
-                    "Percentile thresholds are below --minimum-similarity. "
-                    "This will make some pct_XX columns trivially True for all retained pairs. "
-                    "To keep pct_XX columns independent of --minimum-similarity, rerun with --no-min-similarity-filter."
+                logger.info("=" * 80)
+                logger.info(f"RANGE SEARCH SUB-RUN: task_type={out_task_type}")
+                logger.info(f"Tasks in sub-run: {len(onet_df_run):,}")
+                logger.info("=" * 80)
+
+                if len(onet_df_run) == 0:
+                    raise ValueError(
+                        f"No O*NET tasks available after filtering for task_type={out_task_type!r}. "
+                        "Check your O*NET task statements file and filtering flags."
+                    )
+
+                # Phase 2: Adaptive sampling for global percentiles (on the correct task universe)
+                logger.info("Phase 2: Estimating global percentiles via adaptive sampling")
+                percentile_thresholds = self._estimate_global_percentiles_adaptive(
+                    apps_embeddings, onet_embeddings_run, bge_percentiles, random_seed
                 )
 
-            # Get app_texts list matching embedding order
-            app_texts = dedup_df['app_text'].unique().tolist()
-
-            pairs_df = self._compute_similarities_faiss_range(
-                apps_embeddings, onet_embeddings, min_threshold,
-                app_texts, onet_df, job_uid_lookup, range_chunk_size
-            )
-
-            # Phase 4: Add percentile boolean columns
-            logger.info("Phase 4: Adding percentile boolean columns")
-            pairs_df = self._add_percentile_columns(pairs_df, percentile_thresholds)
-
-            # Phase 4a: Add minimum threshold boolean column
-            logger.info(f"Phase 4a: Adding minimum threshold column (>= {self.minimum_similarity})")
-            pairs_df['above_min_threshold'] = pairs_df['similarity'] >= self.minimum_similarity
-            above_min_count = pairs_df['above_min_threshold'].sum()
-            logger.info(f"  above_min_threshold: {above_min_count:,} pairs above {self.minimum_similarity}")
-
-            # Phase 4b: Add CE columns (required for Stage 5 compatibility)
-            if skip_cross_encoder:
-                logger.info("Phase 4b: Adding CE threshold columns (all False - CE skipped)")
-                for ce_thresh in ce_thresholds:
-                    col_name = f'ce_{ce_thresh:.1f}'
-                    pairs_df[col_name] = False
-                    logger.info(f"  {col_name}: 0 matches (CE skipped)")
-
-            # Phase 5: Write to parquet
-            # Build filename matching exhaustive mode pattern
-            if self.use_openai_embeddings:
-                model_suffix = "_openai"
-            else:
-                model_abbr = self.model_name.split("/")[-1].split("-")[0]
-                model_suffix = f"_{model_abbr}"
-
-            percentile_str = "_".join(str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
-                                      for p in sorted(bge_percentiles, reverse=True))
-            ce_percentile_str = "_".join(f"{c:.1f}".replace(".", "p") for c in sorted(ce_thresholds, reverse=True) if c > 0.0)
-            ce_suffix = f"_ce{ce_percentile_str}" if ce_percentile_str else ""
-            onet_suffix = f"_onet{onet_version}" if onet_version else ""
-
-            output_file = os.path.join(
-                output_dir,
-                f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{task_type}.parquet"
-            )
-
-            logger.info("Phase 5: Writing results to compressed parquet")
-            write_large_parquet_compressed(pairs_df, output_file)
-
-            # Phase 6: Generate task summary (per task diagnostics)
-            logger.info("Phase 6: Generating task-level exposure summary")
-            task_summary_df = self._generate_task_summary(pairs_df, job_uid_lookup)
-
-            task_summary_file = os.path.join(
-                output_dir,
-                f"task_summary{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{task_type}.parquet"
-            )
-            task_summary_df.to_parquet(task_summary_file, compression='snappy')
-            logger.info(f"Saved task summary to: {task_summary_file}")
-
-            # Phase 6b: Build job→application mapping (app-level, not task-level)
-            logger.info("Phase 6b: Building job→application mapping for downstream stages")
-            job_mapping_records = []
-            for app_text, uid_ts_list in job_uid_lookup.items():
-                ordered_uids = [uid for uid, _ in uid_ts_list]
-                unique_uids = list(dict.fromkeys(ordered_uids))
-                first_ts = uid_ts_list[0][1] if uid_ts_list else None
-                job_mapping_records.append({
-                    'app_text': app_text,
-                    'ai_app_id': hashlib.md5(app_text.encode('utf-8')).hexdigest().upper(),  # 32-char uppercase hex (full MD5)
-                    'job_uids': '|'.join(sorted(unique_uids)),
-                    'num_jobs': len(unique_uids),
-                    'first_occurrence_tst_created': first_ts
-                })
-
-            job_mapping_df = pd.DataFrame(job_mapping_records)
-
-            job_mapping_file = os.path.join(
-                output_dir,
-                f"job_app_mapping{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{task_type}.parquet"
-            )
-            job_mapping_df.to_parquet(job_mapping_file, compression='snappy', index=False)
-            logger.info(f"Saved job mapping to: {job_mapping_file} ({len(job_mapping_df):,} app-task rows)")
-
-            # Phase 7: Optional cross-encoder validation
-            if not skip_cross_encoder:
-                logger.info("Phase 7: Running cross-encoder on top percentile matches")
-                # Filter to broadest percentile (p20 typically) to match exhaustive mode behavior
-                # This ensures CE scores are available for all BGE percentile levels
-                max_bge_percentile = max(bge_percentiles)
-                ce_col = f'pct_{int(max_bge_percentile):02d}'
-                ce_input_df = pairs_df[pairs_df[ce_col]].copy()
-
-                logger.info(f"Running CE on top {max_bge_percentile}% ({len(ce_input_df):,} pairs)")
-
-                # Use existing cross-encoder validation methods (handles caching, checkpoints, etc.)
-                num_workers = getattr(self, 'num_workers', 1)  # Get from instance if set
-                if num_workers > 1:
-                    logger.info(f"Parallel cross-encoder validation ({num_workers} workers)")
-                    ce_validated_df, ce_report = self.validate_with_cross_encoder_parallel(
-                        similarity_df=ce_input_df,
-                        cross_encoder_model=cross_encoder_model,
-                        threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds
-                        batch_size=cross_encoder_batch_size,
-                        num_workers=num_workers,
-                        use_cache=use_cross_encoder_cache
-                    )
+                # Phase 3: FAISS range search
+                # Find the minimum threshold needed to capture ALL percentiles.
+                #
+                # By default, Stage 4 historically "baked in" --minimum-similarity during candidate generation
+                # (max(minimum_similarity, percentile_threshold)). That makes downstream pct_XX columns trivial
+                # when percentile thresholds are below minimum_similarity.
+                #
+                # If --no-min-similarity-filter is enabled, we generate candidates based ONLY on percentile
+                # thresholds and write above_min_threshold as a separate boolean column for downstream choice.
+                if self.no_min_similarity_filter:
+                    threshold_values = [percentile_thresholds[p] for p in bge_percentiles]
                 else:
-                    logger.info("Serial cross-encoder validation")
-                    ce_validated_df, ce_report = self.validate_with_cross_encoder(
-                        similarity_df=ce_input_df,
-                        cross_encoder_model=cross_encoder_model,
-                        threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds
-                        batch_size=cross_encoder_batch_size,
-                        use_cache=use_cross_encoder_cache
+                    threshold_values = [max(self.minimum_similarity, percentile_thresholds[p]) for p in bge_percentiles]
+                min_threshold = min(threshold_values)
+
+                # Determine which percentile corresponds to this threshold
+                if self.no_min_similarity_filter:
+                    min_pct = max([p for p in bge_percentiles if percentile_thresholds[p] == min_threshold])
+                else:
+                    min_pct = max([p for p in bge_percentiles if max(self.minimum_similarity, percentile_thresholds[p]) == min_threshold])
+
+                logger.info(f"Phase 3: Running FAISS range search with threshold {min_threshold:.4f}")
+                logger.info(f"  Threshold captures all percentiles: {sorted(bge_percentiles, reverse=True)}")
+                logger.info(f"  Using p{min_pct} threshold (least restrictive)")
+                for p in sorted(bge_percentiles, reverse=True):
+                    if self.no_min_similarity_filter:
+                        logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}")
+                    else:
+                        effective_thresh = max(self.minimum_similarity, percentile_thresholds[p])
+                        logger.info(f"    p{p}: estimated {percentile_thresholds[p]:.4f}, effective {effective_thresh:.4f}")
+
+                if (not self.no_min_similarity_filter) and any(percentile_thresholds[p] < self.minimum_similarity for p in bge_percentiles):
+                    logger.warning(
+                        "Percentile thresholds are below --minimum-similarity. "
+                        "This will make some pct_XX columns trivially True for all retained pairs. "
+                        "To keep pct_XX columns independent of --minimum-similarity, rerun with --no-min-similarity-filter."
                     )
 
-                # Merge CE scores back into pairs_df
-                # ce_validated_df has cross_encoder_score column
-                pairs_df.loc[ce_validated_df.index, 'cross_encoder_score'] = ce_validated_df['cross_encoder_score']
+                # Get app_texts list matching embedding order
+                app_texts = dedup_df['app_text'].unique().tolist()
 
-                logger.info(f"Cross-encoder complete. Mean CE score: {ce_validated_df['cross_encoder_score'].mean():.4f}")
+                pairs_df = self._compute_similarities_faiss_range(
+                    apps_embeddings, onet_embeddings_run, min_threshold,
+                    app_texts, onet_df_run, job_uid_lookup, range_chunk_size
+                )
 
-                # Add CE threshold boolean columns (required for Stage 5)
-                logger.info("Adding CE threshold boolean columns")
-                for ce_thresh in ce_thresholds:
-                    col_name = f'ce_{ce_thresh:.1f}'
-                    if ce_thresh == 0.0:
-                        # ce_0.0 means "no CE filtering" - always True
-                        pairs_df[col_name] = True
-                        match_count = len(pairs_df)
-                        logger.info(f"  {col_name}: {match_count:,} matches (no CE filtering)")
-                    else:
-                        # Apply threshold only where CE score exists (NaN will become False)
-                        pairs_df[col_name] = (
-                            (pairs_df['cross_encoder_score'] >= ce_thresh) &
-                            pairs_df['cross_encoder_score'].notna()
-                        )
-                        match_count = pairs_df[col_name].sum()
-                        logger.info(f"  {col_name}: {match_count:,} matches")
+                # Attach task_type metadata (helps downstream validation and debugging)
+                # Note: onet_task_id already corresponds to onet_df_run['task_id'] values.
+                pairs_df = pairs_df.merge(
+                    onet_df_run[['task_id', 'Task Type', 'O*NET-SOC Code']]
+                        .rename(columns={'task_id': 'onet_task_id', 'Task Type': 'task_type', 'O*NET-SOC Code': 'onet_soc'}),
+                    on='onet_task_id',
+                    how='left'
+                )
 
-                # Re-write parquet with CE scores and threshold columns
-                logger.info("Re-writing parquet with cross-encoder scores and threshold columns")
+                # Phase 4: Add percentile boolean columns
+                logger.info("Phase 4: Adding percentile boolean columns")
+                pairs_df = self._add_percentile_columns(pairs_df, percentile_thresholds)
+
+                # Phase 4a: Add minimum threshold boolean column
+                logger.info(f"Phase 4a: Adding minimum threshold column (>= {self.minimum_similarity})")
+                pairs_df['above_min_threshold'] = pairs_df['similarity'] >= self.minimum_similarity
+                above_min_count = pairs_df['above_min_threshold'].sum()
+                logger.info(f"  above_min_threshold: {above_min_count:,} pairs above {self.minimum_similarity}")
+
+                # Phase 4b: Add CE columns (required for Stage 5 compatibility)
+                if skip_cross_encoder:
+                    logger.info("Phase 4b: Adding CE threshold columns (all False - CE skipped)")
+                    for ce_thresh in ce_thresholds:
+                        col_name = f'ce_{ce_thresh:.1f}'
+                        pairs_df[col_name] = False
+                        logger.info(f"  {col_name}: 0 matches (CE skipped)")
+
+                # Phase 5: Write to parquet
+                # Build filename matching exhaustive mode pattern
+                if self.use_openai_embeddings:
+                    model_suffix = "_openai"
+                else:
+                    model_abbr = self.model_name.split("/")[-1].split("-")[0]
+                    model_suffix = f"_{model_abbr}"
+
+                percentile_str = "_".join(str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
+                                          for p in sorted(bge_percentiles, reverse=True))
+                ce_percentile_str = "_".join(f"{c:.1f}".replace(".", "p") for c in sorted(ce_thresholds, reverse=True) if c > 0.0)
+                ce_suffix = f"_ce{ce_percentile_str}" if ce_percentile_str else ""
+                onet_suffix = f"_onet{onet_version}" if onet_version else ""
+
+                output_file = os.path.join(
+                    output_dir,
+                    f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{out_task_type}.parquet"
+                )
+
+                logger.info("Phase 5: Writing results to compressed parquet")
                 write_large_parquet_compressed(pairs_df, output_file)
-            else:
-                logger.info("Phase 7: Skipping cross-encoder validation (--skip-cross-encoder)")
+
+                # Phase 6: Generate task summary (per task diagnostics)
+                logger.info("Phase 6: Generating task-level exposure summary")
+                task_summary_df = self._generate_task_summary(pairs_df, job_uid_lookup)
+
+                task_summary_file = os.path.join(
+                    output_dir,
+                    f"task_summary{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{out_task_type}.parquet"
+                )
+                task_summary_df.to_parquet(task_summary_file, compression='snappy')
+                logger.info(f"Saved task summary to: {task_summary_file}")
+
+                # Phase 6b: Build job→application mapping (app-level, not task-level)
+                logger.info("Phase 6b: Building job→application mapping for downstream stages")
+                job_mapping_records = []
+                for app_text, uid_ts_list in job_uid_lookup.items():
+                    ordered_uids = [uid for uid, _ in uid_ts_list]
+                    unique_uids = list(dict.fromkeys(ordered_uids))
+                    first_ts = uid_ts_list[0][1] if uid_ts_list else None
+                    job_mapping_records.append({
+                        'app_text': app_text,
+                        'ai_app_id': hashlib.md5(app_text.encode('utf-8')).hexdigest().upper(),  # 32-char uppercase hex (full MD5)
+                        'job_uids': '|'.join(sorted(unique_uids)),
+                        'num_jobs': len(unique_uids),
+                        'first_occurrence_tst_created': first_ts
+                    })
+
+                job_mapping_df = pd.DataFrame(job_mapping_records)
+
+                job_mapping_file = os.path.join(
+                    output_dir,
+                    f"job_app_mapping{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{out_task_type}.parquet"
+                )
+                job_mapping_df.to_parquet(job_mapping_file, compression='snappy', index=False)
+                logger.info(f"Saved job mapping to: {job_mapping_file} ({len(job_mapping_df):,} app-task rows)")
+
+                # Phase 7: Optional cross-encoder validation
+                if not skip_cross_encoder:
+                    logger.info("Phase 7: Running cross-encoder on top percentile matches")
+                    # Filter to broadest percentile (p20 typically) to match exhaustive mode behavior
+                    # This ensures CE scores are available for all BGE percentile levels
+                    max_bge_percentile = max(bge_percentiles)
+                    ce_col = f'pct_{int(max_bge_percentile):02d}'
+                    ce_input_df = pairs_df[pairs_df[ce_col]].copy()
+
+                    logger.info(f"Running CE on top {max_bge_percentile}% ({len(ce_input_df):,} pairs)")
+
+                    # Use existing cross-encoder validation methods (handles caching, checkpoints, etc.)
+                    num_workers = getattr(self, 'num_workers', 1)  # Get from instance if set
+                    if num_workers > 1:
+                        logger.info(f"Parallel cross-encoder validation ({num_workers} workers)")
+                        ce_validated_df, ce_report = self.validate_with_cross_encoder_parallel(
+                            similarity_df=ce_input_df,
+                            cross_encoder_model=cross_encoder_model,
+                            threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds
+                            batch_size=cross_encoder_batch_size,
+                            num_workers=num_workers,
+                            use_cache=use_cross_encoder_cache
+                        )
+                    else:
+                        logger.info("Serial cross-encoder validation")
+                        ce_validated_df, ce_report = self.validate_with_cross_encoder(
+                            similarity_df=ce_input_df,
+                            cross_encoder_model=cross_encoder_model,
+                            threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds
+                            batch_size=cross_encoder_batch_size,
+                            use_cache=use_cross_encoder_cache
+                        )
+
+                    # Merge CE scores back into pairs_df
+                    # ce_validated_df has cross_encoder_score column
+                    pairs_df.loc[ce_validated_df.index, 'cross_encoder_score'] = ce_validated_df['cross_encoder_score']
+
+                    logger.info(f"Cross-encoder complete. Mean CE score: {ce_validated_df['cross_encoder_score'].mean():.4f}")
+
+                    # Add CE threshold boolean columns (required for Stage 5)
+                    logger.info("Adding CE threshold boolean columns")
+                    for ce_thresh in ce_thresholds:
+                        col_name = f'ce_{ce_thresh:.1f}'
+                        if ce_thresh == 0.0:
+                            # ce_0.0 means "no CE filtering" - always True
+                            pairs_df[col_name] = True
+                            match_count = len(pairs_df)
+                            logger.info(f"  {col_name}: {match_count:,} matches (no CE filtering)")
+                        else:
+                            # Apply threshold only where CE score exists (NaN will become False)
+                            pairs_df[col_name] = (
+                                (pairs_df['cross_encoder_score'] >= ce_thresh) &
+                                pairs_df['cross_encoder_score'].notna()
+                            )
+                            match_count = pairs_df[col_name].sum()
+                            logger.info(f"  {col_name}: {match_count:,} matches")
+
+                    # Re-write parquet with CE scores and threshold columns
+                    logger.info("Re-writing parquet with cross-encoder scores and threshold columns")
+                    write_large_parquet_compressed(pairs_df, output_file)
+                else:
+                    logger.info("Phase 7: Skipping cross-encoder validation (--skip-cross-encoder)")
+
+                logger.info("=" * 80)
+                logger.info("RANGE SEARCH SUB-RUN COMPLETE")
+                logger.info(f"Output file: {output_file}")
+                logger.info(f"Job mapping file: {job_mapping_file}")
+                logger.info(f"Task summary file: {task_summary_file}")
+                logger.info("=" * 80)
+
+                # For compatibility with return signature, store validation_metrics per sub-run
+                unique_apps = pairs_df['app_text'].nunique()
+                total_pairs = len(pairs_df)
+                validation_metrics['by_task_type'][out_task_type] = {
+                    'total_unique_applications': unique_apps,
+                    'total_matches': total_pairs,
+                    'coverage_percent': 100.0,  # range-search only returns matches
+                    'avg_matches_per_app': total_pairs / unique_apps if unique_apps > 0 else 0,
+                    'similarity_stats': {
+                        'min': pairs_df['similarity'].min(),
+                        'max': pairs_df['similarity'].max(),
+                        'mean': pairs_df['similarity'].mean(),
+                        'median': pairs_df['similarity'].median()
+                    },
+                    'total_pairs': total_pairs,
+                    'unique_apps': unique_apps,
+                    'unique_tasks': pairs_df['onet_task_id'].nunique(),
+                    'percentile_thresholds': percentile_thresholds
+                }
+
+                # Only return files that carry task_id/task text for downstream alignment validation
+                output_files.extend([output_file, task_summary_file])
+
+                last_pairs_df = pairs_df
 
             logger.info("=" * 80)
             logger.info("RANGE SEARCH MODE COMPLETE")
-            logger.info(f"Output file: {output_file}")
-            logger.info(f"Job mapping file: {job_mapping_file}")
-            logger.info(f"Task summary file: {task_summary_file}")
+            logger.info(f"Task runs: {task_runs}")
+            logger.info(f"Output files: {len(output_files)}")
             logger.info("=" * 80)
 
-            # For compatibility with return signature, create validation_metrics
-            unique_apps = pairs_df['app_text'].nunique()
-            total_pairs = len(pairs_df)
-            validation_metrics = {
-                'mode': 'range_search',
-                'total_unique_applications': unique_apps,
-                'total_matches': total_pairs,
-                'coverage_percent': 100.0,  # All apps in range search have matches
-                'avg_matches_per_app': total_pairs / unique_apps if unique_apps > 0 else 0,
-                'similarity_stats': {
-                    'min': pairs_df['similarity'].min(),
-                    'max': pairs_df['similarity'].max(),
-                    'mean': pairs_df['similarity'].mean(),
-                    'median': pairs_df['similarity'].median()
-                },
-                'total_pairs': total_pairs,
-                'unique_apps': unique_apps,
-                'unique_tasks': pairs_df['onet_task_id'].nunique(),
-                'percentile_thresholds': percentile_thresholds
-            }
-
-            # Only return files that carry task_id/task text for downstream alignment validation
-            output_files = [output_file, task_summary_file]
-
-            return pairs_df, validation_metrics, output_files
+            return last_pairs_df, validation_metrics, output_files
 
         # EXHAUSTIVE MODE (existing code path)
         # Phase C: Compute similarities and filter
