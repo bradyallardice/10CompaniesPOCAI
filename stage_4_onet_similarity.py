@@ -3563,7 +3563,8 @@ class ONETSimilarityMatcher:
                 }
 
                 # Only return files that carry task_id/task text for downstream alignment validation
-                output_files.extend([output_file, task_summary_file])
+                # Include job_mapping_file too (needed for downstream stages 5–7).
+                output_files.extend([output_file, task_summary_file, job_mapping_file])
 
                 last_pairs_df = pairs_df
 
@@ -3572,6 +3573,17 @@ class ONETSimilarityMatcher:
             logger.info(f"Task runs: {task_runs}")
             logger.info(f"Output files: {len(output_files)}")
             logger.info("=" * 80)
+
+            # Backward-compatible top-level metrics expected by main() summary printer.
+            # We report totals from the last sub-run (core/all) that we returned as last_pairs_df.
+            if last_pairs_df is not None:
+                last_key = task_runs[-1]
+                last_metrics = validation_metrics['by_task_type'].get(last_key, {})
+                validation_metrics.setdefault('total_unique_applications', last_metrics.get('total_unique_applications'))
+                validation_metrics.setdefault('total_matches', last_metrics.get('total_matches'))
+                validation_metrics.setdefault('unique_apps', last_metrics.get('unique_apps'))
+                validation_metrics.setdefault('total_pairs', last_metrics.get('total_pairs'))
+                validation_metrics.setdefault('unique_tasks', last_metrics.get('unique_tasks'))
 
             return last_pairs_df, validation_metrics, output_files
 
