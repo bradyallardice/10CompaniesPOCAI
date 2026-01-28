@@ -1405,9 +1405,14 @@ class TaskFirmExposurePipeline:
         # Calculate weighted occupation-firm-year exposure scores
         def calc_weighted_occupation_exposure(group):
             # Get the occupation code for this group
-            onet_code = group['onet_code'].iloc[0]
-            company_name = group['company_name'].iloc[0]
-            year = group['year'].iloc[0]
+            # NOTE: pandas 3.0+ may exclude group keys from columns in .apply()
+            # so use group.name (tuple of keys) as the primary source.
+            try:
+                onet_code, company_name, year = group.name
+            except Exception:
+                onet_code = group['onet_code'].iloc[0]
+                company_name = group['company_name'].iloc[0]
+                year = group['year'].iloc[0]
 
             # Get ALL tasks for this occupation (not just AI-exposed ones)
             all_occ_tasks = task_weights[task_weights['onet_code'] == onet_code].copy()
