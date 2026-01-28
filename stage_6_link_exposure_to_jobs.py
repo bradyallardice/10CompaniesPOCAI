@@ -1346,8 +1346,8 @@ def main():
         log(f"✅ Stage 6 complete! Linked {len(df_linked):,} records")
 
     finally:
-    if conn is not None:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 if __name__ == "__main__":
     main()
