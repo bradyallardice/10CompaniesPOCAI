@@ -4595,9 +4595,16 @@ def main():
         print(f"Similarity range: {validation_metrics['similarity_stats']['min']:.3f} - {validation_metrics['similarity_stats']['max']:.3f}")
         print("="*60)
 
-        # Filter output_files to exclude task_summary files (they don't have raw app-task pairs to validate)
-        validation_files = [f for f in output_files if 'task_summary' not in os.path.basename(f)]
-        logger.info(f"Validating {len(validation_files)} output files (excluding {len(output_files) - len(validation_files)} summary files)")
+        # Filter output_files to only include app-task pair files that carry (onet_task_id, onet_task).
+        # Exclude summaries and job mappings (they don't have raw app-task pairs to validate).
+        validation_files = [
+            f for f in output_files
+            if all(x not in os.path.basename(f) for x in ('task_summary', 'job_app_mapping'))
+        ]
+        logger.info(
+            f"Validating {len(validation_files)} output files "
+            f"(excluding {len(output_files) - len(validation_files)} non-pair files)"
+        )
 
         # Validate task_id to task_text alignment
         print("\n" + "="*60)
@@ -4678,6 +4685,13 @@ def validate_task_id_alignment(output_files, onet_file, onet_version=None):
 
         logger.info(f"Validating file: {os.path.basename(output_file)}")
         output = pd.read_parquet(output_file)
+        required_cols = {'onet_task_id', 'onet_task'}
+        if not required_cols.issubset(set(output.columns)):
+            logger.warning(
+                f"Skipping task-id alignment for {os.path.basename(output_file)}: "
+                f"missing required columns {sorted(required_cols - set(output.columns))}"
+            )
+            continue
         logger.info(f"Checking {len(output):,} rows for task_id/task_text alignment...")
 
         mismatches = []
