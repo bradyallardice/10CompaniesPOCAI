@@ -3584,6 +3584,9 @@ class ONETSimilarityMatcher:
                 validation_metrics.setdefault('unique_apps', last_metrics.get('unique_apps'))
                 validation_metrics.setdefault('total_pairs', last_metrics.get('total_pairs'))
                 validation_metrics.setdefault('unique_tasks', last_metrics.get('unique_tasks'))
+                validation_metrics.setdefault('coverage_percent', last_metrics.get('coverage_percent'))
+                validation_metrics.setdefault('avg_matches_per_app', last_metrics.get('avg_matches_per_app'))
+                validation_metrics.setdefault('similarity_stats', last_metrics.get('similarity_stats'))
 
             return last_pairs_df, validation_metrics, output_files
 
