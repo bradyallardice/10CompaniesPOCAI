@@ -677,9 +677,13 @@ class ExposureAnalyzer:
         # Filter to only the selected percentile to avoid duplicate firm-year rows (one per specification)
         exposure_yearly_data = self.stage6_firm_report[self.stage6_firm_report['specification'] == self.percentile + '_' + self.ce_threshold].copy()
         # Get top N firms for each year separately
-        top_exposure_yearly = exposure_yearly_data.groupby('year', group_keys=False).apply(
-            lambda x: x[['company_name', 'year', 'firm_exposure', 'ai_exposed_tasks', 'total_onet_tasks', 'total_ai_apps_linked']].nlargest(self.top_n, 'firm_exposure')
-        ).reset_index(drop=True)
+        top_exposure_yearly = (
+            exposure_yearly_data.sort_values(['year', 'firm_exposure'], ascending=[True, False])
+            .groupby('year', group_keys=False)
+            .head(self.top_n)
+            [['company_name', 'year', 'firm_exposure', 'ai_exposed_tasks', 'total_onet_tasks', 'total_ai_apps_linked']]
+            .reset_index(drop=True)
+        )
 
         self._save_table(top_exposure_yearly, 'firms', 'top_firms_by_exposure_yearly.csv',
                         f"Top {self.top_n} firms by exposure (yearly)")
