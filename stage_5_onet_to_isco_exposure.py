@@ -13,12 +13,12 @@ Then crosswalks results to ISCO-08 for integration with survey data.
 
 python3 stage_5_onet_to_isco_exposure.py \
     --top-matches-file task_exposure_matches_all_thresholds_openai_bge20_15_10_5_1_ce0p8_0p6_0p4_0p2_onet20_core.parquet \
-    --output-file isco_exposure_results.csv \
-    --stage-4-dir Data/Testing/stage_4_openai/1000_company_test/ \
-    --stage-2-dir Data/Testing/stage_2/1000_company_sample/skip_ce/ \
+    --stage-4-dir Data/Testing/stage_4/200_row_test/ \
+    --stage-2-dir Data/Testing/stage_2/ \
     --save-onet-outputs \
-    --output-dir Data/Testing/stage_5_openai/1000_company_test/skip_ce/ \
+    --output-dir Data/Testing/stage_5/200_row_test/ \
     --model openai
+    --task-type core \
     --use-employment-weights
 """
 
@@ -167,6 +167,7 @@ class TaskFirmExposurePipeline:
         logger.info(f"Loading O*NET Task Statements from: {task_statements_file}")
         
         task_df = pd.read_excel(task_statements_file)
+        task_df.columns = task_df.columns.str.strip()
         logger.info(f"Loaded {len(task_df):,} task statements")
         
         if core_only:
@@ -191,6 +192,7 @@ class TaskFirmExposurePipeline:
         logger.info(f"Loading O*NET Task Ratings from: {task_ratings_file}")
         
         ratings_df = pd.read_excel(task_ratings_file)
+        ratings_df.columns = ratings_df.columns.str.strip()
         logger.info(f"Loaded {len(ratings_df):,} task ratings")
         
         # Filter to Importance scale only
@@ -645,7 +647,7 @@ class TaskFirmExposurePipeline:
         original_df['year'] = original_df['year'].astype(int)
         
         # Parse full datetime
-        original_df['tst_created'] = pd.to_datetime(original_df['tst_created'], errors='coerce')
+        original_df["tst_created"] = pd.to_datetime(original_df["tst_created"], errors="coerce", utc=True)
         
         # Rename uid to job_uid for consistency
         original_df.rename(columns={'uid': 'job_uid'}, inplace=True)
@@ -1377,7 +1379,21 @@ class TaskFirmExposurePipeline:
         # Join task exposure with occupation and weight information
         task_exposure_weighted = task_firm_exposure.merge(
             task_onet_mapping, on='onet_task_id', how='left'
-        ).merge(
+        )
+
+        # SAFETY: ensure onet_code exists after merge (handle suffixes or weird column names)
+        if 'onet_code' not in task_exposure_weighted.columns:
+            for alt in [
+                'onet_code_x', 'onet_code_y',
+                'O*NET-SOC Code', 'O*NET-SOC Code_x', 'O*NET-SOC Code_y'
+            ]:
+                if alt in task_exposure_weighted.columns:
+                    task_exposure_weighted['onet_code'] = task_exposure_weighted[alt]
+                    break
+        if 'onet_code' not in task_exposure_weighted.columns:
+            raise KeyError(f"onet_code missing after task mapping; cols={list(task_exposure_weighted.columns)}")
+
+        task_exposure_weighted = task_exposure_weighted.merge(
             task_weights, on=['onet_code', 'onet_task_id'], how='left'
         )
         
