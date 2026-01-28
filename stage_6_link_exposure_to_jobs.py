@@ -1215,18 +1215,32 @@ def main():
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     log(f"✅ Output directory ready: {args.output_dir}")
 
-    # Load environment and connect to database
-    load_dotenv('config.env')
-    db_name = os.getenv('DB_NAME')
-    db_user = os.getenv('DB_USER')
-    db_password = os.getenv('DB_PASSWORD') 
-    db_host = os.getenv('DB_HOST', 'localhost')
-    db_port = os.getenv('DB_PORT', '5432')
-    
-    conn = psycopg2.connect(
-        dbname=db_name, user=db_user, password=db_password,
-        host=db_host, port=db_port
-    )
+    # Load environment and connect to database only if cache is missing
+    cache_file = f"Data/stage6_job_cache_max{args.year_max}.parquet"
+    cache_path = Path(cache_file)
+    conn = None
+
+    if cache_path.exists():
+        log(f"📁 Found cached job list: {cache_file}")
+        log("💾 Using cache; skipping database connection.")
+    else:
+        load_dotenv('config.env')
+        db_name = os.getenv('DB_NAME')
+        db_user = os.getenv('DB_USER')
+        db_password = os.getenv('DB_PASSWORD')
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_port = os.getenv('DB_PORT', '5432')
+
+        if not all([db_name, db_user, db_password]):
+            raise ValueError(
+                "Database credentials missing. Either set DB_NAME/DB_USER/DB_PASSWORD in config.env "
+                f"or place the cache file at {cache_file}."
+            )
+
+        conn = psycopg2.connect(
+            dbname=db_name, user=db_user, password=db_password,
+            host=db_host, port=db_port
+        )
     
     try:
         # Build job list
