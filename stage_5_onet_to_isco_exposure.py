@@ -29,6 +29,9 @@ import logging
 from typing import List, Tuple, Optional, Dict
 from pathlib import Path
 import argparse
+import gc
+from datetime import datetime
+import shutil
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -2188,11 +2191,26 @@ class TaskFirmExposurePipeline:
         logger.info(f"  BGE percentiles: {bge_cols}")
         logger.info(f"  CE thresholds: {ce_cols}")
 
+        # Create checkpoint directory for per-spec checkpointing
+        # Use fixed name to enable resume across runs
+        checkpoint_dir = Path(self.output_dir) / "stage_5_checkpoints"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"\n✓ Using checkpoint directory: {checkpoint_dir}")
+        logger.info(f"  (Will be cleaned up after successful merge)")
+
         # Process all specifications and collect results
         results_by_spec = {}
         isco_results_by_spec = {}
         for spec_idx, (bge_col, ce_col) in enumerate(specifications, 1):
             logger.info(f"\n[{spec_idx}/{len(specifications)}] {bge_col} × {ce_col}")
+
+            # Check if checkpoint already exists (for resume capability)
+            onet_checkpoint_path = checkpoint_dir / f"onet_spec_{bge_col}_{ce_col}.parquet"
+            isco_checkpoint_path = checkpoint_dir / f"isco_spec_{bge_col}_{ce_col}.parquet"
+
+            if onet_checkpoint_path.exists() and isco_checkpoint_path.exists():
+                logger.info(f"  ✓ Using cached checkpoint for {bge_col} × {ce_col} (skipping processing)")
+                continue  # Skip to next spec
 
             # Filter matches for this specification
             # Build filter mask: always use percentile, optionally add minimum threshold and CE
@@ -2282,12 +2300,29 @@ class TaskFirmExposurePipeline:
                     isco_spec_result.to_csv(isco_spec_file, index=False, encoding='utf-8')
                     logger.info(f"  ✓ Saved ISCO spec file: {os.path.basename(isco_spec_file)}")
 
-                    # Store the suffixed version for merging
-                    isco_results_by_spec[(bge_col, ce_col)] = isco_spec_result_for_merge
-
                     # NOW add spec suffix for merged O*NET files
                     spec_result = self._add_spec_suffix_to_columns(spec_result, bge_col, ce_col)
-                    results_by_spec[(bge_col, ce_col)] = spec_result
+
+                    # ================================================================
+                    # SAVE CHECKPOINTS FOR MEMORY MANAGEMENT
+                    # ================================================================
+                    # Save ONET checkpoint (without suffixes for standalone, with suffixes for merge)
+                    onet_checkpoint_path = checkpoint_dir / f"onet_spec_{bge_col}_{ce_col}.parquet"
+                    spec_result.to_parquet(onet_checkpoint_path, compression='snappy', index=False)
+                    logger.info(f"  ✓ Saved ONET checkpoint: {onet_checkpoint_path.name}")
+
+                    # Save ISCO checkpoint (with suffixes for merge)
+                    isco_checkpoint_path = checkpoint_dir / f"isco_spec_{bge_col}_{ce_col}.parquet"
+                    isco_spec_result_for_merge.to_parquet(isco_checkpoint_path, compression='snappy', index=False)
+                    logger.info(f"  ✓ Saved ISCO checkpoint: {isco_checkpoint_path.name}")
+
+                    # Clear memory: delete large intermediate DataFrames
+                    del spec_result, isco_spec_result_for_merge, isco_spec_result
+                    del task_firm_exposure, occupation_firm_exposure
+                    del spec_result_with_soc  # Also delete the O*NET version with titles
+                    gc.collect()
+                    logger.info(f"  ✓ Cleared memory after spec {spec_idx}/{len(specifications)}")
+
                     logger.info(f"  ✓ Spec {spec_idx}/{len(specifications)} complete")
                 except Exception as e:
                     logger.error(f"  ✗ Error processing spec {spec_idx}: {e}")
@@ -2296,28 +2331,33 @@ class TaskFirmExposurePipeline:
 
         # Merge all specifications with outer join
         logger.info("\n" + "="*80)
-        logger.info("MERGING SPECIFICATIONS")
+        logger.info("MERGING SPECIFICATIONS FROM CHECKPOINTS")
         logger.info("="*80)
 
-        # Remove None entries
-        valid_results = {k: v for k, v in results_by_spec.items() if v is not None}
-        logger.info(f"Valid specifications: {len(valid_results)}/{len(specifications)}")
-
-        if not valid_results:
-            raise ValueError("All specifications produced empty results!")
-
-        # Merge all valid results with outer join
+        # Load and merge O*NET checkpoints
         final_onet_exposure = None
         merge_keys = ['company_id', 'company_name', 'year', 'onet_code']
+        valid_spec_count = 0
 
-        for (bge_col, ce_col), result_df in valid_results.items():
+        for spec_idx, (bge_col, ce_col) in enumerate(specifications, 1):
+            onet_checkpoint_path = checkpoint_dir / f"onet_spec_{bge_col}_{ce_col}.parquet"
+
+            if not onet_checkpoint_path.exists():
+                logger.warning(f"  [{spec_idx}/{len(specifications)}] Missing ONET checkpoint: {onet_checkpoint_path.name}, skipping")
+                continue
+
+            # Load spec result from checkpoint
+            spec_result = pd.read_parquet(onet_checkpoint_path)
+            valid_spec_count += 1
+            logger.info(f"  [{spec_idx}/{len(specifications)}] Loaded ONET checkpoint {bge_col}×{ce_col}: {len(spec_result):,} rows")
+
             if final_onet_exposure is None:
-                final_onet_exposure = result_df.copy()
-                logger.info(f"Initialized with {bge_col}×{ce_col}: {len(result_df):,} rows")
+                final_onet_exposure = spec_result
+                logger.info(f"    Initialized with {bge_col}×{ce_col}: {len(spec_result):,} rows")
             else:
                 # Merge with outer join
                 final_onet_exposure = final_onet_exposure.merge(
-                    result_df,
+                    spec_result,
                     on=merge_keys,
                     how='outer',
                     suffixes=('', '_dup')
@@ -2327,7 +2367,16 @@ class TaskFirmExposurePipeline:
                 if dup_cols:
                     final_onet_exposure.drop(columns=dup_cols, inplace=True)
 
-                logger.info(f"Merged {bge_col}×{ce_col}: {len(final_onet_exposure):,} rows")
+                logger.info(f"    Merged {bge_col}×{ce_col}: {len(final_onet_exposure):,} rows")
+
+            # Clear memory after each merge
+            del spec_result
+            gc.collect()
+
+        if valid_spec_count == 0:
+            raise ValueError("All specifications produced empty results or checkpoints missing!")
+
+        logger.info(f"\n✓ Valid specifications merged: {valid_spec_count}/{len(specifications)}")
 
         # Fill NaN exposures with 0
         exposure_cols = [c for c in final_onet_exposure.columns if 'exposure' in c.lower()]
@@ -2415,33 +2464,37 @@ class TaskFirmExposurePipeline:
             logger.info(f"  - Task-level exposures: {len(task_exposure_table):,}")
         
         # ================================================================
-        # MERGE INDIVIDUAL ISCO FILES (using in-memory suffixed versions)
+        # MERGE INDIVIDUAL ISCO FILES (from checkpoints)
         # ================================================================
         logger.info("\n" + "="*50)
-        logger.info("CREATING MERGED ISCO FILE FROM IN-MEMORY SPECS")
+        logger.info("CREATING MERGED ISCO FILE FROM CHECKPOINTS")
         logger.info("="*50)
 
-        # Use the pre-suffixed ISCO results stored in memory
-        valid_isco_results = {k: v for k, v in isco_results_by_spec.items() if v is not None}
-        logger.info(f"Valid ISCO specifications: {len(valid_isco_results)}/{len(specifications)}")
-
-        if not valid_isco_results:
-            logger.error("No valid ISCO specifications to merge!")
-            raise ValueError("All ISCO specifications produced empty results!")
-
-        # Merge all valid ISCO results with outer join
+        # Load and merge ISCO checkpoints
         isco_firm_exposure = None
         merge_keys = ['company_id', 'company_name', 'year', 'isco08_4d']
+        valid_isco_spec_count = 0
 
-        for spec_idx, ((bge_col, ce_col), result_df) in enumerate(valid_isco_results.items(), 1):
+        for spec_idx, (bge_col, ce_col) in enumerate(specifications, 1):
+            isco_checkpoint_path = checkpoint_dir / f"isco_spec_{bge_col}_{ce_col}.parquet"
+
+            if not isco_checkpoint_path.exists():
+                logger.warning(f"  [{spec_idx}/{len(specifications)}] Missing ISCO checkpoint: {isco_checkpoint_path.name}, skipping")
+                continue
+
+            # Load spec result from checkpoint
+            isco_spec_result = pd.read_parquet(isco_checkpoint_path)
+            valid_isco_spec_count += 1
+            logger.info(f"  [{spec_idx}/{len(specifications)}] Loaded ISCO checkpoint {bge_col}×{ce_col}: {len(isco_spec_result):,} rows")
+
             if isco_firm_exposure is None:
-                isco_firm_exposure = result_df.copy()
-                logger.info(f"  [{spec_idx}] Initialized ISCO merge with {bge_col}×{ce_col}: {len(result_df):,} rows")
+                isco_firm_exposure = isco_spec_result
+                logger.info(f"    Initialized ISCO merge with {bge_col}×{ce_col}: {len(isco_spec_result):,} rows")
             else:
                 # Merge with outer join
                 before_cols = len(isco_firm_exposure.columns)
                 isco_firm_exposure = isco_firm_exposure.merge(
-                    result_df,
+                    isco_spec_result,
                     on=merge_keys,
                     how='outer',
                     suffixes=('', '_dup')
@@ -2453,7 +2506,17 @@ class TaskFirmExposurePipeline:
 
                 after_cols = len(isco_firm_exposure.columns)
                 added_cols = after_cols - before_cols
-                logger.info(f"  [{spec_idx}] Merged {bge_col}×{ce_col}: {len(isco_firm_exposure):,} rows, +{added_cols} columns (total: {after_cols})")
+                logger.info(f"    Merged {bge_col}×{ce_col}: {len(isco_firm_exposure):,} rows, +{added_cols} columns (total: {after_cols})")
+
+            # Clear memory after each merge
+            del isco_spec_result
+            gc.collect()
+
+        if valid_isco_spec_count == 0:
+            logger.error("No valid ISCO specifications to merge!")
+            raise ValueError("All ISCO specifications produced empty results or checkpoints missing!")
+
+        logger.info(f"\n✓ Valid ISCO specifications merged: {valid_isco_spec_count}/{len(specifications)}")
 
         # Fill NaN exposures with 0
         exposure_cols = [c for c in isco_firm_exposure.columns
@@ -2465,9 +2528,9 @@ class TaskFirmExposurePipeline:
 
         # Verify we have spec-suffixed columns
         spec_cols = [c for c in isco_firm_exposure.columns if '_pct_' in c or '_ce_' in c]
-        logger.info(f"  Spec-suffixed columns: {len(spec_cols)} (expected: ~{len(valid_isco_results) * 6})")
-        if len(spec_cols) < len(valid_isco_results) * 4:
-            logger.warning(f"  WARNING: Expected ~{len(valid_isco_results) * 6} spec columns, only got {len(spec_cols)}")
+        logger.info(f"  Spec-suffixed columns: {len(spec_cols)} (expected: ~{valid_isco_spec_count * 6})")
+        if len(spec_cols) < valid_isco_spec_count * 4:
+            logger.warning(f"  WARNING: Expected ~{valid_isco_spec_count * 6} spec columns, only got {len(spec_cols)}")
 
         # ================================================================
         # SAVE RESULTS
@@ -2491,9 +2554,8 @@ class TaskFirmExposurePipeline:
         logger.info("PIPELINE COMPLETE - SUMMARY")
         logger.info("="*60)
         logger.info(f"✅ Input: {len(task_app_matches):,} task-application matches from stage 4")
-        logger.info(f"✅ Step 2: {len(task_firm_exposure):,} task-firm-year exposure combinations")
-        logger.info(f"✅ Step 3: {len(occupation_firm_exposure):,} O*NET occupation-firm-year combinations")
-        logger.info(f"✅ Step 4: Applied AI intensity adjustment with log(1 + N_apps_firm_year)")
+        logger.info(f"✅ Processed {valid_isco_spec_count}/{len(specifications)} specifications successfully")
+        logger.info(f"✅ Step 2-4: Per-spec processing with checkpointing (memory-optimized)")
         logger.info(f"✅ Final: {len(isco_firm_exposure):,} ISCO-08 occupation-firm-year exposure combinations")
         logger.info(f"✅ Unique ISCO occupations: {isco_firm_exposure['isco08_4d'].nunique():,}")
         logger.info(f"✅ Unique firms: {isco_firm_exposure['company_name'].nunique():,}")
@@ -2519,7 +2581,21 @@ class TaskFirmExposurePipeline:
                            f"({row[n_apps_col]:.0f} apps)")
         else:
             logger.warning("No hampole_ai_exposure_avg column found in merged ISCO data")
-        
+
+        # ================================================================
+        # CLEANUP CHECKPOINT DIRECTORY
+        # ================================================================
+        logger.info("\n" + "="*50)
+        logger.info("CLEANING UP CHECKPOINTS")
+        logger.info("="*50)
+
+        try:
+            shutil.rmtree(checkpoint_dir)
+            logger.info(f"✓ Successfully deleted checkpoint directory: {checkpoint_dir}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to delete checkpoint directory {checkpoint_dir}: {e}")
+            logger.warning(f"  You may want to manually delete it to free up disk space")
+
         return isco_firm_exposure
 
 def create_isco_task_sample_report(stage4_file: str, data_dir: str = "Data/", 
