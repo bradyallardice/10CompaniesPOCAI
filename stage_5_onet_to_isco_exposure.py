@@ -1897,11 +1897,22 @@ class TaskFirmExposurePipeline:
             all_occ_tasks['hampole_task_exposure'] = 0.0
             all_occ_tasks['binary_task_exposure'] = 0.0
 
-            # Update exposure for AI-exposed tasks
-            for _, exposed_task in group.iterrows():
-                mask = all_occ_tasks['onet_task_id'] == exposed_task['onet_task_id']
-                all_occ_tasks.loc[mask, 'hampole_task_exposure'] = exposed_task['hampole_task_exposure']
-                all_occ_tasks.loc[mask, 'binary_task_exposure'] = exposed_task['binary_task_exposure']
+            # VECTORIZED: Replace iterrows() with merge-based update for better performance
+            # This avoids the O(n²) complexity of iterrows() on large groups
+            exposed_subset = group[['onet_task_id', 'hampole_task_exposure', 'binary_task_exposure']].drop_duplicates()
+
+            # Merge exposed tasks into all_occ_tasks
+            merged = all_occ_tasks.merge(
+                exposed_subset,
+                on='onet_task_id',
+                how='left',
+                suffixes=('', '_new')
+            )
+
+            # Update exposure values where tasks matched
+            # If task had exposure from merge, use it; otherwise use 0 (default)
+            all_occ_tasks['hampole_task_exposure'] = merged['hampole_task_exposure_new'].fillna(0).values
+            all_occ_tasks['binary_task_exposure'] = merged['binary_task_exposure_new'].fillna(0).values
 
             # Calculate proper weighted averages using ALL tasks
             weights = all_occ_tasks['importance_weight']
@@ -1918,11 +1929,11 @@ class TaskFirmExposurePipeline:
                 'total_importance_weight': total_weight,  # Sum ALL importance weights
                 'n_ai_apps_firm_year': group['n_ai_apps_firm_year'].iloc[0]
             })
-        
+
         occupation_firm_exposure = task_exposure_weighted.groupby(['onet_code', 'company_name', 'year']).apply(
             calc_weighted_occupation_exposure
         ).reset_index()
-        
+
         logger.info(f"Calculated occupation-firm-year exposure: {len(occupation_firm_exposure):,} occupation-firm-year combinations")
         logger.info(f"  Unique occupations: {occupation_firm_exposure['onet_code'].nunique():,}")
         logger.info(f"  Unique firms: {occupation_firm_exposure['company_name'].nunique():,}")
