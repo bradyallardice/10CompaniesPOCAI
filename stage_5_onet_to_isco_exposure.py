@@ -55,7 +55,9 @@ class TaskFirmExposurePipeline:
                  task_type: str = 'core',
                  onet_version: int = 20,
                  use_employment_weights: bool = False,
-                 apply_min_threshold: bool = True):
+                 apply_min_threshold: bool = True,
+                 save_debug_csv: bool = True,
+                 force_nonchunked: bool = False):
         """
         Initialize the multi-specification exposure pipeline.
 
@@ -76,6 +78,10 @@ class TaskFirmExposurePipeline:
             onet_version: O*NET version (default: 20). BLS SOC-10→ISCO-08 crosswalk only compatible with v20
             use_employment_weights: If True, use employment-weighted aggregation for O*NET→ISCO crosswalk via 6-digit SOC
             apply_min_threshold: If True (default), filter matches by both percentile AND minimum similarity threshold (above_min_threshold column)
+            save_debug_csv: If True (default), save large debug CSVs (expanded_jobs_matching.csv, task_app_matches.csv) to output_dir.
+                Set False to reduce disk usage.
+            force_nonchunked: If True, disable chunk-based processing paths (loads full filtered spec into memory).
+                This can be faster but may increase peak memory usage substantially.
         """
         self.aggregation_method = aggregation_method
         self.time_invariant = time_invariant
@@ -88,6 +94,8 @@ class TaskFirmExposurePipeline:
         self.onet_version = onet_version
         self.use_employment_weights = use_employment_weights
         self.apply_min_threshold = apply_min_threshold
+        self.save_debug_csv = save_debug_csv
+        self.force_nonchunked = force_nonchunked
 
         # Validate O*NET version compatibility with BLS SOC-10 crosswalk
         if onet_version >= 25:
@@ -117,32 +125,49 @@ class TaskFirmExposurePipeline:
         logger.info(f"  O*NET→ISCO crosswalk mode: {'Employment-weighted (8d→6d→4d)' if use_employment_weights else 'Unweighted (8d→4d)'}")
         logger.info(f"  BGE percentiles: {bge_percentiles}")
         logger.info(f"  CE thresholds: {ce_thresholds}")
+        logger.info(f"  Save debug CSVs: {save_debug_csv}")
+        logger.info(f"  Force nonchunked: {force_nonchunked}")
     
-    def step1_load_task_application_matches(self, top_matches_file: str) -> pd.DataFrame:
+    def step1_load_task_application_matches(self, top_matches_file: str) -> Tuple[str, pd.DataFrame]:
         """
-        Step 1: Load task-application matches from Stage 4 unified multi-threshold file.
+        Step 1: Load task-application match metadata from Stage 4 unified multi-threshold file.
+
+        Memory-efficient: Loads only filter columns (pct_*, ce_*, above_min_threshold) instead of full dataset.
 
         Args:
-            top_matches_file: Path to task_exposure_matches_all_thresholds.csv file
+            top_matches_file: Path to task_exposure_matches_all_thresholds.parquet file
 
         Returns:
-            DataFrame with all threshold columns (15 boolean columns for filtering)
+            Tuple of (file_path, metadata_df) where metadata_df contains only boolean filter columns
         """
-        logger.info(f"Step 1: Loading task-application matches from: {top_matches_file}")
+        import pyarrow.parquet as pq
 
-        # Read parquet format
-        matches_df = pd.read_parquet(top_matches_file)
-        logger.info(f"Loaded {len(matches_df):,} task-application pairs")
+        logger.info(f"Step 1: Loading task-application match metadata from: {top_matches_file}")
 
-        # Validate required columns (ai_app_id added so we can carry stable app keys forward)
-        required_cols = ['app_text', 'onet_task_id', 'onet_task', 'similarity', 'cross_encoder_score', 'ai_app_id']
-        missing_cols = [c for c in required_cols if c not in matches_df.columns]
-        if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
+        # Read ONLY filter columns (20-50MB instead of 15-20GB for full file)
+        filter_cols = ['pct_20', 'pct_15', 'pct_10', 'pct_05', 'pct_01',
+                       'ce_0.8', 'ce_0.6', 'ce_0.4', 'ce_0.2', 'ce_0.0',
+                       'above_min_threshold']
 
-        # Check for threshold columns
-        bge_cols = [c for c in matches_df.columns if c.startswith('pct_')]
-        ce_cols = [c for c in matches_df.columns if c.startswith('ce_')]
+        # Use PyArrow to read only filter columns
+        try:
+            metadata_table = pq.read_table(top_matches_file, columns=filter_cols)
+            metadata_df = metadata_table.to_pandas()
+        except Exception as e:
+            # Fallback: try reading without above_min_threshold if it doesn't exist
+            logger.warning(f"Error reading all filter columns: {e}")
+            logger.warning("Trying without 'above_min_threshold' column...")
+            filter_cols.remove('above_min_threshold')
+            metadata_table = pq.read_table(top_matches_file, columns=filter_cols)
+            metadata_df = metadata_table.to_pandas()
+
+        logger.info(f"Loaded {len(metadata_df):,} rows of filter metadata")
+        memory_mb = metadata_df.memory_usage(deep=True).sum() / 1024**2
+        logger.info(f"Memory: {memory_mb:.1f} MB")
+
+        # Validate filter columns
+        bge_cols = [c for c in metadata_df.columns if c.startswith('pct_')]
+        ce_cols = [c for c in metadata_df.columns if c.startswith('ce_')]
 
         if bge_cols and ce_cols:
             logger.info(f"✓ Found all threshold columns:")
@@ -151,11 +176,327 @@ class TaskFirmExposurePipeline:
         else:
             raise ValueError(f"Threshold columns incomplete or missing: BGE={len(bge_cols)}, CE={len(ce_cols)}")
 
-        logger.info(f"  Unique tasks matched: {matches_df['onet_task_id'].nunique():,}")
-        logger.info(f"  Unique AI applications: {matches_df['app_text'].nunique():,}")
+        # Get file metadata for row counts
+        parquet_file = pq.ParquetFile(top_matches_file)
+        total_rows = parquet_file.metadata.num_rows
+        logger.info(f"  Total task-application pairs in file: {total_rows:,}")
 
-        return matches_df
-    
+        return top_matches_file, metadata_df
+
+    def _load_filtered_matches(self, file_path: str, filter_mask: np.ndarray) -> pd.DataFrame:
+        """
+        Load only filtered rows on-demand (memory-efficient).
+
+        Uses hybrid approach:
+        - Small filtered datasets (<100M rows): PyArrow filtering (fast)
+        - Large filtered datasets (≥100M rows): Pandas chunked reading (memory-safe)
+
+        Args:
+            file_path: Path to parquet file
+            filter_mask: Boolean numpy array indicating which rows to load
+
+        Returns:
+            DataFrame with only filtered rows, all columns included
+        """
+        import pyarrow.parquet as pq
+        import pyarrow as pa
+
+        match_count = filter_mask.sum()
+        logger.info(f"  Loading {match_count:,} filtered rows on-demand...")
+
+        # Hybrid approach: chunk-based for large filtered datasets
+        CHUNK_THRESHOLD = 100_000_000  # 100M rows
+
+        if (not getattr(self, "force_nonchunked", False)) and match_count >= CHUNK_THRESHOLD:
+            logger.info(f"  Using chunk-based loading (filtered dataset ≥100M rows)")
+            filtered_df = self._load_filtered_matches_chunked(file_path, filter_mask)
+        else:
+            if getattr(self, "force_nonchunked", False) and match_count >= CHUNK_THRESHOLD:
+                logger.warning(
+                    "  Force-nonchunked enabled: loading large filtered dataset via PyArrow filtering "
+                    f"({match_count:,} rows). This may require substantial RAM."
+                )
+            else:
+                logger.info(f"  Using PyArrow filtering (filtered dataset <100M rows)")
+            # Read table and filter using PyArrow (columnar, fast)
+            table = pq.read_table(file_path)
+            filtered_table = table.filter(pa.array(filter_mask))
+            filtered_df = filtered_table.to_pandas()
+
+        # Validate required columns
+        required_cols = ['app_text', 'onet_task_id', 'onet_task', 'similarity',
+                         'cross_encoder_score', 'ai_app_id', 'job_uid']
+        missing_cols = [c for c in required_cols if c not in filtered_df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing required columns: {missing_cols}")
+
+        filter_pct = (match_count / len(filter_mask) * 100) if len(filter_mask) > 0 else 0
+        memory_mb = filtered_df.memory_usage(deep=True).sum() / 1024**2
+        logger.info(f"  Loaded {len(filtered_df):,} rows ({filter_pct:.2f}% of total)")
+        logger.info(f"  Memory: {memory_mb:.1f} MB")
+        logger.info(f"  Unique tasks: {filtered_df['onet_task_id'].nunique():,}")
+        logger.info(f"  Unique AI applications: {filtered_df['app_text'].nunique():,}")
+
+        return filtered_df
+
+    def _load_filtered_matches_chunked(self, file_path: str, filter_mask: np.ndarray) -> pd.DataFrame:
+        """
+        Load filtered rows using chunk-based processing (for large filtered datasets).
+
+        Uses PyArrow ParquetFile to read file in row groups (chunks), applies boolean filter
+        to each chunk, and accumulates results. Memory-efficient for cases where filter selects
+        most/all rows.
+
+        Args:
+            file_path: Path to parquet file
+            filter_mask: Boolean numpy array indicating which rows to load
+
+        Returns:
+            DataFrame with only filtered rows, all columns included
+        """
+        import pyarrow.parquet as pq
+        import pyarrow as pa
+
+        CHUNK_SIZE = 10_000_000  # Target 10M rows per chunk
+
+        logger.info(f"  Reading in ~{CHUNK_SIZE:,}-row chunks using PyArrow row groups...")
+
+        parquet_file = pq.ParquetFile(file_path)
+        total_rows = parquet_file.metadata.num_rows
+        num_row_groups = parquet_file.num_row_groups
+
+        logger.info(f"  File has {num_row_groups} row groups, {total_rows:,} total rows")
+
+        filtered_chunks = []
+        total_filtered = 0
+        row_offset = 0
+
+        # Read file row group by row group
+        for rg_idx in range(num_row_groups):
+            # Read this row group as a table
+            rg_table = parquet_file.read_row_group(rg_idx)
+            rg_size = len(rg_table)
+
+            # Extract filter mask for this row group
+            rg_filter = filter_mask[row_offset:row_offset + rg_size]
+
+            # Apply filter using PyArrow
+            filtered_table = rg_table.filter(pa.array(rg_filter))
+
+            if len(filtered_table) > 0:
+                # Convert to pandas and add to chunks
+                chunk_filtered = filtered_table.to_pandas()
+                filtered_chunks.append(chunk_filtered)
+                total_filtered += len(chunk_filtered)
+
+            # Update offset
+            row_offset += rg_size
+
+            del rg_table, filtered_table
+            import gc
+            gc.collect()
+
+            if (rg_idx + 1) % 10 == 0 or rg_idx == num_row_groups - 1:
+                logger.info(f"  Processed {rg_idx + 1}/{num_row_groups} row groups ({row_offset:,} rows, {total_filtered:,} filtered)")
+
+        logger.info(f"  Processed all {num_row_groups} row groups ({total_filtered:,} rows filtered)")
+
+        # Concatenate all filtered chunks
+        if len(filtered_chunks) > 0:
+            logger.info(f"  Concatenating {len(filtered_chunks)} filtered chunks...")
+            filtered_df = pd.concat(filtered_chunks, ignore_index=True)
+        else:
+            logger.warning(f"  No rows passed filter - returning empty DataFrame")
+            # Read schema from file to create empty DataFrame with correct columns
+            schema_df = pq.read_table(file_path).slice(0, 0).to_pandas()
+            filtered_df = schema_df
+
+        del filtered_chunks
+        import gc
+        gc.collect()
+
+        return filtered_df
+
+    def _load_filtered_matches_chunked_generator(self, file_path: str, filter_mask: np.ndarray):
+        """
+        Yield filtered row groups one at a time (memory-efficient chunk iterator).
+
+        Instead of concatenating all filtered chunks, yields each chunk individually.
+        Caller processes each chunk through step2_chunked and accumulates aggregated results.
+
+        Args:
+            file_path: Path to parquet file
+            filter_mask: Boolean numpy array indicating which rows to load
+
+        Yields:
+            DataFrame chunks with only filtered rows, all columns included
+        """
+        import pyarrow.parquet as pq
+        import pyarrow as pa
+
+        logger.info(f"  Reading in row groups as chunk iterator (memory-efficient)...")
+
+        parquet_file = pq.ParquetFile(file_path)
+        total_rows = parquet_file.metadata.num_rows
+        num_row_groups = parquet_file.num_row_groups
+
+        logger.info(f"  File has {num_row_groups} row groups, {total_rows:,} total rows")
+
+        total_filtered = 0
+        row_offset = 0
+
+        # Yield filtered row groups one at a time
+        for rg_idx in range(num_row_groups):
+            # Read this row group as a table
+            rg_table = parquet_file.read_row_group(rg_idx)
+            rg_size = len(rg_table)
+
+            # Extract filter mask for this row group
+            rg_filter = filter_mask[row_offset:row_offset + rg_size]
+
+            # Apply filter using PyArrow
+            filtered_table = rg_table.filter(pa.array(rg_filter))
+
+            if len(filtered_table) > 0:
+                # Convert to pandas and yield
+                chunk_filtered = filtered_table.to_pandas()
+                total_filtered += len(chunk_filtered)
+
+                # Yield this chunk to caller
+                yield chunk_filtered
+
+                del chunk_filtered
+
+            # Update offset
+            row_offset += rg_size
+
+            del rg_table, filtered_table
+            gc.collect()
+
+            if (rg_idx + 1) % 10 == 0 or rg_idx == num_row_groups - 1:
+                logger.info(f"  Processed {rg_idx + 1}/{num_row_groups} row groups ({row_offset:,} rows, {total_filtered:,} filtered)")
+
+        logger.info(f"  Completed iteration over all {num_row_groups} row groups ({total_filtered:,} rows filtered)")
+
+    def _precalculate_firm_app_mappings(self,
+                                        matches_file_path: str,
+                                        filter_mask: np.ndarray,
+                                        expanded_job_app_mapping: pd.DataFrame) -> Tuple[Dict, pd.DataFrame]:
+        """
+        Pre-calculate firm-app-year mappings by scanning task_app_matches file in chunks.
+
+        This is the first pass over the data that builds:
+        1. firm_year_app_counts: {(firm, year): n_apps} for each firm-year
+        2. firm_app_first_years: DataFrame with (firm, app, first_year) for time-variant mode
+
+        Args:
+            matches_file_path: Path to Stage 4 parquet file
+            filter_mask: Boolean mask for current specification
+            expanded_job_app_mapping: Pre-loaded expanded job mapping
+
+        Returns:
+            (firm_year_app_counts, firm_app_first_years)
+        """
+        from collections import defaultdict
+
+        logger.info("\n" + "="*80)
+        logger.info("PRE-CALCULATION PASS: Building firm-app-year mappings")
+        logger.info("="*80)
+
+        # Track firm-app relationships
+        firm_app_years = defaultdict(dict)  # {firm: {app: first_year}}
+        all_firms = set()
+        all_years = set()
+
+        chunk_count = 0
+        total_rows_processed = 0
+
+        # Iterate over filtered chunks
+        for chunk in self._load_filtered_matches_chunked_generator(matches_file_path, filter_mask):
+            chunk_count += 1
+            total_rows_processed += len(chunk)
+
+            # Explode job_uid arrays
+            def extract_job_uid(x):
+                if isinstance(x, (list, np.ndarray)):
+                    return list(x) if len(x) > 0 else [np.nan]
+                return [x]
+
+            chunk['job_uid'] = chunk['job_uid'].apply(extract_job_uid)
+            chunk_exploded = chunk.explode('job_uid').reset_index(drop=True)
+            chunk_exploded['job_uid'] = chunk_exploded['job_uid'].astype(str)
+
+            # Join with expanded job mapping to get firm info
+            chunk_with_firms = chunk_exploded.merge(
+                expanded_job_app_mapping[['app_text', 'job_uid', 'company_name', 'year']],
+                on=['app_text', 'job_uid'],
+                how='left',
+                validate='many_to_one'
+            )
+
+            # Track first appearances
+            for row in chunk_with_firms.itertuples():
+                if pd.isna(row.company_name) or pd.isna(row.year):
+                    continue
+
+                all_firms.add(row.company_name)
+                all_years.add(row.year)
+
+                # Track first year for this (firm, app) combination
+                if row.app_text not in firm_app_years[row.company_name]:
+                    firm_app_years[row.company_name][row.app_text] = row.year
+                else:
+                    firm_app_years[row.company_name][row.app_text] = min(
+                        firm_app_years[row.company_name][row.app_text],
+                        row.year
+                    )
+
+            del chunk, chunk_exploded, chunk_with_firms
+            gc.collect()
+
+            if chunk_count % 10 == 0:
+                logger.info(f"  Pre-calculation: processed {chunk_count} chunks ({total_rows_processed:,} rows)")
+
+        logger.info(f"Pre-calculation complete: {chunk_count} chunks, {total_rows_processed:,} rows")
+        logger.info(f"  Unique firms: {len(all_firms):,}")
+        logger.info(f"  Unique years: {len(all_years)}")
+
+        # Build firm_app_first_years DataFrame
+        firm_app_records = []
+        for firm, apps in firm_app_years.items():
+            for app, first_year in apps.items():
+                firm_app_records.append({
+                    'company_name': firm,
+                    'app_text': app,
+                    'first_year': first_year
+                })
+
+        firm_app_first_years = pd.DataFrame(firm_app_records)
+        logger.info(f"  Firm-app mappings: {len(firm_app_first_years):,} unique (firm, app) pairs")
+
+        # Pre-calculate n_ai_apps_firm_year for all firm-years
+        firm_year_app_counts = {}
+
+        if self.time_invariant:
+            # Time-invariant: All firms exposed to all their apps across all years
+            for firm in all_firms:
+                n_apps_ever = len(firm_app_years[firm])
+                for year in all_years:
+                    firm_year_app_counts[(firm, year)] = n_apps_ever
+            logger.info(f"  Time-invariant mode: {len(firm_year_app_counts):,} firm-year combinations")
+        else:
+            # Time-variant: Firms exposed to apps by first-appearance year
+            for firm in all_firms:
+                for year in all_years:
+                    # Count apps available by this year
+                    available = [app for app, first in firm_app_years[firm].items() if first <= year]
+                    firm_year_app_counts[(firm, year)] = len(available)
+            logger.info(f"  Time-variant mode: {len(firm_year_app_counts):,} firm-year combinations")
+
+        logger.info("✓ Pre-calculation complete\n")
+
+        return firm_year_app_counts, firm_app_first_years
+
     def load_task_statements(self, task_statements_file: str, core_only: bool = True) -> pd.DataFrame:
         """
         Load O*NET Task Statements file to map task IDs to occupation codes.
@@ -821,8 +1162,9 @@ class TaskFirmExposurePipeline:
         expanded_job_app_mapping = self.expand_job_app_mapping_to_full_dataset(
             job_app_mapping, original_jobs, None
         )
-        expanded_job_app_mapping.to_csv(os.path.join(self.output_dir, 'expanded_jobs_matching.csv'), index=False)
-        task_app_matches.to_csv(os.path.join(self.output_dir, 'task_app_matches.csv'), index=False)
+        if self.save_debug_csv:
+            expanded_job_app_mapping.to_csv(os.path.join(self.output_dir, 'expanded_jobs_matching.csv'), index=False)
+            task_app_matches.to_csv(os.path.join(self.output_dir, 'task_app_matches.csv'), index=False)
 
         # Explode job_uid array to one row per job
         # Stage 4 stores job_uid as arrays since multiple jobs can use the same AI app text
@@ -1161,8 +1503,124 @@ class TaskFirmExposurePipeline:
             logger.info(f"  Binary exposure - firm-years with exposed tasks: {(exposure_df['binary_task_exposure'] > 0).sum():,}")
             logger.info(f"  Unique firms: {exposure_df['company_name'].nunique():,}")
             logger.info(f"  Unique years: {sorted(exposure_df['year'].unique())}")
-        
+
         return exposure_df
+
+    def step2_calculate_firm_task_exposure_chunked(self,
+                                                   task_app_matches_chunk: pd.DataFrame,
+                                                   expanded_job_app_mapping: pd.DataFrame,
+                                                   firm_year_app_counts: dict,
+                                                   firm_app_first_years: pd.DataFrame = None) -> pd.DataFrame:
+        """
+        Chunked version of step2 that processes a single chunk of task_app_matches.
+
+        Args:
+            task_app_matches_chunk: Single chunk of task-application matches
+            expanded_job_app_mapping: Pre-loaded expanded job mapping (shared across chunks)
+            firm_year_app_counts: Pre-calculated {(firm, year): n_apps} dictionary
+            firm_app_first_years: Pre-calculated first-year mapping (for time-variant mode)
+
+        Returns:
+            DataFrame with partial task-firm exposure (to be aggregated later)
+        """
+        # Explode job_uid arrays
+        task_app_matches_exploded = task_app_matches_chunk.copy()
+
+        def extract_job_uid(x):
+            if isinstance(x, (list, np.ndarray)):
+                return list(x) if len(x) > 0 else [np.nan]
+            return [x]
+
+        task_app_matches_exploded['job_uid'] = task_app_matches_exploded['job_uid'].apply(extract_job_uid)
+        task_app_matches_exploded = task_app_matches_exploded.explode('job_uid').reset_index(drop=True)
+        task_app_matches_exploded['job_uid'] = task_app_matches_exploded['job_uid'].astype(str)
+
+        # Join with expanded job mapping
+        task_job_matches = task_app_matches_exploded.merge(
+            expanded_job_app_mapping[['app_text', 'job_uid', 'company_name', 'year']],
+            on=['app_text', 'job_uid'],
+            how='left',
+            validate='many_to_one'
+        )
+
+        task_firm_matches = task_job_matches.copy()
+
+        if self.time_invariant:
+            # Time-invariant: Use all apps firm has ever used
+            all_firms = task_firm_matches['company_name'].unique()
+            firm_matched = []
+
+            for firm in all_firms:
+                firm_apps_ever = set(task_firm_matches[task_firm_matches['company_name'] == firm]['app_text'].unique())
+
+                if len(firm_apps_ever) == 0:
+                    continue
+
+                # Get tasks matching this firm's apps FROM THIS CHUNK
+                firm_app_task_matches = task_app_matches_chunk[task_app_matches_chunk['app_text'].isin(firm_apps_ever)]
+
+                if len(firm_app_task_matches) == 0:
+                    continue
+
+                # Count unique apps per task
+                task_counts = firm_app_task_matches.groupby('onet_task_id')['app_text'].nunique().reset_index()
+                task_counts.columns = ['onet_task_id', 'n_task_matches_firm_year']
+
+                task_counts['company_name'] = firm
+                # Add year column for time-invariant mode (will be broadcast to all years later)
+                # We'll add n_ai_apps_firm_year after aggregation since it's same for all years
+                # Store raw counts; exposure will be calculated after aggregation
+                firm_matched.append(task_counts)
+
+            if firm_matched:
+                chunk_exposure = pd.concat(firm_matched, ignore_index=True)
+                # For time-invariant, n_ai_apps_firm_year will be added during aggregation
+            else:
+                chunk_exposure = pd.DataFrame(columns=['company_name', 'onet_task_id', 'n_task_matches_firm_year'])
+
+        else:
+            # Time-variant: Use apps available by that year
+            firm_matched = []
+            all_firms = task_firm_matches['company_name'].unique()
+            all_years = sorted(task_firm_matches['year'].unique())
+
+            for firm in all_firms:
+                # Get apps for this firm with their first years (from pre-calculated mapping)
+                firm_app_years = firm_app_first_years[firm_app_first_years['company_name'] == firm]
+
+                if len(firm_app_years) == 0:
+                    continue
+
+                for year in all_years:
+                    # Get apps available by this year
+                    available_apps = firm_app_years[firm_app_years['first_year'] <= year]['app_text'].tolist()
+
+                    if not available_apps:
+                        continue
+
+                    # Get tasks matching available apps FROM THIS CHUNK
+                    available_task_matches = task_app_matches_chunk[task_app_matches_chunk['app_text'].isin(available_apps)]
+
+                    if len(available_task_matches) == 0:
+                        continue
+
+                    # Count unique apps per task
+                    task_counts = available_task_matches.groupby('onet_task_id')['app_text'].nunique().reset_index()
+                    task_counts.columns = ['onet_task_id', 'n_task_matches_firm_year']
+
+                    task_counts['company_name'] = firm
+                    task_counts['year'] = year
+                    # Add pre-calculated n_ai_apps_firm_year
+                    task_counts['n_ai_apps_firm_year'] = firm_year_app_counts.get((firm, year), 0)
+                    # Store raw counts; exposure will be calculated after aggregation
+                    firm_matched.append(task_counts)
+
+            if firm_matched:
+                chunk_exposure = pd.concat(firm_matched, ignore_index=True)
+            else:
+                chunk_exposure = pd.DataFrame(columns=['company_name', 'year', 'onet_task_id', 'n_task_matches_firm_year', 'n_ai_apps_firm_year'])
+
+        return chunk_exposure
     
     def _apply_occupation_exposure(self, firm_exposure_df: pd.DataFrame,
                                  task_app_matches: pd.DataFrame,
@@ -1565,6 +2023,9 @@ class TaskFirmExposurePipeline:
 
         working_df = onet_exposure.copy()
 
+        logger.info(f"[CROSSWALK DEBUG] Input working_df: {len(working_df):,} rows")
+        logger.info(f"[CROSSWALK DEBUG] Unique (company_name, year, onet_code): {working_df.groupby(['company_name', 'year', 'onet_code']).ngroups}")
+
         # Merge with Webb crosswalk to get mapping paths
         # Webb crosswalk has: onet_8d, soc_6d, isco08_4d, isco08_title, weight (pre-normalized)
         merged = working_df.merge(
@@ -1573,6 +2034,9 @@ class TaskFirmExposurePipeline:
             right_on='onet_8d',
             how='inner'
         )
+
+        logger.info(f"[CROSSWALK DEBUG] After merge with Webb: {len(merged):,} rows")
+        logger.info(f"[CROSSWALK DEBUG] Webb crosswalk caused {len(merged) - len(working_df):,} additional rows (1-to-many mappings)")
 
         # Log mapping coverage
         total_onet_codes = working_df['onet_code'].nunique()
@@ -1616,6 +2080,8 @@ class TaskFirmExposurePipeline:
             logger.info("  Stage 1: Averaging 8-digit O*NET codes within each 6-digit SOC...")
 
             # Group by SOC-6d + firm + year and average all exposure scores
+            logger.info(f"[CROSSWALK DEBUG] BEFORE SOC-6d aggregation: {len(merged):,} rows")
+
             soc_6d_grouped = merged.groupby(['soc_6d', 'company_name', 'year'], as_index=False).agg({
                 'hampole_ai_exposure_avg': 'mean',
                 'binary_ai_exposure_avg': 'mean',
@@ -1629,6 +2095,7 @@ class TaskFirmExposurePipeline:
             })
 
             logger.info(f"  Stage 1 complete: {len(soc_6d_grouped):,} unique 6-digit SOC-firm-year combinations")
+            logger.info(f"[CROSSWALK DEBUG] AFTER SOC-6d aggregation: {len(soc_6d_grouped):,} rows (reduced from {len(merged):,})")
             logger.info(f"    Unique 6-digit SOC codes: {soc_6d_grouped['soc_6d'].nunique():,}")
 
             # STAGE 2: Map 6-digit SOC to 4-digit ISCO using pre-normalized weights
@@ -1652,6 +2119,8 @@ class TaskFirmExposurePipeline:
 
             # Aggregate to ISCO-firm-year level by summing weighted values
             # Because weights sum to 1.0, summing weighted values = weighted average
+            logger.info(f"[CROSSWALK DEBUG] BEFORE ISCO aggregation: {len(weighted_merged):,} rows")
+
             isco_firm_exposure = weighted_merged.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg({
                 'weighted_hampole_ai': 'sum',
                 'weighted_binary_ai': 'sum',
@@ -1663,6 +2132,8 @@ class TaskFirmExposurePipeline:
                 'n_ai_apps_firm_year': 'mean',
                 'onet_code': 'sum'  # Sum of O*NET codes contributing through all SOC-6d paths
             })
+
+            logger.info(f"[CROSSWALK DEBUG] AFTER ISCO aggregation: {len(isco_firm_exposure):,} rows (reduced from {len(weighted_merged):,})")
 
             # Rename weighted columns back to original names
             isco_firm_exposure.rename(columns={
@@ -1704,11 +2175,18 @@ class TaskFirmExposurePipeline:
 
         # Add company_id for Stage 6 compatibility
         if company_mapping is not None:
+            logger.info(f"[CROSSWALK DEBUG] BEFORE final company_id merge: {len(isco_firm_exposure):,} rows")
+            logger.info(f"[CROSSWALK DEBUG] Unique (company_name, year, isco08_4d) BEFORE: {isco_firm_exposure.groupby(['company_name', 'year', 'isco08_4d']).ngroups}")
+
             isco_firm_exposure = isco_firm_exposure.merge(
                 company_mapping[['company_name', 'company_id']],
                 on='company_name',
                 how='left'
             )
+
+            logger.info(f"[CROSSWALK DEBUG] AFTER final company_id merge: {len(isco_firm_exposure):,} rows")
+            logger.info(f"[CROSSWALK DEBUG] Cartesian product added {len(isco_firm_exposure) - len(isco_titles):,} rows")
+
             missing_companies = isco_firm_exposure['company_id'].isna().sum()
             if missing_companies > 0:
                 logger.warning(f"{missing_companies} company names could not be mapped to company_ids")
@@ -2079,11 +2557,11 @@ class TaskFirmExposurePipeline:
         logger.info("DATA LOADING")
         logger.info("="*50)
         
-        # Step 1: Load exposed task-application matches
-        task_app_matches = self.step1_load_task_application_matches(top_matches_file)
+        # Step 1: Load exposed task-application match metadata (filter columns only)
+        matches_file_path, filter_metadata = self.step1_load_task_application_matches(top_matches_file)
 
         # Auto-detect BGE percentiles from Stage 4 output columns
-        pct_cols = [col for col in task_app_matches.columns if col.startswith('pct_')]
+        pct_cols = [col for col in filter_metadata.columns if col.startswith('pct_')]
         logger.info(f"Found percentile columns in Stage 4 output: {sorted(pct_cols)}")
 
         detected_percentiles = []
@@ -2117,8 +2595,13 @@ class TaskFirmExposurePipeline:
             self.bge_percentiles = detected_percentiles
             logger.info(f"✓ Updated BGE percentiles to: {self.bge_percentiles}")
 
-        # Detect if cross-encoder scores are available
-        ce_scores_exist = task_app_matches['cross_encoder_score'].notna().any()
+        # Detect if cross-encoder scores are available (need to read from file)
+        import pyarrow.parquet as pq
+        import pyarrow.compute as pc
+        import pyarrow as pa
+        parquet_file = pq.ParquetFile(matches_file_path)
+        ce_column_data = parquet_file.read(['cross_encoder_score']).column('cross_encoder_score')
+        ce_scores_exist = pc.sum(pc.is_valid(ce_column_data)).as_py() > 0
         if not ce_scores_exist:
             logger.warning("="*80)
             logger.warning("NO CROSS-ENCODER SCORES DETECTED")
@@ -2212,24 +2695,23 @@ class TaskFirmExposurePipeline:
                 logger.info(f"  ✓ Using cached checkpoint for {bge_col} × {ce_col} (skipping processing)")
                 continue  # Skip to next spec
 
-            # Filter matches for this specification
-            # Build filter mask: always use percentile, optionally add minimum threshold and CE
+            # Build filter mask using metadata (memory-efficient)
+            # Always use percentile, optionally add minimum threshold and CE
             if ce_col == 'ce_0.0' and not ce_scores_exist:
                 # CE is missing, so use BGE filter only (ce_0.0 is effectively always True)
-                filter_mask = task_app_matches[bge_col]
+                filter_mask = filter_metadata[bge_col]
             else:
                 # Normal case: apply both BGE and CE filters
-                filter_mask = task_app_matches[bge_col] & task_app_matches[ce_col]
+                filter_mask = filter_metadata[bge_col] & filter_metadata[ce_col]
 
             # Apply minimum threshold filter if enabled and column exists
-            if self.apply_min_threshold and 'above_min_threshold' in task_app_matches.columns:
-                filter_mask = filter_mask & task_app_matches['above_min_threshold']
+            if self.apply_min_threshold and 'above_min_threshold' in filter_metadata.columns:
+                filter_mask = filter_mask & filter_metadata['above_min_threshold']
                 logger.info(f"  Applying minimum threshold filter (above_min_threshold column)")
             elif self.apply_min_threshold:
                 logger.warning(f"  Minimum threshold filtering requested but 'above_min_threshold' column not found - skipping")
 
-            spec_matches = task_app_matches[filter_mask].copy()
-            match_count = len(spec_matches)
+            match_count = filter_mask.sum()
             logger.info(f"  Matches: {match_count:,}")
 
             if match_count == 0:
@@ -2237,21 +2719,205 @@ class TaskFirmExposurePipeline:
                 results_by_spec[(bge_col, ce_col)] = None
             else:
                 try:
-                    # Run 4-step pipeline for this spec
-                    task_firm_exposure = self.step2_calculate_firm_task_exposure(
-                        spec_matches, job_app_mapping, original_jobs
-                    )
+                    # Determine processing strategy based on filtered dataset size
+                    # Allow override via environment variable for testing
+                    default_threshold = 50_000_000  # 50M rows
+                    threshold_override = os.environ.get('FORCE_CHUNK_PROCESSING_THRESHOLD', '').strip()
+
+                    if threshold_override:
+                        try:
+                            CHUNK_PROCESSING_THRESHOLD = int(threshold_override)
+                            logger.info(f"  ⚠️ CHUNK_PROCESSING_THRESHOLD overridden via env var: {CHUNK_PROCESSING_THRESHOLD:,}")
+                        except ValueError:
+                            logger.warning(f"  Invalid FORCE_CHUNK_PROCESSING_THRESHOLD: {threshold_override}, using default")
+                            CHUNK_PROCESSING_THRESHOLD = default_threshold
+                    else:
+                        CHUNK_PROCESSING_THRESHOLD = default_threshold
+
+                    if getattr(self, "force_nonchunked", False):
+                        logger.warning("  Force-nonchunked enabled: using STANDARD processing regardless of match count")
+                        CHUNK_PROCESSING_THRESHOLD = float("inf")
+
+                    if match_count >= CHUNK_PROCESSING_THRESHOLD:
+                        logger.info(f"  Using CHUNK-BASED PROCESSING (filtered dataset ≥{CHUNK_PROCESSING_THRESHOLD:,} rows)")
+
+                        # CHUNK-BASED PROCESSING PIPELINE
+                        # Step 0: Pre-calculate firm-app-year mappings
+                        firm_year_app_counts, firm_app_first_years = self._precalculate_firm_app_mappings(
+                            matches_file_path,
+                            filter_mask.values,
+                            self.expand_job_app_mapping_to_full_dataset(job_app_mapping, original_jobs, None)
+                        )
+
+                        # Step 1: Process chunks through step2_chunked and accumulate results
+                        logger.info(f"  Processing chunks through step2_chunked...")
+                        expanded_job_app_mapping = self.expand_job_app_mapping_to_full_dataset(
+                            job_app_mapping, original_jobs, None
+                        )
+
+                        task_firm_chunks = []
+                        chunk_count = 0
+
+                        for chunk in self._load_filtered_matches_chunked_generator(matches_file_path, filter_mask.values):
+                            chunk_count += 1
+
+                            # Process chunk through step2_chunked
+                            chunk_exposure = self.step2_calculate_firm_task_exposure_chunked(
+                                chunk,
+                                expanded_job_app_mapping,
+                                firm_year_app_counts,
+                                firm_app_first_years
+                            )
+
+                            task_firm_chunks.append(chunk_exposure)
+
+                            del chunk, chunk_exposure
+                            gc.collect()
+
+                            if chunk_count % 10 == 0:
+                                logger.info(f"    Processed {chunk_count} chunks through step2")
+
+                        logger.info(f"  Processed all {chunk_count} chunks through step2")
+
+                        # Step 2: Merge and re-aggregate chunk results
+                        logger.info(f"  Merging {len(task_firm_chunks)} chunk results...")
+                        task_firm_exposure_combined = pd.concat(task_firm_chunks, ignore_index=True)
+
+                        # DEBUG LOGGING
+                        logger.info(f"  [DEBUG] Combined chunks: {len(task_firm_exposure_combined):,} rows")
+                        logger.info(f"  [DEBUG] Unique companies: {task_firm_exposure_combined['company_name'].nunique()}")
+                        logger.info(f"  [DEBUG] Unique tasks: {task_firm_exposure_combined['onet_task_id'].nunique()}")
+                        if 'year' in task_firm_exposure_combined.columns:
+                            logger.info(f"  [DEBUG] Unique years: {sorted(task_firm_exposure_combined['year'].unique())}")
+                            logger.info(f"  [DEBUG] Unique (company, year, task) keys: {task_firm_exposure_combined.groupby(['company_name', 'year', 'onet_task_id']).ngroups}")
+                        else:
+                            logger.info(f"  [DEBUG] Unique (company, task) keys: {task_firm_exposure_combined.groupby(['company_name', 'onet_task_id']).ngroups}")
+
+                        # Re-aggregate to handle overlaps between chunks
+                        logger.info(f"  Re-aggregating {len(task_firm_exposure_combined):,} rows to handle chunk overlaps...")
+
+                        if self.time_invariant:
+                            # Time-invariant: No year column yet, aggregate by firm-task
+                            task_firm_exposure = task_firm_exposure_combined.groupby(
+                                ['company_name', 'onet_task_id'], as_index=False
+                            ).agg({
+                                'n_task_matches_firm_year': 'sum',  # Additive across chunks
+                            })
+
+                            # Get unique firms and years from pre-calculated data
+                            all_firms = list(set([k[0] for k in firm_year_app_counts.keys()]))
+                            all_years = sorted(set([k[1] for k in firm_year_app_counts.keys()]))
+
+                            # Add n_ai_apps_firm_year (same for all years in time-invariant mode)
+                            # Use firm_year_app_counts from first year for each firm
+                            firm_app_counts_map = {}
+                            for firm in all_firms:
+                                # In time-invariant mode, all years have same count
+                                firm_app_counts_map[firm] = firm_year_app_counts.get((firm, all_years[0]), 0)
+
+                            task_firm_exposure['n_ai_apps_firm_year'] = task_firm_exposure['company_name'].map(firm_app_counts_map)
+
+                            # Broadcast across all years
+                            years_df = pd.DataFrame({'year': all_years})
+                            task_firm_exposure = task_firm_exposure.merge(
+                                years_df,
+                                how='cross'
+                            )[['company_name', 'year', 'onet_task_id', 'n_ai_apps_firm_year', 'n_task_matches_firm_year']]
+
+                        else:
+                            # Time-variant: Has year column, aggregate by firm-year-task
+                            task_firm_exposure = task_firm_exposure_combined.groupby(
+                                ['company_name', 'year', 'onet_task_id'], as_index=False
+                            ).agg({
+                                'n_ai_apps_firm_year': 'first',  # Same for all tasks in firm-year
+                                'n_task_matches_firm_year': 'sum',  # Additive across chunks
+                            })
+
+                        # DEBUG LOGGING - After aggregation
+                        logger.info(f"  [DEBUG] After aggregation: {len(task_firm_exposure):,} rows")
+                        logger.info(f"  [DEBUG] Unique companies: {task_firm_exposure['company_name'].nunique()}")
+                        logger.info(f"  [DEBUG] Unique tasks: {task_firm_exposure['onet_task_id'].nunique()}")
+                        if 'year' in task_firm_exposure.columns:
+                            logger.info(f"  [DEBUG] Unique (company, year, task) keys: {task_firm_exposure.groupby(['company_name', 'year', 'onet_task_id']).ngroups}")
+
+                        # Recalculate exposure scores after aggregation (same for both modes)
+                        task_firm_exposure['hampole_task_exposure'] = (
+                            task_firm_exposure['n_task_matches_firm_year'] /
+                            task_firm_exposure['n_ai_apps_firm_year']
+                        )
+                        task_firm_exposure['binary_task_exposure'] = (
+                            (task_firm_exposure['n_task_matches_firm_year'] >= 1).astype(int)
+                        )
+
+                        logger.info(f"  ✓ Aggregated to {len(task_firm_exposure):,} firm-year-task exposures")
+
+                        # DEBUG LOGGING - Sample data for verification
+                        logger.info(f"  [DEBUG] Sample task_firm_exposure rows (first 3):")
+                        sample_df = task_firm_exposure.head(3)[['company_name', 'year', 'onet_task_id', 'n_ai_apps_firm_year', 'n_task_matches_firm_year', 'hampole_task_exposure']]
+                        for idx, row in sample_df.iterrows():
+                            logger.info(f"    {row['company_name'][:30]} | {row['year']} | {row['onet_task_id']} | n_apps={row['n_ai_apps_firm_year']:.0f} | n_matches={row['n_task_matches_firm_year']:.0f} | exposure={row['hampole_task_exposure']:.6f}")
+
+                        # Clean up intermediate data
+                        del task_firm_chunks, task_firm_exposure_combined, expanded_job_app_mapping
+                        del firm_year_app_counts, firm_app_first_years
+                        gc.collect()
+
+                    else:
+                        logger.info(f"  Using STANDARD PROCESSING (filtered dataset <{CHUNK_PROCESSING_THRESHOLD:,} rows)")
+
+                        # STANDARD PROCESSING (existing logic)
+                        # Load ONLY filtered data for this spec (memory-efficient)
+                        spec_matches = self._load_filtered_matches(matches_file_path, filter_mask.values)
+
+                        # Run step2 (standard version)
+                        task_firm_exposure = self.step2_calculate_firm_task_exposure(
+                            spec_matches, job_app_mapping, original_jobs
+                        )
+
+                        # Clean up spec_matches
+                        del spec_matches
+                        gc.collect()
+
+                    # Steps 3-4: Same for both processing modes (already aggregated data)
                     occupation_firm_exposure = self.step3_calculate_occupation_firm_exposure(
                         task_firm_exposure, task_statements, task_ratings
                     )
+
+                    # DEBUG LOGGING - After Step 3
+                    logger.info(f"  [DEBUG] After Step 3 (occupation aggregation): {len(occupation_firm_exposure):,} rows")
+                    logger.info(f"  [DEBUG] Unique companies: {occupation_firm_exposure['company_name'].nunique()}")
+                    logger.info(f"  [DEBUG] Unique occupations: {occupation_firm_exposure['onet_code'].nunique()}")
+                    logger.info(f"  [DEBUG] Unique (company, year, occupation) keys: {occupation_firm_exposure.groupby(['company_name', 'year', 'onet_code']).ngroups}")
+
                     spec_result = self.step4_apply_ai_intensity_adjustment(occupation_firm_exposure)
 
+                    # DEBUG LOGGING - After Step 4
+                    logger.info(f"  [DEBUG] After Step 4 (AI intensity): {len(spec_result):,} rows")
+
                     # Add company_id by merging with company_mapping for merge compatibility
+                    logger.info(f"  [DEBUG] BEFORE company_id merge: {len(spec_result):,} rows")
+                    logger.info(f"  [DEBUG] Unique (company_name, year, onet_code) BEFORE merge: {spec_result.groupby(['company_name', 'year', 'onet_code']).ngroups}")
+
                     spec_result = spec_result.merge(
                         company_mapping[['company_name', 'company_id']],
                         on='company_name',
                         how='left'
                     )
+
+                    logger.info(f"  [DEBUG] AFTER company_id merge: {len(spec_result):,} rows")
+                    logger.info(f"  [DEBUG] Rows added by Cartesian product: {len(spec_result) - occupation_firm_exposure.shape[0]}")
+                    logger.info(f"  [DEBUG] Unique (company_name, year, onet_code) AFTER merge: {spec_result.groupby(['company_name', 'year', 'onet_code']).ngroups}")
+                    logger.info(f"  [DEBUG] Unique company_ids: {spec_result['company_id'].nunique()}")
+
+                    # Check for companies with multiple IDs
+                    company_id_counts = spec_result.groupby('company_name')['company_id'].nunique()
+                    multi_id_companies = company_id_counts[company_id_counts > 1]
+                    if len(multi_id_companies) > 0:
+                        logger.info(f"  [DEBUG] Companies with multiple IDs: {len(multi_id_companies)}")
+                        for company in list(multi_id_companies.index)[:5]:
+                            ids = spec_result[spec_result['company_name'] == company]['company_id'].unique()
+                            logger.info(f"    {company}: {ids}")
+
                     missing_companies = spec_result['company_id'].isna().sum()
                     if missing_companies > 0:
                         logger.warning(f"  {missing_companies} companies in spec result couldn't be mapped to company_ids")
@@ -2279,6 +2945,9 @@ class TaskFirmExposurePipeline:
                     logger.info(f"  ✓ Saved O*NET spec file: {os.path.basename(onet_spec_file)}")
 
                     # Crosswalk individual spec to ISCO
+                    logger.info(f"  [DEBUG] INPUT to crosswalk: {len(spec_result):,} O*NET rows")
+                    logger.info(f"  [DEBUG] Unique (company_name, year, onet_code) going into crosswalk: {spec_result.groupby(['company_name', 'year', 'onet_code']).ngroups}")
+
                     isco_spec_result = self.crosswalk_onet_to_isco(
                         spec_result,
                         webb_crosswalk,
@@ -2286,6 +2955,11 @@ class TaskFirmExposurePipeline:
                         company_mapping,
                         use_weights=self.use_employment_weights  # From CLI flag
                     )
+
+                    logger.info(f"  [DEBUG] OUTPUT from crosswalk: {len(isco_spec_result):,} ISCO rows")
+                    logger.info(f"  [DEBUG] Unique (company_name, year, isco08_4d): {isco_spec_result.groupby(['company_name', 'year', 'isco08_4d']).ngroups}")
+                    logger.info(f"  [DEBUG] Unique companies: {isco_spec_result['company_name'].nunique()}")
+                    logger.info(f"  [DEBUG] Unique ISCO codes: {isco_spec_result['isco08_4d'].nunique()}")
 
                     # ADD SPEC SUFFIXES TO ISCO EXPOSURE COLUMNS (for merged file)
                     isco_exposure_cols = [c for c in isco_spec_result.columns
@@ -2317,6 +2991,7 @@ class TaskFirmExposurePipeline:
                     logger.info(f"  ✓ Saved ISCO checkpoint: {isco_checkpoint_path.name}")
 
                     # Clear memory: delete large intermediate DataFrames
+                    # Note: spec_matches only exists in standard processing mode, not chunk-based
                     del spec_result, isco_spec_result_for_merge, isco_spec_result
                     del task_firm_exposure, occupation_firm_exposure
                     del spec_result_with_soc  # Also delete the O*NET version with titles
@@ -2432,9 +3107,13 @@ class TaskFirmExposurePipeline:
             onet_firm_file = os.path.join(self.output_dir, f"{base_filename}_all_specs.csv")
             final_onet_with_titles.to_csv(onet_firm_file, index=False, encoding='utf-8')
             logger.info(f"✅ Saved merged O*NET firm-year exposure: {onet_firm_file}")
-            
+
             # 2. Save O*NET Occupation-Level Exposure Summary
-            task_exposure_table = self.create_task_exposure_table(task_app_matches, task_statements, task_ratings)
+            # Load onet_task_id column from file for summary table
+            import pyarrow.parquet as pq
+            task_ids_table = pq.read_table(matches_file_path, columns=['onet_task_id'])
+            task_ids_df = task_ids_table.to_pandas()
+            task_exposure_table = self.create_task_exposure_table(task_ids_df, task_statements, task_ratings)
             onet_occupation_summary = self.aggregate_tasks_to_onet_occupations(task_exposure_table)
             
             # Add O*NET titles to the summary
@@ -2553,7 +3232,11 @@ class TaskFirmExposurePipeline:
         logger.info("\n" + "="*60)
         logger.info("PIPELINE COMPLETE - SUMMARY")
         logger.info("="*60)
-        logger.info(f"✅ Input: {len(task_app_matches):,} task-application matches from stage 4")
+        # Get total row count from parquet metadata
+        import pyarrow.parquet as pq
+        parquet_file = pq.ParquetFile(matches_file_path)
+        total_matches = parquet_file.metadata.num_rows
+        logger.info(f"✅ Input: {total_matches:,} task-application matches from stage 4")
         logger.info(f"✅ Processed {valid_isco_spec_count}/{len(specifications)} specifications successfully")
         logger.info(f"✅ Step 2-4: Per-spec processing with checkpointing (memory-optimized)")
         logger.info(f"✅ Final: {len(isco_firm_exposure):,} ISCO-08 occupation-firm-year exposure combinations")
@@ -2839,6 +3522,10 @@ def main():
                        help="Path to original jobs CSV file (auto-detect if not provided)")
     parser.add_argument("--save-onet-outputs", action="store_true",
                        help="Save intermediate O*NET exposure files before ISCO crosswalk")
+    parser.add_argument("--skip-debug-csv", action="store_true",
+                       help="Skip saving large debug CSVs (expanded_jobs_matching.csv, task_app_matches.csv) to output-dir")
+    parser.add_argument("--force-nonchunked", action="store_true",
+                       help="Disable chunk-based processing paths (may be faster but uses more RAM)")
     parser.add_argument("--output-dir", type=str,
                        help="Directory for all output files (both O*NET and ISCO) (defaults to Data/firm_year_exposure/)")
 
@@ -2915,7 +3602,9 @@ def main():
             task_type=args.task_type,
             onet_version=args.onet_version,
             use_employment_weights=args.use_employment_weights,
-            apply_min_threshold=not args.ignore_min_threshold
+            apply_min_threshold=not args.ignore_min_threshold,
+            save_debug_csv=not args.skip_debug_csv,
+            force_nonchunked=args.force_nonchunked
         )
 
         # Auto-detect Stage 4 file based on task type if not provided

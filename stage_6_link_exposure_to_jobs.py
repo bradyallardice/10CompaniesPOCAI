@@ -9,10 +9,10 @@ Author: Adapted from Allardice/Kurer methodology
 Date: September 2025
 
 python3 stage_6_link_exposure_to_jobs.py \
---stage5_dir Data/Testing/stage_5/functionality_test/skip_ce/ \
---output_dir Data/Testing/stage_6/functionality_test/skip_ce/ \
---occ_code isco --generate_firm_report --task_type core --job_app_mapping_file Data/Testing/stage_4/functionality_test/skip_ce/job_app_mapping_bge_bge20_15_10_5_1_ce0p8_0p6_0p4_0p2_onet20_core.parquet \
---ai_apps_file Data/Testing/stage_3/functionality_test/test_200_apps.csv
+--stage5_dir Data/Testing/stage_5/full_sample/cross_encoded/ \
+--output_dir Data/Testing/stage_6/full_sample/cross_encoded/ \
+--occ_code isco --generate_firm_report --task_type core --job_app_mapping_file Data/Testing/stage_4/full_sample/cross_encoded/job_app_mapping_bge_bge20_15_10_5_1_ce0p8_0p6_0p4_0p2_onet20_core.parquet \
+--ai_apps_file Data/Testing/stage_3/full_sample/merged_llm_output_step3_extracted.csv
 """
 
 import argparse

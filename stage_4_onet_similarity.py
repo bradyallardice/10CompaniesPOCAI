@@ -24,6 +24,7 @@ python3 stage_4_onet_similarity.py \
 import pandas as pd
 import numpy as np
 import os
+import json
 from datetime import datetime
 import logging
 from typing import List, Tuple, Optional, Dict
@@ -98,6 +99,84 @@ def write_large_parquet_compressed(df, output_path, chunk_size=10_000_000):
     # Log file size
     file_size_gb = os.path.getsize(output_path) / (1024**3)
     logger.info(f"Parquet file written: {file_size_gb:.2f} GB")
+
+
+def append_to_parquet_chunk(df, output_dir, chunk_id):
+    """
+    Write DataFrame as a separate parquet chunk file.
+
+    Avoids append overhead by writing independent chunks that can be
+    merged later using PyArrow dataset API (lazy loading).
+
+    Args:
+        df: DataFrame to write
+        output_dir: Directory for chunk files
+        chunk_id: Unique identifier for this chunk
+
+    Returns:
+        Path to written chunk file
+    """
+    import pyarrow.parquet as pq
+
+    chunk_file = os.path.join(output_dir, f"_chunk_{chunk_id:06d}.parquet")
+    df.to_parquet(chunk_file, engine='pyarrow', compression='zstd', compression_level=9)
+    return chunk_file
+
+
+def merge_parquet_chunks(chunk_dir, output_path):
+    """
+    Merge all parquet chunk files into single output file using batched streaming.
+
+    Reads chunks in batches to avoid loading all 335M rows into memory at once.
+
+    Args:
+        chunk_dir: Directory containing chunk files
+        output_path: Path for merged output file
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import glob
+
+    # Find all chunk files
+    chunk_pattern = os.path.join(chunk_dir, "_chunk_*.parquet")
+    chunk_files = sorted(glob.glob(chunk_pattern))
+
+    if not chunk_files:
+        raise ValueError(f"No chunk files found in {chunk_dir}")
+
+    logger.info(f"Merging {len(chunk_files)} chunk files into {output_path}")
+
+    # Read first chunk to get schema
+    first_table = pq.read_table(chunk_files[0])
+    schema = first_table.schema
+
+    # Use ParquetWriter for streaming merge
+    with pq.ParquetWriter(output_path, schema, compression='zstd', compression_level=9) as writer:
+        # Write first chunk
+        writer.write_table(first_table)
+        del first_table
+
+        # Stream remaining chunks one at a time
+        for i, chunk_file in enumerate(chunk_files[1:], start=2):
+            if i % 50 == 0:  # Progress every 50 chunks
+                logger.info(f"Merging progress: {i}/{len(chunk_files)} chunks")
+
+            # Read and write chunk
+            chunk_table = pq.read_table(chunk_file)
+            writer.write_table(chunk_table)
+            del chunk_table
+
+            # Periodic garbage collection
+            if i % 10 == 0:
+                gc.collect()
+
+    logger.info(f"Merged parquet file written: {output_path}")
+
+    # Clean up chunk files
+    logger.info(f"Removing {len(chunk_files)} chunk files...")
+    for chunk_file in chunk_files:
+        os.remove(chunk_file)
+    logger.info(f"Cleanup complete: {len(chunk_files)} chunks removed")
 
 
 class ONETSimilarityMatcher:
@@ -2930,7 +3009,9 @@ class ONETSimilarityMatcher:
 
     def _compute_similarities_faiss_range(self, app_embeddings, onet_embeddings,
                                          min_threshold, app_texts, onet_df,
-                                         job_uid_lookup, chunk_size=10000):
+                                         job_uid_lookup, chunk_size=10000,
+                                         output_file=None, write_chunk_size=1000000,
+                                         checkpoint_dir=None, checkpoint_interval=10):
         """
         Use FAISS range_search to find all pairs above threshold.
 
@@ -2942,10 +3023,14 @@ class ONETSimilarityMatcher:
             onet_df: O*NET task DataFrame with columns ['task_id', 'Task', ...]
             job_uid_lookup: Dict mapping app_text -> [(job_uid, timestamp), ...]
             chunk_size: Apps per chunk for memory efficiency (default: 10000)
+            output_file: Path to output parquet file (if None, returns DataFrame - memory-intensive!)
+            write_chunk_size: Number of pairs to accumulate before writing (default: 10000000)
+            checkpoint_dir: Directory for checkpoint files (enables resume on failure)
+            checkpoint_interval: Save checkpoint every N FAISS chunks (default: 10)
 
         Returns:
-            pd.DataFrame with columns: app_text, onet_task_id, onet_task, similarity,
-                                      cross_encoder_score, ai_app_id, job_uid
+            If output_file provided: str (path to written parquet file)
+            If output_file is None: pd.DataFrame (WARNING: high memory usage!)
         """
 
         # Verify normalization
@@ -2984,55 +3069,220 @@ class ONETSimilarityMatcher:
             logger.info(f"FAISS IndexFlatIP built on CPU with {len(onet_embeddings)} tasks")
         logger.info(f"Range search threshold: {min_threshold:.4f}")
 
-        # Process apps in chunks for memory efficiency
-        all_pairs = []
+        # Incremental writing mode: write to separate chunk files, merge at end
+        if output_file is not None:
+            # Check if final merged file already exists
+            if os.path.exists(output_file):
+                logger.info(f"Output file already exists: {output_file}")
+                logger.info(f"Skipping FAISS range search, returning existing file")
+                return output_file
 
-        for chunk_start in tqdm(range(0, len(app_embeddings), chunk_size),
-                                desc="Range search"):
-            chunk_end = min(chunk_start + chunk_size, len(app_embeddings))
-            app_chunk = app_embeddings[chunk_start:chunk_end].astype(np.float32)
+            # Create chunks directory
+            chunks_dir = output_file + "_chunks"
+            os.makedirs(chunks_dir, exist_ok=True)
 
-            # FAISS range_search returns (lims, distances, indices)
-            lims, distances, indices = search_index.range_search(app_chunk, min_threshold)
+            # Set up checkpointing
+            checkpoint_file = None
+            start_chunk_idx = 0
 
-            # Parse results
-            for i in range(len(app_chunk)):
-                app_idx = chunk_start + i
-                start = lims[i]
-                end = lims[i + 1]
+            if checkpoint_dir is not None:
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                # Checkpoint tracks: (last_processed_chunk_idx, total_pairs_written, write_chunk_counter)
+                checkpoint_file = os.path.join(checkpoint_dir, "_range_search_checkpoint.json")
 
-                if start == end:  # No matches for this app
+                # Check for existing checkpoint
+                if os.path.exists(checkpoint_file):
+                    with open(checkpoint_file, 'r') as f:
+                        checkpoint_data = json.load(f)
+                    start_chunk_idx = checkpoint_data['last_chunk_idx'] + 1
+                    total_pairs = checkpoint_data['total_pairs']
+                    write_chunk_counter = checkpoint_data.get('write_chunk_counter', 0)
+                    logger.info(f"Resuming from checkpoint: chunk {start_chunk_idx}, {total_pairs:,} pairs, {write_chunk_counter} files written")
+                else:
+                    logger.info(f"Checkpointing enabled: will save progress every {checkpoint_interval} chunks")
+                    total_pairs = 0
+                    write_chunk_counter = 0
+            else:
+                total_pairs = 0
+                write_chunk_counter = 0
+
+            chunk_pairs = []
+            num_chunks = (len(app_embeddings) + chunk_size - 1) // chunk_size
+
+            for chunk_idx, chunk_start in enumerate(tqdm(range(0, len(app_embeddings), chunk_size),
+                                    desc="Range search (incremental write)", initial=start_chunk_idx, total=num_chunks)):
+                # Skip already processed chunks
+                if chunk_idx < start_chunk_idx:
                     continue
+                chunk_end = min(chunk_start + chunk_size, len(app_embeddings))
+                app_chunk = app_embeddings[chunk_start:chunk_end].astype(np.float32)
 
-                task_indices = indices[start:end]
-                similarities = distances[start:end]
+                # FAISS range_search returns (lims, distances, indices)
+                lims, distances, indices = search_index.range_search(app_chunk, min_threshold)
 
-                # Get app data
-                app_text = app_texts[app_idx]
-                ai_app_id = hashlib.md5(app_text.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
+                # Parse results
+                for i in range(len(app_chunk)):
+                    app_idx = chunk_start + i
+                    start = lims[i]
+                    end = lims[i + 1]
 
-                # Get all job UIDs for this app
-                job_uids_list = [uid for uid, ts in job_uid_lookup.get(app_text, [])]
+                    if start == end:  # No matches for this app
+                        continue
 
-                # Create pairs
-                for task_idx, sim in zip(task_indices, similarities):
-                    task_row = onet_df.iloc[task_idx]
+                    task_indices = indices[start:end]
+                    similarities = distances[start:end]
 
-                    all_pairs.append({
-                        'app_text': app_text,
-                        'onet_task_id': int(task_row['task_id']),
-                        'onet_task': task_row['Task'],
-                        'similarity': float(sim),
-                        'cross_encoder_score': np.nan,  # Fill with CE later if enabled
-                        'ai_app_id': ai_app_id,
-                        'job_uid': job_uids_list
-                    })
+                    # Get app data
+                    app_text = app_texts[app_idx]
+                    ai_app_id = hashlib.md5(app_text.encode('utf-8')).hexdigest().upper()
 
-        # Convert to DataFrame
-        pairs_df = pd.DataFrame(all_pairs)
-        logger.info(f"Range search complete: {len(pairs_df):,} pairs found")
+                    # Get all job UIDs for this app
+                    job_uids_list = [uid for uid, ts in job_uid_lookup.get(app_text, [])]
 
-        return pairs_df
+                    # Create pairs
+                    for task_idx, sim in zip(task_indices, similarities):
+                        task_row = onet_df.iloc[task_idx]
+
+                        chunk_pairs.append({
+                            'app_text': app_text,
+                            'onet_task_id': int(task_row['task_id']),
+                            'onet_task': task_row['Task'],
+                            'similarity': float(sim),
+                            'cross_encoder_score': np.nan,
+                            'ai_app_id': ai_app_id,
+                            'job_uid': job_uids_list
+                        })
+
+                        # Inner-loop write check (safety net for large result sets)
+                        if len(chunk_pairs) >= write_chunk_size:
+                            df_chunk = pd.DataFrame(chunk_pairs)
+                            total_pairs += len(df_chunk)
+
+                            # Write as separate chunk file (no append overhead!)
+                            append_to_parquet_chunk(df_chunk, chunks_dir, write_chunk_counter)
+                            write_chunk_counter += 1
+                            logger.info(f"Wrote chunk {write_chunk_counter}: {len(df_chunk):,} pairs (total: {total_pairs:,})")
+
+                            # Clear memory
+                            chunk_pairs = []
+                            del df_chunk
+                            gc.collect()
+
+                # Write chunk if threshold reached (backup check after FAISS chunk)
+                if len(chunk_pairs) >= write_chunk_size:
+                    df_chunk = pd.DataFrame(chunk_pairs)
+                    total_pairs += len(df_chunk)
+
+                    # Write as separate chunk file (no append overhead!)
+                    append_to_parquet_chunk(df_chunk, chunks_dir, write_chunk_counter)
+                    write_chunk_counter += 1
+                    logger.info(f"Wrote chunk {write_chunk_counter}: {len(df_chunk):,} pairs (total: {total_pairs:,})")
+
+                    # Clear memory
+                    chunk_pairs = []
+                    gc.collect()
+
+                # Save checkpoint periodically
+                if checkpoint_file is not None and (chunk_idx + 1) % checkpoint_interval == 0:
+                    checkpoint_data = {
+                        'last_chunk_idx': chunk_idx,
+                        'total_pairs': total_pairs,
+                        'write_chunk_counter': write_chunk_counter,
+                        'timestamp': pd.Timestamp.now().isoformat()
+                    }
+                    with open(checkpoint_file, 'w') as f:
+                        json.dump(checkpoint_data, f)
+                    logger.info(f"Checkpoint saved: chunk {chunk_idx + 1}/{num_chunks}, {total_pairs:,} pairs, {write_chunk_counter} files")
+
+            # Write final chunk
+            if chunk_pairs:
+                df_chunk = pd.DataFrame(chunk_pairs)
+                total_pairs += len(df_chunk)
+
+                # Write final chunk file
+                append_to_parquet_chunk(df_chunk, chunks_dir, write_chunk_counter)
+                write_chunk_counter += 1
+                logger.info(f"Final chunk {write_chunk_counter}: {len(df_chunk):,} pairs (total: {total_pairs:,})")
+
+                del df_chunk
+                gc.collect()
+
+            # Merge all chunk files into final output
+            logger.info(f"Merging {write_chunk_counter} chunk files into {output_file}")
+            merge_parquet_chunks(chunks_dir, output_file)
+
+            # Clean up chunks directory
+            os.rmdir(chunks_dir)
+            logger.info(f"Removed chunks directory: {chunks_dir}")
+
+            # Clean up checkpoint file on successful completion
+            if checkpoint_file is not None and os.path.exists(checkpoint_file):
+                os.remove(checkpoint_file)
+                logger.info("Checkpoint file removed (processing complete)")
+
+            # Get actual row count from merged file (more accurate than total_pairs variable)
+            import pyarrow.parquet as pq
+            parquet_file = pq.ParquetFile(output_file)
+            actual_rows = parquet_file.metadata.num_rows
+            logger.info(f"Range search complete: {actual_rows:,} pairs written to {output_file}")
+
+            # Log discrepancy if checkpoint value was stale
+            if actual_rows != total_pairs:
+                logger.info(f"Note: Checkpoint tracking showed {total_pairs:,}, actual file has {actual_rows:,} rows")
+
+            return output_file
+
+        # Legacy mode: accumulate all in memory (WARNING: high memory usage!)
+        else:
+            logger.warning("No output_file specified - accumulating all pairs in memory (high memory usage!)")
+            all_pairs = []
+
+            for chunk_start in tqdm(range(0, len(app_embeddings), chunk_size),
+                                    desc="Range search (in-memory)"):
+                chunk_end = min(chunk_start + chunk_size, len(app_embeddings))
+                app_chunk = app_embeddings[chunk_start:chunk_end].astype(np.float32)
+
+                # FAISS range_search returns (lims, distances, indices)
+                lims, distances, indices = search_index.range_search(app_chunk, min_threshold)
+
+                # Parse results
+                for i in range(len(app_chunk)):
+                    app_idx = chunk_start + i
+                    start = lims[i]
+                    end = lims[i + 1]
+
+                    if start == end:  # No matches for this app
+                        continue
+
+                    task_indices = indices[start:end]
+                    similarities = distances[start:end]
+
+                    # Get app data
+                    app_text = app_texts[app_idx]
+                    ai_app_id = hashlib.md5(app_text.encode('utf-8')).hexdigest().upper()
+
+                    # Get all job UIDs for this app
+                    job_uids_list = [uid for uid, ts in job_uid_lookup.get(app_text, [])]
+
+                    # Create pairs
+                    for task_idx, sim in zip(task_indices, similarities):
+                        task_row = onet_df.iloc[task_idx]
+
+                        all_pairs.append({
+                            'app_text': app_text,
+                            'onet_task_id': int(task_row['task_id']),
+                            'onet_task': task_row['Task'],
+                            'similarity': float(sim),
+                            'cross_encoder_score': np.nan,
+                            'ai_app_id': ai_app_id,
+                            'job_uid': job_uids_list
+                        })
+
+            # Convert to DataFrame
+            pairs_df = pd.DataFrame(all_pairs)
+            logger.info(f"Range search complete: {len(pairs_df):,} pairs found")
+
+            return pairs_df
 
     def _add_percentile_columns(self, pairs_df, percentile_thresholds):
         """
@@ -3205,6 +3455,7 @@ class ONETSimilarityMatcher:
         logger.info(f"Stage 4 minimum-similarity filtering: {'DISABLED (write above_min_threshold for downstream)' if self.no_min_similarity_filter else 'ENABLED (filter candidates by minimum_similarity)'}")
         logger.info(f"Batch size: {self.batch_size}")
         logger.info(f"Device: {self.device}")
+        logger.info(f"Embeddings dir: {self.embeddings_dir}")
         logger.info(f"O*NET cache: {'enabled' if use_onet_cache else 'disabled'}")
         logger.info(f"Apps cache: {'enabled' if use_apps_cache else 'disabled'}")
         logger.info(f"BGE percentiles: {bge_percentiles}")
@@ -3383,39 +3634,102 @@ class ONETSimilarityMatcher:
                 # Get app_texts list matching embedding order
                 app_texts = dedup_df['app_text'].unique().tolist()
 
-                pairs_df = self._compute_similarities_faiss_range(
+                # Build output file path for incremental writing
+                temp_range_file = os.path.join(
+                    output_dir,
+                    f"_temp_range_search_{out_task_type}.parquet"
+                )
+
+                # Set up checkpoint directory
+                checkpoint_dir = os.path.join(output_dir, "_checkpoints")
+
+                # Run range search with incremental writing and checkpointing to avoid OOM
+                logger.info(f"Running range search with incremental writing to {temp_range_file}")
+                result = self._compute_similarities_faiss_range(
                     apps_embeddings, onet_embeddings_run, min_threshold,
-                    app_texts, onet_df_run, job_uid_lookup, range_chunk_size
+                    app_texts, onet_df_run, job_uid_lookup, range_chunk_size,
+                    output_file=temp_range_file, write_chunk_size=1000000,
+                    checkpoint_dir=checkpoint_dir, checkpoint_interval=10
                 )
 
-                # Attach task_type metadata (helps downstream validation and debugging)
-                # Note: onet_task_id already corresponds to onet_df_run['task_id'] values.
-                pairs_df = pairs_df.merge(
-                    onet_df_run[['task_id', 'Task Type', 'O*NET-SOC Code']]
-                        .rename(columns={'task_id': 'onet_task_id', 'Task Type': 'task_type', 'O*NET-SOC Code': 'onet_soc'}),
-                    on='onet_task_id',
-                    how='left'
+                # Read back the written parquet file
+                logger.info(f"Processing range search results from {result} in chunks")
+
+                # Process in chunks to avoid OOM on 335M rows
+                chunk_size_read = 10_000_000  # 10M rows per chunk
+
+                # Prepare metadata for merge
+                onet_metadata = onet_df_run[['task_id', 'Task Type', 'O*NET-SOC Code']].rename(
+                    columns={'task_id': 'onet_task_id', 'Task Type': 'task_type', 'O*NET-SOC Code': 'onet_soc'}
                 )
 
-                # Phase 4: Add percentile boolean columns
-                logger.info("Phase 4: Adding percentile boolean columns")
-                pairs_df = self._add_percentile_columns(pairs_df, percentile_thresholds)
+                # Get total row count from metadata (avoid loading 335M rows)
+                import pyarrow.parquet as pq
+                parquet_file = pq.ParquetFile(result)
+                total_rows = parquet_file.metadata.num_rows
 
-                # Phase 4a: Add minimum threshold boolean column
-                logger.info(f"Phase 4a: Adding minimum threshold column (>= {self.minimum_similarity})")
-                pairs_df['above_min_threshold'] = pairs_df['similarity'] >= self.minimum_similarity
-                above_min_count = pairs_df['above_min_threshold'].sum()
-                logger.info(f"  above_min_threshold: {above_min_count:,} pairs above {self.minimum_similarity}")
+                logger.info(f"Processing {total_rows:,} pairs in chunks of {chunk_size_read:,}")
 
-                # Phase 4b: Add CE columns (required for Stage 5 compatibility)
-                if skip_cross_encoder:
-                    logger.info("Phase 4b: Adding CE threshold columns (all False - CE skipped)")
-                    for ce_thresh in ce_thresholds:
-                        col_name = f'ce_{ce_thresh:.1f}'
-                        pairs_df[col_name] = False
-                        logger.info(f"  {col_name}: 0 matches (CE skipped)")
+                # Process chunks and write to temporary directory (avoid O(n²) memory growth)
+                temp_chunks_dir = result.replace('.parquet', '_processed_chunks')
+                os.makedirs(temp_chunks_dir, exist_ok=True)
 
-                # Phase 5: Write to parquet
+                chunk_counter = 0
+                # Use PyArrow's iter_batches for chunked reading
+                for batch in parquet_file.iter_batches(batch_size=chunk_size_read):
+                    chunk_df = batch.to_pandas()
+
+                    # Attach task_type metadata
+                    chunk_df = chunk_df.merge(onet_metadata, on='onet_task_id', how='left')
+
+                    # Add percentile boolean columns
+                    for p in sorted(percentile_thresholds.keys(), reverse=True):
+                        threshold = percentile_thresholds[p]
+                        if isinstance(p, (int, float)) and p == int(p):
+                            col_name = f'pct_{int(p):02d}'
+                        else:
+                            pct_str = f'{p:.1f}'.replace('.', 'p')
+                            col_name = f'pct_{pct_str}'
+                        chunk_df[col_name] = chunk_df['similarity'] >= threshold
+
+                    # Add minimum threshold column
+                    chunk_df['above_min_threshold'] = chunk_df['similarity'] >= self.minimum_similarity
+
+                    # Add CE columns (all False since CE skipped)
+                    if skip_cross_encoder:
+                        for ce_thresh in ce_thresholds:
+                            col_name = f'ce_{ce_thresh:.1f}'
+                            chunk_df[col_name] = False
+
+                    # Write chunk to separate file
+                    chunk_file = os.path.join(temp_chunks_dir, f"_chunk_{chunk_counter:06d}.parquet")
+                    chunk_df.to_parquet(chunk_file, engine='pyarrow', compression='zstd', compression_level=9)
+                    chunk_counter += 1
+
+                    del chunk_df
+                    gc.collect()
+
+                    if chunk_counter % 5 == 0:
+                        logger.info(f"Processed {chunk_counter} chunks ({chunk_counter * chunk_size_read:,} rows)")
+
+                logger.info(f"Chunked processing complete: {chunk_counter} chunks written")
+                logger.info(f"All columns added: metadata, percentiles, thresholds, CE columns")
+
+                # Merge all chunks into final processed file
+                temp_output = result.replace('.parquet', '_processed.parquet')
+                logger.info(f"Merging {chunk_counter} chunks into {temp_output}")
+                merge_parquet_chunks(temp_chunks_dir, temp_output)
+
+                # Clean up chunk directory
+                import shutil
+                shutil.rmtree(temp_chunks_dir)
+                logger.info("Temporary chunk directory removed")
+
+                # Delete the original unprocessed file
+                if os.path.exists(result):
+                    os.remove(result)
+
+                # Phase 5: Move processed file to final output location
                 # Build filename matching exhaustive mode pattern
                 if self.use_openai_embeddings:
                     model_suffix = "_openai"
@@ -3434,19 +3748,12 @@ class ONETSimilarityMatcher:
                     f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{out_task_type}.parquet"
                 )
 
-                logger.info("Phase 5: Writing results to compressed parquet")
-                write_large_parquet_compressed(pairs_df, output_file)
+                logger.info("Phase 5: Moving processed file to final output")
+                os.rename(temp_output, output_file)
+                logger.info(f"Output file: {output_file}")
 
-                # Phase 6: Generate task summary (per task diagnostics)
-                logger.info("Phase 6: Generating task-level exposure summary")
-                task_summary_df = self._generate_task_summary(pairs_df, job_uid_lookup)
-
-                task_summary_file = os.path.join(
-                    output_dir,
-                    f"task_summary{model_suffix}_bge{percentile_str}{ce_suffix}{onet_suffix}_{out_task_type}.parquet"
-                )
-                task_summary_df.to_parquet(task_summary_file, compression='snappy')
-                logger.info(f"Saved task summary to: {task_summary_file}")
+                # Phase 6: Task summary skipped (diagnostic file, not required for downstream stages)
+                logger.info("Phase 6: Skipping task-level summary (can be generated later if needed)")
 
                 # Phase 6b: Build job→application mapping (app-level, not task-level)
                 logger.info("Phase 6b: Building job→application mapping for downstream stages")
@@ -3539,7 +3846,6 @@ class ONETSimilarityMatcher:
                 logger.info("RANGE SEARCH SUB-RUN COMPLETE")
                 logger.info(f"Output file: {output_file}")
                 logger.info(f"Job mapping file: {job_mapping_file}")
-                logger.info(f"Task summary file: {task_summary_file}")
                 logger.info("=" * 80)
 
                 # For compatibility with return signature, store validation_metrics per sub-run
@@ -3564,9 +3870,29 @@ class ONETSimilarityMatcher:
 
                 # Only return files that carry task_id/task text for downstream alignment validation
                 # Include job_mapping_file too (needed for downstream stages 5–7).
-                output_files.extend([output_file, task_summary_file, job_mapping_file])
+                # Note: task_summary_file skipped (not required for downstream stages)
+                output_files.extend([output_file, job_mapping_file])
 
                 last_pairs_df = pairs_df
+
+                # Memory cleanup: delete large DataFrames before next iteration
+                del pairs_df
+                if 'task_summary_df' in locals():
+                    del task_summary_df
+                if 'job_mapping_df' in locals():
+                    del job_mapping_df
+                if 'ce_input_df' in locals():
+                    del ce_input_df
+                if 'ce_validated_df' in locals():
+                    del ce_validated_df
+
+                # Clean up temporary range search file
+                if os.path.exists(temp_range_file):
+                    os.remove(temp_range_file)
+                    logger.info(f"Removed temporary range search file: {temp_range_file}")
+
+                gc.collect()
+                logger.info("Memory cleanup complete")
 
             logger.info("=" * 80)
             logger.info("RANGE SEARCH MODE COMPLETE")

@@ -5,11 +5,11 @@ Comprehensive analysis and visualization of AI exposure results from Stages 5 an
 Generates firm-level, occupation-level, firm×occupation, task-level, and summary analyses.
 
 python3 stage_7_analyze_results.py \         
---stage5-dir Data/Testing/stage_5/1000_company_test/skip_ce/ \
---stage6-dir Data/Testing/stage_6/1000_company_test/skip_ce/ \
+--stage5-dir Data/Testing/stage_5/full_sample/cross_encoded/ \
+--stage6-dir Data/Testing/stage_6/full_sample/cross_encoded/ \
 --stage6-suffix _core_isco \
---stage4-file Data/Testing/stage_5/1000_company_test/skip_ce/ \
---output-dir Data/Testing/stage_7/1000_company_test/skip_ce/ \
+--stage4-file Data/Testing/stage_5/full_sample/cross_encoded/task_exposure_matches_all_thresholds_openai_bge20_15_10_5_1_ce0p8_0p6_0p4_0p2_onet20_core.parquet \
+--output-dir Data/Testing/stage_7/full_sample/cross_encoded/ \
 --percentile pct_05 \
 --task-type core
 
@@ -105,9 +105,13 @@ class ExposureAnalyzer:
         self.stage6_jobs = None
         self.stage6_firm_report = None
         self.stage4_matches = None
+        self.x28_industry_mapping = None
 
         # Column mapping for percentile suffixes
         self._percentile_suffix = f'_{self.percentile}_{self.ce_threshold}'
+
+        # Load X28 industry mapping
+        self._load_x28_industry_mapping()
 
         self.logger.info(
             f"ExposureAnalyzer initialized with percentile={self.percentile}, "
@@ -147,7 +151,7 @@ class ExposureAnalyzer:
 
     def _setup_output_dirs(self):
         """Create all output subdirectories if they don't exist."""
-        subdirs = ['firms', 'occupations', 'firm_occupation', 'tasks', 'summary']
+        subdirs = ['firms', 'occupations', 'firm_occupation', 'tasks', 'summary', 'sectors']
         for subdir in subdirs:
             path = os.path.join(self.output_dir, subdir)
             Path(path).mkdir(parents=True, exist_ok=True)
@@ -343,6 +347,29 @@ class ExposureAnalyzer:
                 self.logger.warning(f"Stage 4 Matches file not found: {self.stage4_file}")
         except Exception as e:
             self.logger.error(f"Error loading Stage 4 Matches: {e}")
+
+    def _load_x28_industry_mapping(self):
+        """Load X28 industry code to name mapping from Excel file."""
+        try:
+            mapping_file = 'Data/x28_industries.xlsx'
+            if os.path.exists(mapping_file):
+                df = pd.read_excel(mapping_file)
+                # Expected columns: x28_industry_id, x28_industry_name
+                if 'x28_industry_id' in df.columns and 'x28_industry_name' in df.columns:
+                    self.x28_industry_mapping = dict(zip(
+                        df['x28_industry_id'].astype(str),
+                        df['x28_industry_name']
+                    ))
+                    self.logger.info(f"Loaded {len(self.x28_industry_mapping)} X28 industry mappings")
+                else:
+                    self.logger.warning(f"X28 mapping file has unexpected columns: {list(df.columns)}")
+                    self.x28_industry_mapping = {}
+            else:
+                self.logger.warning(f"X28 mapping file not found: {mapping_file}")
+                self.x28_industry_mapping = {}
+        except Exception as e:
+            self.logger.error(f"Error loading X28 mapping: {e}")
+            self.x28_industry_mapping = {}
 
     # Helper Methods for Column Extraction
 
@@ -876,6 +903,14 @@ class ExposureAnalyzer:
         self._save_table(top_hampole_unadjusted, 'occupations', 'top_occupations_hampole_unadjusted.csv',
                         f"Top {self.top_n} occupations by Hampole exposure (unadjusted)")
 
+        # Bottom occupations by hampole (unadjusted)
+        bottom_hampole_unadjusted = occ_agg[
+            ['isco08_4d', 'isco08_title', 'hampole_occupation_exposure', 'total_tasks_occupation']
+        ].nsmallest(self.top_n, 'hampole_occupation_exposure')
+
+        self._save_table(bottom_hampole_unadjusted, 'occupations', 'bottom_occupations_hampole_unadjusted.csv',
+                        f"Bottom {self.top_n} occupations by Hampole exposure (unadjusted)")
+
         # Table 2: Top occupations by hampole (adjusted)
         top_hampole_adjusted = occ_agg[
             ['isco08_4d', 'isco08_title', 'hampole_ai_exposure_avg', 'log_ai_intensity']
@@ -883,6 +918,14 @@ class ExposureAnalyzer:
 
         self._save_table(top_hampole_adjusted, 'occupations', 'top_occupations_hampole_adjusted.csv',
                         f"Top {self.top_n} occupations by Hampole exposure (adjusted)")
+
+        # Bottom occupations by hampole (adjusted)
+        bottom_hampole_adjusted = occ_agg[
+            ['isco08_4d', 'isco08_title', 'hampole_ai_exposure_avg', 'log_ai_intensity']
+        ].nsmallest(self.top_n, 'hampole_ai_exposure_avg')
+
+        self._save_table(bottom_hampole_adjusted, 'occupations', 'bottom_occupations_hampole_adjusted.csv',
+                        f"Bottom {self.top_n} occupations by Hampole exposure (adjusted)")
 
         # Table 3: Top occupations by binary (unadjusted)
         top_binary_unadjusted = occ_agg[
@@ -892,6 +935,14 @@ class ExposureAnalyzer:
         self._save_table(top_binary_unadjusted, 'occupations', 'top_occupations_binary_unadjusted.csv',
                         f"Top {self.top_n} occupations by Binary exposure (unadjusted)")
 
+        # Bottom occupations by binary (unadjusted)
+        bottom_binary_unadjusted = occ_agg[
+            ['isco08_4d', 'isco08_title', 'binary_occupation_exposure', 'total_tasks_occupation']
+        ].nsmallest(self.top_n, 'binary_occupation_exposure')
+
+        self._save_table(bottom_binary_unadjusted, 'occupations', 'bottom_occupations_binary_unadjusted.csv',
+                        f"Bottom {self.top_n} occupations by Binary exposure (unadjusted)")
+
         # Table 4: Top occupations by binary (adjusted)
         top_binary_adjusted = occ_agg[
             ['isco08_4d', 'isco08_title', 'binary_ai_exposure_avg', 'log_ai_intensity']
@@ -899,6 +950,14 @@ class ExposureAnalyzer:
 
         self._save_table(top_binary_adjusted, 'occupations', 'top_occupations_binary_adjusted.csv',
                         f"Top {self.top_n} occupations by Binary exposure (adjusted)")
+
+        # Bottom occupations by binary (adjusted)
+        bottom_binary_adjusted = occ_agg[
+            ['isco08_4d', 'isco08_title', 'binary_ai_exposure_avg', 'log_ai_intensity']
+        ].nsmallest(self.top_n, 'binary_ai_exposure_avg')
+
+        self._save_table(bottom_binary_adjusted, 'occupations', 'bottom_occupations_binary_adjusted.csv',
+                        f"Bottom {self.top_n} occupations by Binary exposure (adjusted)")
 
         # Table 5: Side-by-side comparison
         hampole_ranks = occ_agg.nlargest(self.top_n, 'hampole_occupation_exposure')[
@@ -1162,12 +1221,11 @@ class ExposureAnalyzer:
             self.logger.warning("Stage 6 jobs data not loaded, cannot link exposures to sectors")
             return
 
-        # Filter stage6_jobs to selected percentile
-        pct = self.percentile + '_' + self.ce_threshold
-        hampole_adj_col = f'hampole_ai_exposure_avg_{pct}'
-        hampole_unadj_col = f'hampole_occupation_exposure_{pct}'
-        binary_adj_col = f'binary_ai_exposure_avg_{pct}'
-        binary_unadj_col = f'binary_occupation_exposure_{pct}'
+        # Use base column names (already extracted and renamed by _extract_jobs_percentile_columns)
+        hampole_adj_col = 'hampole_ai_exposure_avg'
+        hampole_unadj_col = 'hampole_occupation_exposure'
+        binary_adj_col = 'binary_ai_exposure_avg'
+        binary_unadj_col = 'binary_occupation_exposure'
 
         # Check if columns exist
         available_cols = self.stage6_jobs.columns.tolist()
@@ -1220,37 +1278,45 @@ class ExposureAnalyzer:
             'hampole_unadjusted_count': 'n_job_postings'
         })
 
+        # Add industry names from X28 mapping
+        if self.x28_industry_mapping:
+            sector_agg['industry_name'] = sector_agg['industry_code'].astype(str).map(
+                self.x28_industry_mapping
+            ).fillna('Unknown')
+        else:
+            sector_agg['industry_name'] = 'Unknown'
+
         # Table 1: Top sectors by hampole adjusted exposure
         top_sectors_hampole_adj = sector_agg.nlargest(self.top_n, 'hampole_adjusted_mean')[
-            ['industry_code', 'hampole_adjusted_mean', 'hampole_adjusted_std', 'n_job_postings']
+            ['industry_code', 'industry_name', 'hampole_adjusted_mean', 'hampole_adjusted_std', 'n_job_postings']
         ]
         self._save_table(top_sectors_hampole_adj, 'sectors', 'top_sectors_hampole_adjusted.csv',
                         f"Top {self.top_n} sectors (x28) by hampole adjusted exposure")
 
         # Table 2: Top sectors by hampole unadjusted exposure
         top_sectors_hampole_unadj = sector_agg.nlargest(self.top_n, 'hampole_unadjusted_mean')[
-            ['industry_code', 'hampole_unadjusted_mean', 'hampole_unadjusted_median', 'n_job_postings']
+            ['industry_code', 'industry_name', 'hampole_unadjusted_mean', 'hampole_unadjusted_median', 'n_job_postings']
         ]
         self._save_table(top_sectors_hampole_unadj, 'sectors', 'top_sectors_hampole_unadjusted.csv',
                         f"Top {self.top_n} sectors (x28) by hampole unadjusted exposure")
 
         # Table 3: Top sectors by binary adjusted exposure
         top_sectors_binary_adj = sector_agg.nlargest(self.top_n, 'binary_adjusted_mean')[
-            ['industry_code', 'binary_adjusted_mean', 'binary_adjusted_std', 'n_job_postings']
+            ['industry_code', 'industry_name', 'binary_adjusted_mean', 'binary_adjusted_std', 'n_job_postings']
         ]
         self._save_table(top_sectors_binary_adj, 'sectors', 'top_sectors_binary_adjusted.csv',
                         f"Top {self.top_n} sectors (x28) by binary adjusted exposure")
 
         # Table 4: Top sectors by binary unadjusted exposure
         top_sectors_binary_unadj = sector_agg.nlargest(self.top_n, 'binary_unadjusted_mean')[
-            ['industry_code', 'binary_unadjusted_mean', 'binary_unadjusted_median', 'n_job_postings']
+            ['industry_code', 'industry_name', 'binary_unadjusted_mean', 'binary_unadjusted_median', 'n_job_postings']
         ]
         self._save_table(top_sectors_binary_unadj, 'sectors', 'top_sectors_binary_unadjusted.csv',
                         f"Top {self.top_n} sectors (x28) by binary unadjusted exposure")
 
         # Table 5: Summary of all sectors
         sector_summary = sector_agg[[
-            'industry_code', 'hampole_unadjusted_mean', 'hampole_adjusted_mean',
+            'industry_code', 'industry_name', 'hampole_unadjusted_mean', 'hampole_adjusted_mean',
             'binary_unadjusted_mean', 'binary_adjusted_mean', 'n_job_postings'
         ]].sort_values('hampole_adjusted_mean', ascending=False)
 
