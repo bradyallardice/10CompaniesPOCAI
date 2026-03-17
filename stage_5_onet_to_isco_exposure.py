@@ -2603,8 +2603,8 @@ class TaskFirmExposurePipeline:
             logger.warning(f"Stage 5 was initialized with: {self.bge_percentiles}")
             logger.warning(f"Updating Stage 5 to match Stage 4")
             logger.warning("="*80)
-            self.bge_percentiles = detected_percentiles
-            logger.info(f"✓ Updated BGE percentiles to: {self.bge_percentiles}")
+            # self.bge_percentiles = detected_percentiles  # Disabled: respect CLI --bge-percentiles
+            logger.info(f"✓ Keeping CLI-specified percentiles: {self.bge_percentiles}")
 
         # Detect if cross-encoder scores are available (need to read from file)
         import pyarrow.parquet as pq
@@ -2766,7 +2766,11 @@ class TaskFirmExposurePipeline:
                             job_app_mapping, original_jobs, None
                         )
 
-                        task_firm_chunks = []
+                        # STREAMING AGGREGATION: Use dictionary accumulator to aggregate incrementally
+                        # This avoids OOM by storing O(unique keys) instead of O(1B rows)
+                        # Key insight: Same (firm, year, task) appears in MANY different chunks
+                        # Dictionary keys are unique, so we automatically deduplicate across chunks
+                        accumulator = {}  # Key: (company, year, task) or (company, task), Value: {counts}
                         chunk_count = 0
 
                         for chunk in self._load_filtered_matches_chunked_generator(matches_file_path, filter_mask.values):
@@ -2780,40 +2784,47 @@ class TaskFirmExposurePipeline:
                                 firm_app_first_years
                             )
 
-                            task_firm_chunks.append(chunk_exposure)
+                            # STREAMING AGGREGATION: Update accumulator with this chunk's data
+                            # This is O(rows in chunk) time but O(unique keys) memory
+                            if self.time_invariant:
+                                # Time-invariant: Key is (company, task)
+                                for row in chunk_exposure.itertuples(index=False):
+                                    key = (row.company_name, row.onet_task_id)
+                                    if key not in accumulator:
+                                        accumulator[key] = {'n_task_matches': 0}
+                                    accumulator[key]['n_task_matches'] += row.n_task_matches_firm_year
+                            else:
+                                # Time-variant: Key is (company, year, task)
+                                for row in chunk_exposure.itertuples(index=False):
+                                    key = (row.company_name, row.year, row.onet_task_id)
+                                    if key not in accumulator:
+                                        accumulator[key] = {
+                                            'n_task_matches': 0,
+                                            'n_ai_apps': row.n_ai_apps_firm_year
+                                        }
+                                    accumulator[key]['n_task_matches'] += row.n_task_matches_firm_year
 
                             del chunk, chunk_exposure
                             gc.collect()
 
                             if chunk_count % 10 == 0:
-                                logger.info(f"    Processed {chunk_count} chunks through step2")
+                                logger.info(f"    Processed {chunk_count} chunks, accumulator size: {len(accumulator):,} unique keys")
 
-                        logger.info(f"  Processed all {chunk_count} chunks through step2")
+                        logger.info(f"  Processed all {chunk_count} chunks through streaming aggregation")
+                        logger.info(f"  Accumulator contains {len(accumulator):,} unique keys (vs. ~1B rows without streaming)")
 
-                        # Step 2: Merge and re-aggregate chunk results
-                        logger.info(f"  Merging {len(task_firm_chunks)} chunk results...")
-                        task_firm_exposure_combined = pd.concat(task_firm_chunks, ignore_index=True)
-
-                        # DEBUG LOGGING
-                        logger.info(f"  [DEBUG] Combined chunks: {len(task_firm_exposure_combined):,} rows")
-                        logger.info(f"  [DEBUG] Unique companies: {task_firm_exposure_combined['company_name'].nunique()}")
-                        logger.info(f"  [DEBUG] Unique tasks: {task_firm_exposure_combined['onet_task_id'].nunique()}")
-                        if 'year' in task_firm_exposure_combined.columns:
-                            logger.info(f"  [DEBUG] Unique years: {sorted(task_firm_exposure_combined['year'].unique())}")
-                            logger.info(f"  [DEBUG] Unique (company, year, task) keys: {task_firm_exposure_combined.groupby(['company_name', 'year', 'onet_task_id']).ngroups}")
-                        else:
-                            logger.info(f"  [DEBUG] Unique (company, task) keys: {task_firm_exposure_combined.groupby(['company_name', 'onet_task_id']).ngroups}")
-
-                        # Re-aggregate to handle overlaps between chunks
-                        logger.info(f"  Re-aggregating {len(task_firm_exposure_combined):,} rows to handle chunk overlaps...")
-
+                        # Convert accumulator to DataFrame
+                        logger.info(f"  Converting accumulator to DataFrame...")
                         if self.time_invariant:
-                            # Time-invariant: No year column yet, aggregate by firm-task
-                            task_firm_exposure = task_firm_exposure_combined.groupby(
-                                ['company_name', 'onet_task_id'], as_index=False
-                            ).agg({
-                                'n_task_matches_firm_year': 'sum',  # Additive across chunks
-                            })
+                            # Time-invariant: Build DataFrame from (company, task) keys
+                            task_firm_exposure = pd.DataFrame([
+                                {
+                                    'company_name': k[0],
+                                    'onet_task_id': k[1],
+                                    'n_task_matches_firm_year': v['n_task_matches']
+                                }
+                                for k, v in accumulator.items()
+                            ])
 
                             # Get unique firms and years from pre-calculated data
                             all_firms = list(set([k[0] for k in firm_year_app_counts.keys()]))
@@ -2836,13 +2847,21 @@ class TaskFirmExposurePipeline:
                             )[['company_name', 'year', 'onet_task_id', 'n_ai_apps_firm_year', 'n_task_matches_firm_year']]
 
                         else:
-                            # Time-variant: Has year column, aggregate by firm-year-task
-                            task_firm_exposure = task_firm_exposure_combined.groupby(
-                                ['company_name', 'year', 'onet_task_id'], as_index=False
-                            ).agg({
-                                'n_ai_apps_firm_year': 'first',  # Same for all tasks in firm-year
-                                'n_task_matches_firm_year': 'sum',  # Additive across chunks
-                            })
+                            # Time-variant: Build DataFrame from (company, year, task) keys
+                            task_firm_exposure = pd.DataFrame([
+                                {
+                                    'company_name': k[0],
+                                    'year': k[1],
+                                    'onet_task_id': k[2],
+                                    'n_ai_apps_firm_year': v['n_ai_apps'],
+                                    'n_task_matches_firm_year': v['n_task_matches']
+                                }
+                                for k, v in accumulator.items()
+                            ])
+
+                        # Clean up accumulator
+                        del accumulator
+                        gc.collect()
 
                         # DEBUG LOGGING - After aggregation
                         logger.info(f"  [DEBUG] After aggregation: {len(task_firm_exposure):,} rows")
@@ -2869,7 +2888,7 @@ class TaskFirmExposurePipeline:
                             logger.info(f"    {row['company_name'][:30]} | {row['year']} | {row['onet_task_id']} | n_apps={row['n_ai_apps_firm_year']:.0f} | n_matches={row['n_task_matches_firm_year']:.0f} | exposure={row['hampole_task_exposure']:.6f}")
 
                         # Clean up intermediate data
-                        del task_firm_chunks, task_firm_exposure_combined, expanded_job_app_mapping
+                        del expanded_job_app_mapping
                         del firm_year_app_counts, firm_app_first_years
                         gc.collect()
 
@@ -3277,18 +3296,9 @@ class TaskFirmExposurePipeline:
             logger.warning("No hampole_ai_exposure_avg column found in merged ISCO data")
 
         # ================================================================
-        # CLEANUP CHECKPOINT DIRECTORY
+        # PRESERVE CHECKPOINT DIRECTORY (for future runs)
         # ================================================================
-        logger.info("\n" + "="*50)
-        logger.info("CLEANING UP CHECKPOINTS")
-        logger.info("="*50)
-
-        try:
-            shutil.rmtree(checkpoint_dir)
-            logger.info(f"✓ Successfully deleted checkpoint directory: {checkpoint_dir}")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to delete checkpoint directory {checkpoint_dir}: {e}")
-            logger.warning(f"  You may want to manually delete it to free up disk space")
+        logger.info(f"\n✓ Checkpoints preserved at: {checkpoint_dir}")
 
         return isco_firm_exposure
 

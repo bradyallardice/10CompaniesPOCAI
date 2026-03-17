@@ -73,6 +73,8 @@ Example paths:
 - **Ground truth**: `Data/manual_coding_evaluation/*.csv`
 - **Malformed responses**: `Data/*_step{N}_*_malformed.csv`
 - **Job cache**: `Data/stage6_job_cache_max{year}.parquet`
+- **SHP exposure**: `Data/shp_exposure/shp_exposure_isco{4d,3d,2d,4d_fallback}.csv`
+- **Firm ID mapping**: `Data/company_id_to_firm_id.csv`
 - **Crosswalks**: `Data/240711_occupation_to_ch_isco_19.csv`, `Data/ESCO_to_ONET-SOC.xlsx`
 
 ---
@@ -84,6 +86,7 @@ Example paths:
 - ✅ **Stage 3**: Three-step modular pipeline with malformed response handling
 - ✅ **Stage 4**: Content-based checkpoint system prevents data loss
 - ✅ **Stage 6**: Produces linked exposure data with diagnostic files
+- ✅ **Stage 6 SHP**: Links exposure to Swiss Household Panel at 4d/3d/2d ISCO levels
 - ✅ **Stage 7**: Comprehensive analysis with summary statistics and visualizations
 - ✅ **Cost optimization**: Flex processing enabled (50% cost reduction on GPT-5, O3)
 
@@ -115,6 +118,13 @@ Calculate exposure measures at firm×occupation×year level
 Join exposure measures to jobs in database
 - Key: (company_id, year, occupation_code)
 - Produces: Linked dataset + diagnostics for unmatched records
+
+### Stage 6 SHP: Link to Swiss Household Panel
+Join exposure measures to SHP individual respondents (`stage_6_shp_exposure.py`)
+- Loads raw SHP STATA data, merges anonymized firm_id, fills forward with employment-change logic
+- Produces 4 output files: exact 4d, 3d average, 2d average, hierarchical fallback
+- Key: (firm_id, isco_code, year) where firm_id = (company_id + 13) × 13
+- Mapping file: `Data/company_id_to_firm_id.csv`
 
 ### Stage 7: Analysis & Reporting
 Comprehensive breakdowns by firm, occupation, and firm×occupation pairs

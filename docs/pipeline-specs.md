@@ -383,6 +383,60 @@ Unlike typical occupation-level AI exposure measures, this approach captures **w
 
 ---
 
+## Stage 6 SHP: Link Exposure to Swiss Household Panel (stage_6_shp_exposure.py)
+
+### Purpose
+Link Stage 5 AI exposure measures to individual respondents in the Swiss Household Panel (SHP), producing an analysis-ready person×year panel with AI exposure at multiple ISCO aggregation levels.
+
+### Inputs
+- SHP long file: `shplong_p_user.dta` (STATA, 964 variables, ~345K person-year observations)
+- Anonymized firm IDs: `shp_firmid_anon.csv` (columns: idpers, year, firm_id — ~70K rows)
+- Stage 5 ISCO exposure: `isco_firm_year_exposure_core_tasks_pct_05_ce_0.0_BGE.csv`
+- Company↔firm_id mapping: `Data/company_id_to_firm_id.csv` (auto-generated)
+- Optional: Employment weights CSV for weighted ISCO aggregation
+
+### Process
+1. **Generate mapping file**: company_id → firm_id via `firm_id = (company_id + 13) × 13`
+2. **Load SHP data**: Read STATA long file, merge anonymized firm_id by (idpers, year)
+3. **Fill-down firm_id**: Forward-fill firm_id within person panels, respecting:
+   - Employer changes (pw18 = 2 or 3 → reset)
+   - Explicit non-employment (pw01=pw02=pw03=2 → clear)
+   - Data gaps (allow fill through missing waves if employment resumes)
+4. **Prepare exposure at multiple ISCO levels**:
+   - 4-digit: Base exposure from Stage 5
+   - 3-digit: Mean of 4d exposures within 3-digit group (or employment-weighted if weights provided)
+   - 2-digit: Mean of 4d exposures within 2-digit group
+5. **Merge**: Left-join SHP with exposure on (firm_id, isco_code, year) at each level
+6. **Zero-fill**: Rows with firm_id + occupation but no exposure match → 0 (firm exists, no AI)
+7. **Diagnostics**: Coverage stats, variance decomposition, match-level distribution
+
+### CLI
+```bash
+python3 stage_6_shp_exposure.py \
+  --shp-long-file /path/to/shplong_p_user.dta \
+  --shp-firmid-file /path/to/shp_firmid_anon.csv \
+  --exposure-file Data/isco_firm_year_exposure.csv \
+  --output-dir Data/shp_exposure/ \
+  --employment-weights Data/weights.csv  # optional
+```
+
+### Outputs (4 files)
+- `shp_exposure_isco4d.csv` — exact 4-digit ISCO match (~4,666 non-zero)
+- `shp_exposure_isco3d.csv` — 3-digit ISCO match (~4,963 non-zero)
+- `shp_exposure_isco2d.csv` — 2-digit ISCO match (~5,059 non-zero)
+- `shp_exposure_isco4d_fallback.csv` — hierarchical: 4d → 3d → 2d with `match_level` column
+- `shp_exposure_diagnostics.csv` — coverage summary across all levels
+
+Each output preserves all 964 SHP survey variables plus exposure columns.
+
+### Validation (against R pipeline)
+- Fill-down: 40,944 person-years with firm_id (matches R exactly)
+- 4-digit matches: 4,666 (matches R: 4,666)
+- 3-digit matches: 4,963 (matches R: 4,962)
+- 2-digit matches: 5,059 (matches R: 5,059)
+
+---
+
 ## Stage 7: Analyze Results
 
 ### Purpose
