@@ -889,48 +889,70 @@ def create_figure_4_exposure_changes_by_mobility():
     )
 
     panels = [
-        ('Stayers (same firm AND same occupation)', 'stayer',    '#2c7fb8'),
-        ('Same firm, occupation switched',          'job_only',  '#7fcdbb'),
-        ('Same occupation, firm switched',          'firm_only', '#fdae61'),
-        ('Both firm AND occupation switched',       'both',      '#d73027'),
+        ('Stayers (same firm AND same occupation)', 'stayer'),
+        ('Same firm, occupation switched',          'job_only'),
+        ('Same occupation, firm switched',          'firm_only'),
+        ('Both firm AND occupation switched',       'both'),
     ]
+    COLOR_WITHIN_OCC = '#2c7fb8'  # Within-occupation AI adoption
+    COLOR_FIRM_WIDE  = '#fdae61'  # Firm-wide AI adoption (outside occupation)
 
     in_panels = multi['mobility_category'].isin(
         ['stayer', 'job_only', 'firm_only', 'both']
     )
-    max_changes = int(multi.loc[in_panels, 'n_exposure_changes'].max()) if in_panels.any() else 0
+    max_changes = int(max(
+        multi.loc[in_panels, 'n_within_occ_changes'].max(),
+        multi.loc[in_panels, 'n_firm_wide_changes'].max(),
+    )) if in_panels.any() else 0
 
-    fig, axes = plt.subplots(2, 2, figsize=(16, 11))
+    fig, axes = plt.subplots(2, 2, figsize=(17, 11))
     axes = axes.flatten()
 
     rows = []
-    for ax, (title, cat, color) in zip(axes, panels):
+    for ax, (title, cat) in zip(axes, panels):
         sub = multi[multi['mobility_category'] == cat]
-        counts = sub['n_exposure_changes'].value_counts().sort_index()
-        counts = counts.reindex(range(max_changes + 1), fill_value=0)
 
-        bars = ax.bar(counts.index, counts.values, color=color,
-                      edgecolor='black', linewidth=1)
+        within_counts = sub['n_within_occ_changes'].value_counts().sort_index()
+        within_counts = within_counts.reindex(range(max_changes + 1), fill_value=0)
 
-        for bar, val in zip(bars, counts.values):
+        firm_counts = sub['n_firm_wide_changes'].value_counts().sort_index()
+        firm_counts = firm_counts.reindex(range(max_changes + 1), fill_value=0)
+
+        x = np.arange(max_changes + 1)
+        bar_w = 0.4
+
+        bars_w = ax.bar(x - bar_w / 2, within_counts.values, width=bar_w,
+                        color=COLOR_WITHIN_OCC, edgecolor='black', linewidth=0.8,
+                        label='Within-occupation AI adoption')
+        bars_f = ax.bar(x + bar_w / 2, firm_counts.values, width=bar_w,
+                        color=COLOR_FIRM_WIDE, edgecolor='black', linewidth=0.8,
+                        label='Firm-wide AI adoption (outside occupation)')
+
+        for bar, val in zip(bars_w, within_counts.values):
             if val > 0:
                 ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                        f'{int(val)}', ha='center', va='bottom', fontsize=9)
+                        f'{int(val)}', ha='center', va='bottom', fontsize=8)
+        for bar, val in zip(bars_f, firm_counts.values):
+            if val > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                        f'{int(val)}', ha='center', va='bottom', fontsize=8)
 
         ax.set_xlabel('Number of year-over-year exposure changes',
                       fontsize=11, fontweight='bold')
         ax.set_ylabel('Number of persons', fontsize=11, fontweight='bold')
         ax.set_title(f'{title}\n(N = {len(sub):,} persons)',
                      fontsize=12, fontweight='bold')
-        ax.set_xticks(range(max_changes + 1))
+        ax.set_xticks(x)
         ax.grid(axis='y', alpha=0.3)
+        ax.legend(loc='upper right', fontsize=9)
 
-        for n_changes, n_persons in counts.items():
+        for n in range(max_changes + 1):
             rows.append({
                 'mobility_category': cat,
                 'category_label': title,
-                'n_exposure_changes': int(n_changes),
-                'n_persons': int(n_persons),
+                'n_changes': n,
+                'n_persons_within_occ': int(within_counts.loc[n]),
+                'n_persons_firm_wide': int(firm_counts.loc[n]),
                 'category_total_persons': int(len(sub)),
             })
 
