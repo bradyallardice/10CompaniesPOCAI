@@ -329,6 +329,10 @@ def main():
         logger.info("\nStep 4: Preparing outcome variables...")
         df = prepare_outcomes(df)
 
+        # Step 4b: Construct forward-looking separation outcome
+        logger.info("\nStep 4b: Constructing separation outcome...")
+        df = construct_separation_outcome(df)
+
         # Step 5: Prepare controls
         logger.info("\nStep 5: Preparing control variables...")
         df = prepare_controls(df)
