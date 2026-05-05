@@ -796,6 +796,19 @@ def create_figure_4_exposure_changes_by_mobility():
       C. Same occupation, firm switched at least once.
       D. Both firm AND occupation switched at least once.
 
+    Each x-value has TWO grouped bars decomposing the source of exposure change,
+    using the multiplicative identity
+        avg_foy = occ_exposure_foy * log_ai_intensity
+    classified per transition as:
+      * Within-occupation: occ_exposure_foy moved (firm's AI hiring relevant
+        to *this* occupation changed).
+      * Firm-wide (outside occupation): occ_exposure_foy held constant but
+        log_ai_intensity moved (firm posted more/fewer AI jobs only in
+        *other* occupations).
+    For movers (panels B/C/D), this still tracks which component of the
+    exposure formula moved, but interpretation is partially confounded with
+    the mobility itself.
+
     Sample: persons with non-missing firm_id, isco08_4d, and exposure in 2+
     years (single-year persons cannot exhibit a transition).
     """
