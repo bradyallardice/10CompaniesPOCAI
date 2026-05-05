@@ -788,16 +788,13 @@ def create_figure_4_exposure_changes_by_mobility():
     """
     Distribution of within-person AI exposure changes, split by mobility type.
 
-    Three panels (one bar chart each), x = number of year-over-year changes in
+    Four panels (one bar chart each), x = number of year-over-year changes in
     `hampole_ai_exposure_avg_foy` observed for that person across the panel,
     y = number of persons:
       A. Stayers — same firm AND same occupation in every observed year.
       B. Same firm, occupation switched at least once.
       C. Same occupation, firm switched at least once.
-
-    Persons with BOTH a firm switch and an occupation switch are reported
-    separately in the suptitle and excluded from the three panels so the
-    categories are disjoint.
+      D. Both firm AND occupation switched at least once.
 
     Sample: persons with non-missing firm_id, isco08_4d, and exposure in 2+
     years (single-year persons cannot exhibit a transition).
