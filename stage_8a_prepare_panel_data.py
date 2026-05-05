@@ -70,6 +70,7 @@ def load_shp_exposure(exposure_file):
         'pp19',   # Vote choice (categorical)
         # Economic outcomes
         'pw86',   # Job insecurity (1=not worried, 4=very worried)
+        'pw77',   # Hours worked per week, current main job (loaded as object: contains string codes)
         'iwyn',   # Yearly work income (CHF)
         'wstat',  # Employment status
         # Demographics

@@ -1,49 +1,49 @@
-mobility_category,category_label,n_exposure_changes,n_persons,category_total_persons
-stayer,Stayers (same firm AND same occupation),0,4113,4917
-stayer,Stayers (same firm AND same occupation),1,299,4917
-stayer,Stayers (same firm AND same occupation),2,154,4917
-stayer,Stayers (same firm AND same occupation),3,126,4917
-stayer,Stayers (same firm AND same occupation),4,46,4917
-stayer,Stayers (same firm AND same occupation),5,34,4917
-stayer,Stayers (same firm AND same occupation),6,25,4917
-stayer,Stayers (same firm AND same occupation),7,33,4917
-stayer,Stayers (same firm AND same occupation),8,22,4917
-stayer,Stayers (same firm AND same occupation),9,34,4917
-stayer,Stayers (same firm AND same occupation),10,18,4917
-stayer,Stayers (same firm AND same occupation),11,13,4917
-job_only,"Same firm, occupation switched",0,597,778
-job_only,"Same firm, occupation switched",1,44,778
-job_only,"Same firm, occupation switched",2,45,778
-job_only,"Same firm, occupation switched",3,24,778
-job_only,"Same firm, occupation switched",4,9,778
-job_only,"Same firm, occupation switched",5,12,778
-job_only,"Same firm, occupation switched",6,15,778
-job_only,"Same firm, occupation switched",7,8,778
-job_only,"Same firm, occupation switched",8,6,778
-job_only,"Same firm, occupation switched",9,11,778
-job_only,"Same firm, occupation switched",10,4,778
-job_only,"Same firm, occupation switched",11,3,778
-firm_only,"Same occupation, firm switched",0,564,767
-firm_only,"Same occupation, firm switched",1,64,767
-firm_only,"Same occupation, firm switched",2,47,767
-firm_only,"Same occupation, firm switched",3,29,767
-firm_only,"Same occupation, firm switched",4,21,767
-firm_only,"Same occupation, firm switched",5,13,767
-firm_only,"Same occupation, firm switched",6,11,767
-firm_only,"Same occupation, firm switched",7,8,767
-firm_only,"Same occupation, firm switched",8,2,767
-firm_only,"Same occupation, firm switched",9,5,767
-firm_only,"Same occupation, firm switched",10,1,767
-firm_only,"Same occupation, firm switched",11,2,767
-both,Both firm AND occupation switched,0,743,987
-both,Both firm AND occupation switched,1,83,987
-both,Both firm AND occupation switched,2,64,987
-both,Both firm AND occupation switched,3,42,987
-both,Both firm AND occupation switched,4,18,987
-both,Both firm AND occupation switched,5,16,987
-both,Both firm AND occupation switched,6,11,987
-both,Both firm AND occupation switched,7,7,987
-both,Both firm AND occupation switched,8,2,987
-both,Both firm AND occupation switched,9,1,987
-both,Both firm AND occupation switched,10,0,987
-both,Both firm AND occupation switched,11,0,987
+mobility_category,category_label,n_changes,n_persons_within_occ,n_persons_firm_wide,category_total_persons
+stayer,Stayers (same firm AND same occupation),0,4113,4916,4917
+stayer,Stayers (same firm AND same occupation),1,299,1,4917
+stayer,Stayers (same firm AND same occupation),2,154,0,4917
+stayer,Stayers (same firm AND same occupation),3,126,0,4917
+stayer,Stayers (same firm AND same occupation),4,46,0,4917
+stayer,Stayers (same firm AND same occupation),5,34,0,4917
+stayer,Stayers (same firm AND same occupation),6,25,0,4917
+stayer,Stayers (same firm AND same occupation),7,34,0,4917
+stayer,Stayers (same firm AND same occupation),8,21,0,4917
+stayer,Stayers (same firm AND same occupation),9,34,0,4917
+stayer,Stayers (same firm AND same occupation),10,18,0,4917
+stayer,Stayers (same firm AND same occupation),11,13,0,4917
+job_only,"Same firm, occupation switched",0,597,777,778
+job_only,"Same firm, occupation switched",1,45,1,778
+job_only,"Same firm, occupation switched",2,44,0,778
+job_only,"Same firm, occupation switched",3,24,0,778
+job_only,"Same firm, occupation switched",4,9,0,778
+job_only,"Same firm, occupation switched",5,12,0,778
+job_only,"Same firm, occupation switched",6,15,0,778
+job_only,"Same firm, occupation switched",7,8,0,778
+job_only,"Same firm, occupation switched",8,6,0,778
+job_only,"Same firm, occupation switched",9,11,0,778
+job_only,"Same firm, occupation switched",10,4,0,778
+job_only,"Same firm, occupation switched",11,3,0,778
+firm_only,"Same occupation, firm switched",0,564,766,767
+firm_only,"Same occupation, firm switched",1,64,1,767
+firm_only,"Same occupation, firm switched",2,47,0,767
+firm_only,"Same occupation, firm switched",3,29,0,767
+firm_only,"Same occupation, firm switched",4,22,0,767
+firm_only,"Same occupation, firm switched",5,12,0,767
+firm_only,"Same occupation, firm switched",6,11,0,767
+firm_only,"Same occupation, firm switched",7,8,0,767
+firm_only,"Same occupation, firm switched",8,2,0,767
+firm_only,"Same occupation, firm switched",9,5,0,767
+firm_only,"Same occupation, firm switched",10,1,0,767
+firm_only,"Same occupation, firm switched",11,2,0,767
+both,Both firm AND occupation switched,0,743,986,987
+both,Both firm AND occupation switched,1,83,1,987
+both,Both firm AND occupation switched,2,65,0,987
+both,Both firm AND occupation switched,3,41,0,987
+both,Both firm AND occupation switched,4,18,0,987
+both,Both firm AND occupation switched,5,16,0,987
+both,Both firm AND occupation switched,6,11,0,987
+both,Both firm AND occupation switched,7,7,0,987
+both,Both firm AND occupation switched,8,2,0,987
+both,Both firm AND occupation switched,9,1,0,987
+both,Both firm AND occupation switched,10,0,0,987
+both,Both firm AND occupation switched,11,0,0,987
