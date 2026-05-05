@@ -901,9 +901,8 @@ def create_figure_4_exposure_changes_by_mobility():
     fig.suptitle(
         'Figure 4: Distribution of AI Exposure Changes by Mobility Type\n'
         f'SHP respondents observed in 2+ years (N = {len(multi):,}); '
-        f'{int(cat_both.sum()):,} persons with both firm AND occupation '
-        f'switches excluded; {n_single_year:,} single-year persons excluded.',
-        fontsize=13, fontweight='bold', y=1.02,
+        f'{n_single_year:,} single-year persons excluded.',
+        fontsize=13, fontweight='bold', y=1.00,
     )
     plt.tight_layout()
 
