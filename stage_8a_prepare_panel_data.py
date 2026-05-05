@@ -170,7 +170,19 @@ def prepare_outcomes(df):
         df['outcome_log_income'] = np.log(df['iwyn'] + 1)  # Add 1 to handle 0s
         outcomes_created['log_income'] = f"Non-missing: {(df['iwyn'] > 0).sum():,}"
 
-    # 8. Vote choice (categorical, binary indicators for major parties)
+    # 8. Hours worked per week (continuous, actual hours at main job)
+    if 'pw77' in df.columns:
+        pw77_numeric = pd.to_numeric(df['pw77'], errors='coerce')
+        df['outcome_hours_worked'] = pw77_numeric.where(
+            (pw77_numeric >= 1) & (pw77_numeric <= 99)
+        )
+        n_dropped = pw77_numeric.notna().sum() - df['outcome_hours_worked'].notna().sum()
+        outcomes_created['hours_worked'] = (
+            f"Non-missing: {df['outcome_hours_worked'].notna().sum():,} "
+            f"(dropped {n_dropped:,} out-of-range)"
+        )
+
+    # 9. Vote choice (categorical, binary indicators for major parties)
     if 'pp19' in df.columns:
         # Create binary indicators for left (SP/GPS), center (CVP/FDP), right (SVP), other
         df['vote_sp_gps'] = ((df['pp19'].str.contains('SP|GPS', na=False)).astype(int)
