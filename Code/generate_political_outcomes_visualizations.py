@@ -922,7 +922,7 @@ def create_figure_4_exposure_changes_by_mobility():
     print(f"  Stayers (same firm + same job): {int(cat_stayer.sum()):,}")
     print(f"  Same firm, job switch only:     {int(cat_job_only.sum()):,}")
     print(f"  Same job, firm switch only:     {int(cat_firm_only.sum()):,}")
-    print(f"  Both firm AND job switch:       {int(cat_both.sum()):,} (excluded)")
+    print(f"  Both firm AND job switch:       {int(cat_both.sum()):,}")
     print(f"  Single-year persons (excluded): {n_single_year:,}")
 
 # ============================================================================
