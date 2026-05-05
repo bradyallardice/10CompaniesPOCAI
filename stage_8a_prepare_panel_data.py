@@ -197,6 +197,33 @@ def prepare_outcomes(df):
 
     return df
 
+def construct_separation_outcome(df):
+    """Forward-looking firm separation: separation_t1 = 1 if firm_id changes between t and t+1.
+    Defined only when worker observed in t+1 with firm_id in both periods (right-censored otherwise)."""
+    logger.info("Constructing forward-looking separation outcome...")
+
+    df = df.sort_values(['idpers', 'year']).copy()
+    df['firm_id_next'] = df.groupby('idpers')['firm_id'].shift(-1)
+    df['year_next'] = df.groupby('idpers')['year'].shift(-1)
+
+    consecutive = (df['year_next'] == df['year'] + 1)
+    has_both_firms = df['firm_id'].notna() & df['firm_id_next'].notna()
+
+    df['separation_t1'] = np.where(
+        consecutive & has_both_firms,
+        (df['firm_id'] != df['firm_id_next']).astype(float),
+        np.nan
+    )
+
+    n_total = df['separation_t1'].notna().sum()
+    n_separated = (df['separation_t1'] == 1).sum()
+    sep_rate = 100 * n_separated / n_total if n_total > 0 else 0
+    logger.info(f"Separation outcome:")
+    logger.info(f"  - Person-years with defined separation: {n_total:,}")
+    logger.info(f"  - Separations: {n_separated:,} ({sep_rate:.1f}%)")
+
+    return df.drop(columns=['firm_id_next', 'year_next'])
+
 def prepare_controls(df):
     """Create control variables for regression."""
     logger.info("Preparing control variables...")
