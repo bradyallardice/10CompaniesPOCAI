@@ -167,8 +167,10 @@ def prepare_outcomes(df):
 
     # 7. Work income (continuous, CHF, log-transformed)
     if 'iwyn' in df.columns:
-        df['outcome_log_income'] = np.log(df['iwyn'] + 1)  # Add 1 to handle 0s
-        outcomes_created['log_income'] = f"Non-missing: {(df['iwyn'] > 0).sum():,}"
+        # Replace SHP missing codes (-3, -7, -8) and any other negatives with NaN before log
+        iwyn_clean = df['iwyn'].where(df['iwyn'] >= 0)
+        df['outcome_log_income'] = np.log(iwyn_clean + 1)
+        outcomes_created['log_income'] = f"Non-missing: {iwyn_clean.notna().sum():,}"
 
     # 8. Hours worked per week (continuous, actual hours at main job)
     if 'pw77' in df.columns:
