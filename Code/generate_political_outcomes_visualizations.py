@@ -823,15 +823,26 @@ def create_figure_4_exposure_changes_by_mobility():
             f"Run stage_8a_prepare_panel_data.py to generate this file."
         )
 
-    cols = ['idpers', 'year', 'firm_id', 'isco08_4d', 'hampole_ai_exposure_avg_foy']
+    cols = [
+        'idpers', 'year', 'firm_id', 'isco08_4d',
+        'hampole_ai_exposure_avg_foy',
+        'hampole_occupation_exposure_foy',
+        'log_ai_intensity',
+    ]
     panel = pd.read_csv(panel_path, usecols=cols)
     panel = panel.dropna(subset=['firm_id', 'isco08_4d', 'hampole_ai_exposure_avg_foy'])
+    # Firms with zero AI applications in a year have log_ai_intensity stored as
+    # NaN; the formula log(1+0)=0 implies these should be 0. Same for occ exp.
+    panel['log_ai_intensity'] = panel['log_ai_intensity'].fillna(0.0)
+    panel['hampole_occupation_exposure_foy'] = panel['hampole_occupation_exposure_foy'].fillna(0.0)
     panel = panel.sort_values(['idpers', 'year']).reset_index(drop=True)
 
     grouped = panel.groupby('idpers')
     panel['firm_id_prev'] = grouped['firm_id'].shift(1)
     panel['isco_prev'] = grouped['isco08_4d'].shift(1)
     panel['exp_prev'] = grouped['hampole_ai_exposure_avg_foy'].shift(1)
+    panel['occ_exp_prev'] = grouped['hampole_occupation_exposure_foy'].shift(1)
+    panel['intensity_prev'] = grouped['log_ai_intensity'].shift(1)
     panel['year_prev'] = grouped['year'].shift(1)
 
     has_lag = panel['year_prev'].notna()
@@ -842,10 +853,22 @@ def create_figure_4_exposure_changes_by_mobility():
         panel['exp_prev'].fillna(-999.0),
         atol=1e-6,
     )
+    occ_exp_moved = ~np.isclose(
+        panel['hampole_occupation_exposure_foy'].fillna(-999.0),
+        panel['occ_exp_prev'].fillna(-999.0),
+        atol=1e-6,
+    )
+    # Decompose: a transition with an exposure change is "within-occ" if the
+    # occupation-specific component moved, else (it must be the firm-wide
+    # intensity that moved while occ_exp stayed put) "firm-wide".
+    panel['within_occ_change_step'] = panel['exp_changed_step'] & occ_exp_moved
+    panel['firm_wide_change_step']  = panel['exp_changed_step'] & ~occ_exp_moved
 
     person = panel.groupby('idpers').agg(
         n_years=('year', 'nunique'),
         n_exposure_changes=('exp_changed_step', 'sum'),
+        n_within_occ_changes=('within_occ_change_step', 'sum'),
+        n_firm_wide_changes=('firm_wide_change_step', 'sum'),
         firm_ever_changed=('firm_changed_step', 'any'),
         isco_ever_changed=('isco_changed_step', 'any'),
     ).reset_index()
