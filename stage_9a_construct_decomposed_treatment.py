@@ -9,8 +9,14 @@ Purpose:
 
 Decomposition:
   Exp_{i,f,o,t} = Exp_bar_{o,t} + Exp_dev_{i,f,o,t}
-  where Exp_bar_{o,t}  = hampole_occupation_exposure (constant within (o,t))
-        Exp_dev        = hampole_ai_exposure_avg − hampole_occupation_exposure
+  where Exp_bar_{o,t}  = mean of hampole_ai_exposure_avg across all firms
+                         in the exposure database for (isco08_4d, year)
+        Exp_dev        = hampole_ai_exposure_avg − Exp_bar_{o,t}
+
+Note: the in-sample mean is the chosen benchmark because Stage 5's
+hampole_occupation_exposure is firm-specific (a task is "exposed" at
+firm f only if f's AI apps match it), so no truly pure occupation-year
+measure exists in the pipeline. See conversation log for justification.
 
 First differences (within-person, only when consecutive years):
   d_exp_bar_ot, d_exp_dev, d_outcome_*
