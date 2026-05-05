@@ -216,8 +216,8 @@ def main():
     try:
         validate_inputs()
         panel = load_panel()
-        exposure, f_count = load_exposure()
-        merged = merge_and_decompose(panel, exposure, f_count)
+        exposure, occ_year_mean = load_exposure()
+        merged = merge_and_decompose(panel, exposure, occ_year_mean)
         final = first_differences(merged)
         run_diagnostics(final)
 
