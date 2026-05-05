@@ -856,12 +856,16 @@ def create_figure_4_exposure_changes_by_mobility():
         ('Stayers (same firm AND same occupation)', 'stayer',    '#2c7fb8'),
         ('Same firm, occupation switched',          'job_only',  '#7fcdbb'),
         ('Same occupation, firm switched',          'firm_only', '#fdae61'),
+        ('Both firm AND occupation switched',       'both',      '#d73027'),
     ]
 
-    in_panels = multi['mobility_category'].isin(['stayer', 'job_only', 'firm_only'])
+    in_panels = multi['mobility_category'].isin(
+        ['stayer', 'job_only', 'firm_only', 'both']
+    )
     max_changes = int(multi.loc[in_panels, 'n_exposure_changes'].max()) if in_panels.any() else 0
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 11))
+    axes = axes.flatten()
 
     rows = []
     for ax, (title, cat, color) in zip(axes, panels):
