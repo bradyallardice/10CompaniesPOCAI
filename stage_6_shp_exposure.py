@@ -1094,11 +1094,7 @@ def compute_diagnostics(results: Dict[str, pd.DataFrame], output_dir: str):
                         f"nonzero={n_nonzero:,}, zero={n_zero:,}, "
                         f"missing={n_missing:,}, persons={n_persons:,}")
 
-        # Also report on unsuffixed foy columns (from fallback mode)
-        if 'hampole_ai_exposure_avg' in df.columns and output_mode == 'fallback':
-            primary_col = 'hampole_ai_exposure_avg'
-            n_nonzero = (df[primary_col] > 0).sum()
-            logger.info(f"  [{output_mode} / foy-fallback (unsuffixed)] nonzero={n_nonzero:,}")
+        # foy columns in fallback mode are now suffixed with _foy (same as other output modes)
 
     # Variance decomposition for 4d level using foy
     if 'isco4d' in results:
@@ -1341,6 +1337,11 @@ def run_pipeline(args):
     # Zero-fill the unsuffixed foy columns from fallback merge
     exp_cols_foy = [c for c in EXPOSURE_VALUE_COLUMNS if c in result_fallback.columns]
     result_fallback = fill_zeros_for_matched_firms(result_fallback, exp_cols_foy, observable_firm_ids)
+    # Rename unsuffixed foy core columns to _foy so stage_7 can find them consistently
+    foy_suffix = EXPOSURE_LEVELS['foy']['suffix']  # '_foy'
+    foy_rename = {c: f'{c}{foy_suffix}' for c in EXPOSURE_CORE_COLUMNS if c in result_fallback.columns}
+    result_fallback = result_fallback.rename(columns=foy_rename)
+    logger.info(f"  Renamed foy columns to suffix '{foy_suffix}': {list(foy_rename.keys())}")
     results['fallback'] = result_fallback
 
     gc.collect()

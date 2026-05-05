@@ -12,7 +12,21 @@ analyzes person-year panel data from the SHP with linked AI exposure.
 Input: SHP exposure file with hierarchical fallback matching (from stage_6_shp_exposure.py)
 Output: Tables (CSV) and figures (PNG) in structured output directory
 
+Analysis Sections:
+  1. Data Structure & Diagnostics
+  2. Pairwise Exploration (Descriptive Only)
+  3. Structured Regression Grid (Models A/B/C)
+  4. Collective Summary (coefficient heatmaps, sign consistency)
+  5. Multiple Testing Adjustment (FDR correction)
+  6. Intensive Margin (among exposed only)
+  7. Panel Dynamics (switchers, event studies)
+  8. Stacked Long-Difference (causal, firm AI adoption)
+
 Usage:
+    python3 stage_7_shp_eda.py \\
+        --output-dir Data/shp_eda/
+
+    # Use fallback file (hierarchical 4d->3d->2d ISCO matching)
     python3 stage_7_shp_eda.py \\
         --input Data/shp_exposure/shp_exposure_isco4d_fallback.csv \\
         --output-dir Data/shp_eda/
@@ -36,6 +50,7 @@ from scipy import stats
 try:
     import statsmodels.api as sm
     from statsmodels.formula.api import ols as sm_ols
+    from statsmodels.stats.multitest import multipletests
 except ImportError:
     raise ImportError(
         "statsmodels is required for regression analyses.\n"
@@ -72,13 +87,13 @@ FIGURE_FORMAT = 'png'
 # Main exposure variable (default; overridden per-level at runtime)
 PRIMARY_EXPOSURE = 'hampole_ai_exposure_avg'
 
-# Exposure level definitions: maps level code → column suffix from Stage 6 SHP
+# Exposure level definitions: maps level code -> column suffix from Stage 6 SHP
 EXPOSURE_LEVEL_SUFFIXES = {
-    'foy': '_foy',    # Firm × Occupation × Year
-    'fo':  '_fo',     # Firm × Occupation (time-invariant)
-    'oy':  '_oy',     # Occupation × Year
+    'foy': '_foy',    # Firm x Occupation x Year
+    'fo':  '_fo',     # Firm x Occupation (time-invariant)
+    'oy':  '_oy',     # Occupation x Year
     'o':   '_o',      # Occupation (time-invariant)
-    'fy':  '_fy',     # Firm × Year
+    'fy':  '_fy',     # Firm x Year
     'f':   '_f',      # Firm (time-invariant)
 }
 
@@ -104,6 +119,16 @@ EXPOSURE_COLUMNS = [
     'total_importance_weight',
 ]
 
+# Selectable base exposure metrics: shorthand -> column base name (level suffix appended separately).
+# These are a 2x2: {hampole, binary} x {intensity-adjusted, not intensity-adjusted}.
+# The level dimension (foy, oy, etc.) is controlled by --exposure-levels and is orthogonal.
+EXPOSURE_METRIC_BASES = {
+    'hampole':      'hampole_ai_exposure_avg',     # Hampole share × log(1+N_apps) intensity
+    'hampole_base': 'hampole_occupation_exposure',  # Hampole share only (pre-intensity)
+    'binary':       'binary_ai_exposure_avg',       # Binary exposure × log(1+N_apps) intensity
+    'binary_base':  'binary_occupation_exposure',   # Binary exposure only (pre-intensity)
+}
+
 # SHP missing values: all negative values are missing
 # (-1 = inapplicable, -2 = no answer, -3 = does not know, -7 = filter error, -8 = other error)
 # Recoding uses df[var] < 0 to catch any negative sentinel
@@ -125,47 +150,88 @@ def significance_stars(p: float) -> str:
 
 # Human-readable labels for all outcome variables
 VARIABLE_LABELS = {
-    'iwyn': 'Yearly work income (net)',
+    'iwyn': 'Yearly work income, net (CHF, higher=more)',
     'wstat': 'Working/employment status',
-    'pw86': 'Job security (self-rated)',
-    'pw86a': 'Job security (self-rated)',
-    'pp10': 'Left-right self-placement (0-10)',
-    'pp13': 'Social benefits/expenses preference',
-    'pp17': 'Taxes on high incomes preference',
-    'pp22': 'Gender equality measures preference',
-    'pp16': 'Environment vs. economic growth',
-    'pp15': 'Equal chances for foreigners',
+    'pw86': 'Job insecurity (1=not worried ... 4=very worried, higher=less secure)',
+    'pw86a': 'Job insecurity (1=not worried ... 4=very worried, higher=less secure)',
+    'pp10': 'Left-right placement (1=left ... 10=right, higher=more right)',
+    'pp13': 'Social benefits pref. (1=less ... 3=more, higher=more pro-welfare)',
+    'pp17': 'Tax high incomes pref. (1=reduce ... 3=increase, higher=more redistributive)',
+    'pp22': 'Gender equality pref. (1=gone too far ... 10=not enough, higher=more pro-equality)',
+    'pp16': 'Environment vs. growth (1=protect env ... 3=promote growth, higher=more pro-growth)',
+    'pp15': 'Chances for foreigners (1=equal chances ... 3=better for Swiss, higher=more nativist)',
     'pp19': 'Vote choice / party preference',
+    'age': 'Age',
+    'sex': 'Sex (0=male, 1=female)',
+    'educat': 'Education level',
+    'edcat': 'Education category',
+}
+
+
+SHORT_VARIABLE_LABELS = {
+    'iwyn':  'Work income',
+    'wstat': 'Employment status',
+    'pw86':  'Job insecurity',
+    'pw86a': 'Job insecurity',
+    'pp10':  'Left-right',
+    'pp13':  'Pro-welfare',
+    'pp17':  'Redistributive',
+    'pp22':  'Gender equality',
+    'pp16':  'Pro-growth',
+    'pp15':  'Anti-immigrant',
+    'pp19':  'Party preference',
+    'age':   'Age',
+    'sex':   'Sex',
 }
 
 
 def get_var_label(var: str) -> str:
-    """Return human-readable label for a variable, or the variable name itself."""
+    """Return full human-readable label for a variable, or the variable name itself."""
     return VARIABLE_LABELS.get(var, var)
+
+
+def get_var_short_label(var: str) -> str:
+    """Return concise label for use in graph titles and axes."""
+    return SHORT_VARIABLE_LABELS.get(var, var)
 
 
 # Economic outcome variables
 ECONOMIC_OUTCOMES = {
-    'iwyn': 'Yearly work income (net)',
+    'iwyn': 'Yearly work income, net (CHF, higher=more)',
     'wstat': 'Working/employment status',
 }
 
 # Job security: pw86a exists in some SHP versions with more waves; pw86 is the fallback
 JOB_SECURITY_CANDIDATES = ['pw86a', 'pw86']
 
-# Political outcome variables (ordinal scales, treatable as continuous for regressions)
+# Political outcome variables treated as continuous in OLS/FE regressions.
+# pp10 and pp22 are 10-point scales — treating as continuous is standard in
+# applied economics. pp13, pp17, pp16, pp15 are 3-point scales — OLS is a
+# reasonable first approximation but ordered logit/probit would be more
+# appropriate; coefficients should be interpreted with that caveat.
 POLITICAL_OUTCOMES_CONTINUOUS = {
-    'pp10': 'Left-right self-placement (0-10)',
-    'pp13': 'Social benefits/expenses preference',
-    'pp17': 'Taxes on high incomes preference',
-    'pp22': 'Gender equality measures preference',
-    'pp16': 'Environment vs. economic growth',
-    'pp15': 'Equal chances for foreigners',
+    'pp10': 'Left-right placement (1=left ... 10=right, higher=more right)',
+    'pp13': 'Social benefits pref. (1=less ... 3=more, higher=more pro-welfare) [3-cat ordinal]',
+    'pp17': 'Tax high incomes pref. (1=reduce ... 3=increase, higher=more redistributive) [3-cat ordinal]',
+    'pp22': 'Gender equality pref. (1=gone too far ... 10=not enough, higher=more pro-equality)',
+    'pp16': 'Environment vs. growth (1=protect env ... 3=promote growth, higher=more pro-growth) [3-cat ordinal]',
+    'pp15': 'Chances for foreigners (1=equal chances ... 3=better for Swiss, higher=more nativist) [3-cat ordinal]',
 }
 
 # Categorical political variable (do NOT compute means)
 POLITICAL_OUTCOMES_CATEGORICAL = {
     'pp19': 'Vote choice / party preference',
+}
+
+# Continuous outcomes for the regression grid (Section 3)
+# These are all outcomes suitable for OLS/FE regressions
+REGRESSION_OUTCOMES = ['iwyn', 'pw86', 'pp10', 'pp13', 'pp17', 'pp22', 'pp16', 'pp15']
+
+# Control variables for regression models
+CONTROL_VARS = {
+    'age': 'continuous',       # Age in years
+    'sex': 'binary',           # 1=male, 2=female in SHP -> recode to 0/1
+    'educat': 'ordinal',       # Education level (ordinal, use as continuous)
 }
 
 
@@ -175,10 +241,10 @@ POLITICAL_OUTCOMES_CATEGORICAL = {
 
 def load_and_clean_data(input_file: str) -> pd.DataFrame:
     """
-    Load the SHP exposure fallback file and recode missing values.
+    Load an SHP exposure file and recode missing values.
 
     Args:
-        input_file: Path to shp_exposure_isco4d_fallback.csv
+        input_file: Path to SHP exposure CSV (e.g. shp_exposure_isco4d.csv)
 
     Returns:
         Cleaned DataFrame with missing values recoded and derived indicators
@@ -192,7 +258,7 @@ def load_and_clean_data(input_file: str) -> pd.DataFrame:
     logger.info(f"  Year range: {df['year'].min()} - {df['year'].max()}")
     logger.info(f"  Unique persons: {df['idpers'].nunique():,}")
 
-    # Validate required columns (match_level is optional — only in fallback file)
+    # Validate required columns (match_level is optional -- only in fallback file)
     # Check for idpers and year; exposure column validated per-level in run_single_level
     required_cols = ['idpers', 'year']
     missing = [c for c in required_cols if c not in df.columns]
@@ -249,6 +315,23 @@ def load_and_clean_data(input_file: str) -> pd.DataFrame:
             df.loc[df[var] < 0, var] = np.nan
             logger.info(f"  {var}: recoded {n_negative:,} negative values to NaN")
 
+    # --- Recode negative values for control variables (age, sex, education) ---
+    for ctrl_var in ['age', 'sex', 'educat', 'edcat']:
+        if ctrl_var in df.columns:
+            n_negative = (df[ctrl_var] < 0).sum()
+            if n_negative > 0:
+                df.loc[df[ctrl_var] < 0, ctrl_var] = np.nan
+                logger.info(f"  {ctrl_var}: recoded {n_negative:,} negative values to NaN")
+
+    # --- Recode sex to 0/1 dummy (SHP: 1=male, 2=female -> 0=male, 1=female) ---
+    if 'sex' in df.columns:
+        n_before = df['sex'].notna().sum()
+        df['sex'] = df['sex'].map({1: 0, 2: 1})
+        n_after = df['sex'].notna().sum()
+        logger.info(f"  sex: recoded 1=male->0, 2=female->1 ({n_after:,} valid obs)")
+        if n_before != n_after:
+            logger.warning(f"  sex: {n_before - n_after:,} values were not 1 or 2 and became NaN")
+
     # --- Exposure indicators are created per-level in run_single_level ---
     # Initialize placeholder columns (will be overwritten for each level)
     df['has_exposure'] = 0
@@ -262,7 +345,7 @@ def load_and_clean_data(input_file: str) -> pd.DataFrame:
         for level, count in match_counts.items():
             logger.info(f"  {level}: {count:,} ({100*count/len(df):.1f}%)")
     else:
-        logger.info("  (match_level column not present — single-level file)")
+        logger.info("  (match_level column not present -- single-level file)")
 
     return df
 
@@ -302,64 +385,240 @@ def _select_job_security_variable(df: pd.DataFrame, log: bool = True) -> Optiona
     return best_var
 
 
+def _get_education_var(df: pd.DataFrame) -> Optional[str]:
+    """
+    Determine which education variable is available: educat preferred, edcat fallback.
+
+    Returns:
+        Variable name, or None if neither exists.
+    """
+    for var in ['educat', 'edcat']:
+        if var in df.columns and df[var].notna().sum() > 0:
+            return var
+    return None
+
+
+def _get_regression_outcomes(df: pd.DataFrame, job_security_var: Optional[str]) -> List[str]:
+    """
+    Build list of continuous outcomes available in df for regression grid.
+    Uses REGRESSION_OUTCOMES as base, substitutes the correct job security var.
+    """
+    outcomes = []
+    for var in REGRESSION_OUTCOMES:
+        # Substitute pw86 with the actual job security variable
+        actual_var = job_security_var if var in JOB_SECURITY_CANDIDATES else var
+        if actual_var and actual_var in df.columns:
+            if actual_var not in outcomes:
+                outcomes.append(actual_var)
+    return outcomes
+
+
+def _build_all_outcome_vars(df: pd.DataFrame, job_security_var: Optional[str]) -> List[str]:
+    """
+    Build the full list of outcome variables (economic + political, both
+    continuous and categorical) that are present in df.
+    """
+    outcome_vars = []
+    for var in ECONOMIC_OUTCOMES:
+        if var in df.columns:
+            outcome_vars.append(var)
+    if job_security_var and job_security_var in df.columns:
+        if job_security_var not in outcome_vars:
+            outcome_vars.append(job_security_var)
+    for var in POLITICAL_OUTCOMES_CONTINUOUS:
+        if var in df.columns:
+            outcome_vars.append(var)
+    for var in POLITICAL_OUTCOMES_CATEGORICAL:
+        if var in df.columns:
+            outcome_vars.append(var)
+    return outcome_vars
+
+
 # =============================================================================
-# Section 1: Descriptive Statistics
+# Regression Helper
 # =============================================================================
 
-def section_1_descriptive_stats(df: pd.DataFrame, output_dir: str,
-                                job_security_var: Optional[str] = None):
+def _run_person_fe_regression(df: pd.DataFrame, outcome_var: str,
+                               exposure_var: str) -> Tuple[float, float, float, float, int]:
     """
-    Generate descriptive statistics for all outcome and exposure variables.
+    Run within-person (fixed effects) regression.
+
+    Uses linearmodels PanelOLS if available, otherwise demeans manually.
+
+    Returns:
+        (coefficient, standard_error, p_value, r_squared, n_actual)
+        n_actual is the number of observations actually used in the regression
+        (after dropping NaNs and persons without within-person exposure variation).
+        Returns (NaN, NaN, NaN, NaN, 0) if regression cannot be estimated.
+    """
+    panel = df[['idpers', 'year', outcome_var, exposure_var]].dropna().copy()
+
+    # Need persons with variation in exposure
+    person_var = panel.groupby('idpers')[exposure_var].std()
+    persons_with_variation = person_var[person_var > 0].index
+    panel_var = panel[panel['idpers'].isin(persons_with_variation)]
+
+    # n_actual is the sample that enters the regression (NaN-dropped + variation-filtered)
+    n_actual = len(panel_var)
+
+    if n_actual < 10 or len(persons_with_variation) < 2:
+        return (np.nan, np.nan, np.nan, np.nan, 0)
+
+    if HAS_LINEARMODELS:
+        try:
+            panel_indexed = panel_var.set_index(['idpers', 'year'])
+            # Add year dummies
+            year_dummies = pd.get_dummies(panel_indexed.index.get_level_values('year'),
+                                          prefix='yr', drop_first=True, dtype=float)
+            year_dummies.index = panel_indexed.index
+            exog = pd.concat([panel_indexed[[exposure_var]], year_dummies], axis=1)
+
+            mod = PanelOLS(panel_indexed[outcome_var], exog, entity_effects=True,
+                          check_rank=False)
+            res = mod.fit(cov_type='clustered', cluster_entity=True)
+            return (res.params[exposure_var], res.std_errors[exposure_var],
+                    res.pvalues[exposure_var], res.rsquared_within, n_actual)
+        except Exception as e:
+            logger.debug(f"  linearmodels PanelOLS failed: {e}, falling back to demeaned OLS")
+
+    # Fallback: demeaned OLS
+    try:
+        # Demean by person
+        for col in [outcome_var, exposure_var]:
+            person_means = panel_var.groupby('idpers')[col].transform('mean')
+            panel_var[f'{col}_dm'] = panel_var[col] - person_means
+
+        # Add demeaned year dummies
+        year_dummies = pd.get_dummies(panel_var['year'], prefix='yr', drop_first=True, dtype=float)
+        year_dummies.index = panel_var.index
+        panel_var = pd.concat([panel_var, year_dummies], axis=1)
+
+        # Demean year dummies by person
+        yd_cols = year_dummies.columns.tolist()
+        for col_yd in yd_cols:
+            pm = panel_var.groupby('idpers')[col_yd].transform('mean')
+            panel_var[f'{col_yd}_dm'] = panel_var[col_yd] - pm
+
+        yd_dm_cols = [f'{c}_dm' for c in yd_cols]
+        X_dm = panel_var[[f'{exposure_var}_dm'] + yd_dm_cols]
+        # No constant in demeaned FE regression (demeaning removes it by construction)
+        y_dm = panel_var[f'{outcome_var}_dm']
+
+        model = sm.OLS(y_dm, X_dm).fit(cov_type='cluster',
+                                         cov_kwds={'groups': panel_var['idpers']})
+        coef = model.params[f'{exposure_var}_dm']
+        se = model.bse[f'{exposure_var}_dm']
+        p = model.pvalues[f'{exposure_var}_dm']
+        # R² from demeaned OLS is the within-R² (variance explained among deviations
+        # from person means). It is NOT comparable to the overall R² reported by
+        # Models A and B, and will typically be much lower.
+        r2 = model.rsquared
+
+        return (coef, se, p, r2, n_actual)
+
+    except Exception as e:
+        logger.debug(f"  Demeaned OLS failed: {e}")
+        return (np.nan, np.nan, np.nan, np.nan, 0)
+
+
+def _run_ols_with_year_fe(df_valid: pd.DataFrame, outcome_var: str,
+                           exposure_var: str) -> Tuple[float, float, float, float, int]:
+    """
+    Model A: OLS with year fixed effects only.
+    Returns: (coef, se, p, r2, N)
+    """
+    try:
+        year_dummies = pd.get_dummies(df_valid['year'].astype(str), prefix='yr',
+                                       drop_first=True, dtype=float)
+        X = pd.concat([df_valid[[exposure_var]].reset_index(drop=True),
+                        year_dummies.reset_index(drop=True)], axis=1)
+        X = sm.add_constant(X)
+        y = df_valid[outcome_var].reset_index(drop=True).astype(float)
+
+        model = sm.OLS(y, X).fit(cov_type='HC1')
+        return (model.params[exposure_var], model.bse[exposure_var],
+                model.pvalues[exposure_var], model.rsquared, len(y))
+    except Exception as e:
+        logger.debug(f"  OLS year FE failed for {outcome_var}: {e}")
+        return (np.nan, np.nan, np.nan, np.nan, len(df_valid))
+
+
+def _run_ols_with_controls(df_valid: pd.DataFrame, outcome_var: str,
+                            exposure_var: str, edu_var: Optional[str]) -> Tuple[float, float, float, float, int]:
+    """
+    Model B: OLS with year FE + controls (age, sex, education).
+    Returns: (coef, se, p, r2, N)
+    """
+    try:
+        # Build controls list
+        control_cols = []
+        for ctrl in ['age', 'sex']:
+            if ctrl in df_valid.columns and df_valid[ctrl].notna().sum() > 0:
+                control_cols.append(ctrl)
+        if edu_var and edu_var in df_valid.columns and df_valid[edu_var].notna().sum() > 0:
+            control_cols.append(edu_var)
+
+        # Drop rows with missing controls
+        cols_needed = [exposure_var, outcome_var, 'year'] + control_cols
+        valid = df_valid[cols_needed].dropna().copy()
+
+        if len(valid) < 30:
+            return (np.nan, np.nan, np.nan, np.nan, len(valid))
+
+        year_dummies = pd.get_dummies(valid['year'].astype(str), prefix='yr',
+                                       drop_first=True, dtype=float)
+        X = pd.concat([valid[[exposure_var] + control_cols].reset_index(drop=True),
+                        year_dummies.reset_index(drop=True)], axis=1)
+        X = sm.add_constant(X)
+        y = valid[outcome_var].reset_index(drop=True).astype(float)
+
+        model = sm.OLS(y, X).fit(cov_type='HC1')
+        return (model.params[exposure_var], model.bse[exposure_var],
+                model.pvalues[exposure_var], model.rsquared, len(y))
+    except Exception as e:
+        logger.debug(f"  OLS with controls failed for {outcome_var}: {e}")
+        return (np.nan, np.nan, np.nan, np.nan, len(df_valid))
+
+
+# =============================================================================
+# Section 1: Data Structure & Diagnostics
+# =============================================================================
+
+def section_1_data_structure(df: pd.DataFrame, output_dir: str,
+                              job_security_var: Optional[str] = None):
+    """
+    Section 1: Data Structure & Diagnostics.
 
     Produces:
-      - Summary stats table (full sample and by exposure status)
-      - Exposure distribution (among exposed)
-      - Coverage table
+      - Summary stats for ALL outcome variables in one table
+      - Missingness patterns (outcome x exposure combinations)
+      - Exposure distribution (histogram + quantiles)
+      - Coverage table: N, N_exposed, N_valid per outcome
     """
     logger.info("\n" + "=" * 70)
-    logger.info("SECTION 1: DESCRIPTIVE STATISTICS")
+    logger.info("SECTION 1: DATA STRUCTURE & DIAGNOSTICS")
     logger.info("=" * 70)
 
     tables_dir = os.path.join(output_dir, 'tables')
     figures_dir = os.path.join(output_dir, 'figures')
 
-    # --- Build list of outcome variables to summarize ---
-    outcome_vars = []
-    outcome_labels = {}
+    # Build full list of outcome variables
+    outcome_vars = _build_all_outcome_vars(df, job_security_var)
+    categorical_vars = set(POLITICAL_OUTCOMES_CATEGORICAL.keys()) | {'wstat'}
 
-    for var, label in ECONOMIC_OUTCOMES.items():
-        if var in df.columns:
-            outcome_vars.append(var)
-            outcome_labels[var] = label
-
-    if job_security_var and job_security_var in df.columns:
-        outcome_vars.append(job_security_var)
-        outcome_labels[job_security_var] = f'Job security ({job_security_var})'
-
-    for var, label in POLITICAL_OUTCOMES_CONTINUOUS.items():
-        if var in df.columns:
-            outcome_vars.append(var)
-            outcome_labels[var] = label
-
-    for var, label in POLITICAL_OUTCOMES_CATEGORICAL.items():
-        if var in df.columns:
-            outcome_vars.append(var)
-            outcome_labels[var] = label
-
-    # --- Summary statistics: full sample ---
-    logger.info("\n--- Summary Statistics (Full Sample) ---")
+    # --- 1.1: Summary statistics for ALL outcomes in one table ---
+    logger.info("\n--- 1.1: Summary Statistics (All Outcomes) ---")
     summary_rows = []
 
-    categorical_vars = set(POLITICAL_OUTCOMES_CATEGORICAL.keys()) | {'wstat'}
     for var in outcome_vars:
         if var not in df.columns:
             continue
         series = df[var].dropna()
         if var in categorical_vars:
-            # Categorical variables: report N, unique categories, mode — not mean/sd
             row = {
                 'variable': var,
-                'label': outcome_labels.get(var, var),
+                'label': get_var_label(var),
+                'type': 'categorical',
                 'N': len(series),
                 'mean': np.nan,
                 'sd': np.nan,
@@ -369,14 +628,15 @@ def section_1_descriptive_stats(df: pd.DataFrame, output_dir: str,
                 'p75': np.nan,
                 'max': series.max(),
                 'pct_missing': 100 * df[var].isna().sum() / len(df),
-                'n_categories': series.nunique(),
+                'n_unique': series.nunique(),
             }
-            summary_rows.append(row)
-            logger.info(f"  {var} (categorical): N={row['N']:,}, {row['n_categories']} unique values")
+            logger.info(f"  {get_var_label(var)} ({var}): N={row['N']:,}, "
+                        f"{row['n_unique']} unique values, categorical")
         else:
             row = {
                 'variable': var,
-                'label': outcome_labels.get(var, var),
+                'label': get_var_label(var),
+                'type': 'continuous',
                 'N': len(series),
                 'mean': series.mean(),
                 'sd': series.std(),
@@ -386,278 +646,1860 @@ def section_1_descriptive_stats(df: pd.DataFrame, output_dir: str,
                 'p75': series.quantile(0.75),
                 'max': series.max(),
                 'pct_missing': 100 * df[var].isna().sum() / len(df),
+                'n_unique': series.nunique(),
             }
-            summary_rows.append(row)
-            logger.info(f"  {var}: N={row['N']:,}, mean={row['mean']:.3f}, sd={row['sd']:.3f}")
+            logger.info(f"  {get_var_label(var)} ({var}): N={row['N']:,}, "
+                        f"mean={row['mean']:.3f}, sd={row['sd']:.3f}")
+        summary_rows.append(row)
 
     summary_df = pd.DataFrame(summary_rows)
-    summary_path = os.path.join(tables_dir, 'descriptive_stats_full_sample.csv')
+    summary_path = os.path.join(tables_dir, 'summary_stats_all_outcomes.csv')
     summary_df.to_csv(summary_path, index=False)
     logger.info(f"  Saved: {summary_path}")
 
-    # --- Summary statistics: by exposure status ---
-    logger.info("\n--- Summary Statistics by Exposure Status ---")
-    by_exposure_rows = []
-
+    # --- 1.2: Missingness patterns ---
+    logger.info("\n--- 1.2: Missingness Patterns ---")
+    missingness_rows = []
     for var in outcome_vars:
         if var not in df.columns:
             continue
-        for exposed_val, group_label in [(0, 'Not exposed'), (1, 'Exposed')]:
-            sub = df.loc[df['has_exposure'] == exposed_val, var].dropna()
-            if len(sub) == 0:
-                continue
-            if var in categorical_vars:
-                row = {
-                    'variable': var,
-                    'label': outcome_labels.get(var, var),
-                    'group': group_label,
-                    'N': len(sub),
-                    'mean': np.nan,
-                    'sd': np.nan,
-                    'min': sub.min(),
-                    'median': np.nan,
-                    'max': sub.max(),
-                    'n_categories': sub.nunique(),
-                }
-            else:
-                row = {
-                    'variable': var,
-                    'label': outcome_labels.get(var, var),
-                    'group': group_label,
-                    'N': len(sub),
-                    'mean': sub.mean(),
-                    'sd': sub.std(),
-                    'min': sub.min(),
-                    'median': sub.median(),
-                    'max': sub.max(),
-                }
-            by_exposure_rows.append(row)
+        has_outcome = df[var].notna()
+        has_exp = df[PRIMARY_EXPOSURE].notna() & (df[PRIMARY_EXPOSURE] > 0)
 
-    by_exposure_df = pd.DataFrame(by_exposure_rows)
-    by_exp_path = os.path.join(tables_dir, 'descriptive_stats_by_exposure.csv')
-    by_exposure_df.to_csv(by_exp_path, index=False)
-    logger.info(f"  Saved: {by_exp_path}")
+        missingness_rows.append({
+            'variable': var,
+            'label': get_var_label(var),
+            'n_total': len(df),
+            'n_valid_outcome': has_outcome.sum(),
+            'n_missing_outcome': (~has_outcome).sum(),
+            'pct_missing_outcome': 100 * (~has_outcome).sum() / len(df),
+            'n_with_exposure': has_exp.sum(),
+            'n_valid_outcome_and_exposure': (has_outcome & has_exp).sum(),
+            'n_valid_outcome_no_exposure': (has_outcome & ~has_exp).sum(),
+        })
 
-    # Print comparison for key variables
-    for var in outcome_vars:
-        if var in categorical_vars:
-            continue  # skip categorical variables from mean comparison
-        exposed = df.loc[df['has_exposure'] == 1, var].dropna()
-        not_exposed = df.loc[df['has_exposure'] == 0, var].dropna()
-        if len(exposed) > 0 and len(not_exposed) > 0:
-            logger.info(f"  {var}: exposed mean={exposed.mean():.3f} (N={len(exposed):,}), "
-                        f"not exposed mean={not_exposed.mean():.3f} (N={len(not_exposed):,})")
+    missingness_df = pd.DataFrame(missingness_rows)
+    miss_path = os.path.join(tables_dir, 'missingness_patterns.csv')
+    missingness_df.to_csv(miss_path, index=False)
+    logger.info(f"  Saved: {miss_path}")
+    for _, row in missingness_df.iterrows():
+        logger.info(f"  {row['variable']}: {row['n_valid_outcome']:,} valid, "
+                    f"{row['n_valid_outcome_and_exposure']:,} with exposure, "
+                    f"{row['pct_missing_outcome']:.1f}% missing")
 
-    # --- Exposure distribution (among those with non-zero exposure) ---
-    logger.info("\n--- Exposure Distribution (Non-Zero) ---")
-    exposed_vals = df.loc[df[PRIMARY_EXPOSURE] > 0, PRIMARY_EXPOSURE]
+    # --- 1.3: Exposure distribution ---
+    logger.info("\n--- 1.3: Exposure Distribution ---")
 
-    if len(exposed_vals) > 0:
-        exp_stats = {
-            'N': len(exposed_vals),
-            'mean': exposed_vals.mean(),
-            'sd': exposed_vals.std(),
-            'min': exposed_vals.min(),
-            'p10': exposed_vals.quantile(0.10),
-            'p25': exposed_vals.quantile(0.25),
-            'median': exposed_vals.median(),
-            'p75': exposed_vals.quantile(0.75),
-            'p90': exposed_vals.quantile(0.90),
-            'p99': exposed_vals.quantile(0.99),
-            'max': exposed_vals.max(),
-        }
-        logger.info(f"  N={exp_stats['N']:,}, mean={exp_stats['mean']:.6f}, "
-                    f"median={exp_stats['median']:.6f}, max={exp_stats['max']:.6f}")
+    # Full distribution (including zeros)
+    all_exp = df[PRIMARY_EXPOSURE].fillna(0)
+    n_zero = (all_exp == 0).sum()
+    n_nonzero = (all_exp > 0).sum()
+    logger.info(f"  Total person-years: {len(all_exp):,}")
+    logger.info(f"  Zero exposure: {n_zero:,} ({100*n_zero/len(all_exp):.1f}%)")
+    logger.info(f"  Non-zero exposure: {n_nonzero:,} ({100*n_nonzero/len(all_exp):.1f}%)")
 
-        exp_stats_df = pd.DataFrame([exp_stats])
-        exp_stats_path = os.path.join(tables_dir, 'exposure_distribution_nonzero.csv')
-        exp_stats_df.to_csv(exp_stats_path, index=False)
-        logger.info(f"  Saved: {exp_stats_path}")
+    # Quantiles of non-zero exposure
+    nonzero_exp = df.loc[df[PRIMARY_EXPOSURE] > 0, PRIMARY_EXPOSURE]
+    if len(nonzero_exp) > 0:
+        quantiles = [0.01, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99]
+        exp_quantiles = {f'p{int(q*100):02d}': nonzero_exp.quantile(q) for q in quantiles}
+        exp_quantiles['N'] = len(nonzero_exp)
+        exp_quantiles['mean'] = nonzero_exp.mean()
+        exp_quantiles['sd'] = nonzero_exp.std()
+        exp_quantiles['min'] = nonzero_exp.min()
+        exp_quantiles['max'] = nonzero_exp.max()
 
-        # Histogram of exposure
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.hist(exposed_vals, bins=50, edgecolor='black', alpha=0.7)
-        ax.set_xlabel(f'{PRIMARY_EXPOSURE}')
-        ax.set_ylabel('Count')
-        ax.set_title(f'Distribution of AI Exposure (N={len(exposed_vals):,} non-zero observations)')
-        ax.axvline(exposed_vals.median(), color='red', linestyle='--',
-                    label=f'Median: {exposed_vals.median():.6f}')
-        ax.legend()
+        exp_q_df = pd.DataFrame([exp_quantiles])
+        exp_q_path = os.path.join(tables_dir, 'exposure_distribution_quantiles.csv')
+        exp_q_df.to_csv(exp_q_path, index=False)
+        logger.info(f"  Saved: {exp_q_path}")
+        logger.info(f"  Non-zero exposure: mean={exp_quantiles['mean']:.6f}, "
+                    f"median={exp_quantiles['p50']:.6f}, max={exp_quantiles['max']:.6f}")
+
+        # Histogram
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Left: full distribution
+        ax1 = axes[0]
+        ax1.hist(all_exp, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
+        ax1.set_xlabel(f'{PRIMARY_EXPOSURE}')
+        ax1.set_ylabel('Count')
+        ax1.set_title(f'Full Distribution (N={len(all_exp):,}, {n_nonzero:,} non-zero)')
+        ax1.set_yscale('log')
+
+        # Right: non-zero only
+        ax2 = axes[1]
+        ax2.hist(nonzero_exp, bins=50, edgecolor='black', alpha=0.7, color='coral')
+        ax2.set_xlabel(f'{PRIMARY_EXPOSURE}')
+        ax2.set_ylabel('Count')
+        ax2.set_title(f'Non-Zero Only (N={len(nonzero_exp):,})')
+        ax2.axvline(nonzero_exp.median(), color='red', linestyle='--',
+                    label=f'Median: {nonzero_exp.median():.6f}')
+        ax2.legend()
+
+        fig.suptitle('AI Exposure Distribution', fontsize=14)
         fig.tight_layout()
-        fig_path = os.path.join(figures_dir, 'exposure_distribution_nonzero.png')
+        fig_path = os.path.join(figures_dir, 'exposure_distribution.png')
         fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
         plt.close(fig)
         logger.info(f"  Saved: {fig_path}")
 
-    # --- Coverage table ---
-    logger.info("\n--- Coverage Table ---")
+    # --- 1.4: Coverage table ---
+    logger.info("\n--- 1.4: Coverage Table ---")
     coverage_rows = []
     for var in outcome_vars:
         if var not in df.columns:
             continue
         has_outcome = df[var].notna()
         has_exp = df[PRIMARY_EXPOSURE].notna() & (df[PRIMARY_EXPOSURE] > 0)
-        has_both = has_outcome & has_exp
 
         coverage_rows.append({
             'variable': var,
-            'label': outcome_labels.get(var, var),
-            'n_valid_outcome': has_outcome.sum(),
-            'n_with_exposure': has_exp.sum(),
-            'n_both': has_both.sum(),
-            'pct_outcome_of_total': 100 * has_outcome.sum() / len(df),
+            'label': get_var_label(var),
+            'N_total': len(df),
+            'N_valid': has_outcome.sum(),
+            'N_exposed': has_exp.sum(),
+            'N_valid_and_exposed': (has_outcome & has_exp).sum(),
+            'pct_valid': 100 * has_outcome.sum() / len(df),
+            'pct_exposed': 100 * has_exp.sum() / len(df),
         })
 
     coverage_df = pd.DataFrame(coverage_rows)
-    coverage_path = os.path.join(tables_dir, 'outcome_exposure_coverage.csv')
+    coverage_path = os.path.join(tables_dir, 'coverage_table.csv')
     coverage_df.to_csv(coverage_path, index=False)
     logger.info(f"  Saved: {coverage_path}")
 
 
 # =============================================================================
-# Section 2: Economic Outcomes EDA
+# Section 2: Pairwise Exploration (Descriptive Only)
 # =============================================================================
 
-def section_2_economic_outcomes(df: pd.DataFrame, output_dir: str,
-                                job_security_var: Optional[str] = None):
+def section_2_pairwise_exploration(df: pd.DataFrame, output_dir: str,
+                                    job_security_var: Optional[str] = None):
     """
-    Analyze economic outcomes (income, employment, job security) by AI exposure.
+    Section 2: Pairwise Exploration (Descriptive Only).
+
+    NO p-values in this section -- purely descriptive.
 
     Produces:
-      - Income by exposure status with t-test
-      - Binscatter of income vs exposure
-      - Income trends over time
-      - Within-person income changes
-      - Employment status distribution
-      - Transition matrices
-      - Job security analysis
+      - Correlation matrix: exposure vs all continuous outcomes (Spearman)
+      - Heatmap figure + CSV
+      - Means by exposure status for all outcomes (one unified table)
+      - Cross-tabs for categorical variables (wstat, pp19)
     """
     logger.info("\n" + "=" * 70)
-    logger.info("SECTION 2: ECONOMIC OUTCOMES EDA")
+    logger.info("SECTION 2: PAIRWISE EXPLORATION (DESCRIPTIVE ONLY)")
     logger.info("=" * 70)
 
     tables_dir = os.path.join(output_dir, 'tables')
     figures_dir = os.path.join(output_dir, 'figures')
 
-    # -------------------------------------------------------------------------
-    # 2.1: Income Analysis (iwyn)
-    # -------------------------------------------------------------------------
-    if 'iwyn' in df.columns:
-        _analyze_income(df, tables_dir, figures_dir)
+    outcome_vars = _build_all_outcome_vars(df, job_security_var)
+    categorical_vars = set(POLITICAL_OUTCOMES_CATEGORICAL.keys()) | {'wstat'}
+
+    # --- 2.1: Correlation matrix (Spearman) ---
+    logger.info("\n--- 2.1: Correlation Matrix (Spearman) ---")
+
+    continuous_outcomes = [v for v in outcome_vars if v not in categorical_vars and v in df.columns]
+    corr_vars = [PRIMARY_EXPOSURE] + continuous_outcomes
+
+    # Build correlation matrix using Spearman (appropriate for ordinal outcomes)
+    corr_data = df[corr_vars].dropna()
+    if len(corr_data) > 10:
+        corr_matrix = corr_data.corr(method='spearman')
+
+        # Save CSV
+        corr_path = os.path.join(tables_dir, 'correlation_matrix_spearman.csv')
+        corr_matrix.to_csv(corr_path)
+        logger.info(f"  Saved: {corr_path} (N={len(corr_data):,} complete cases)")
+
+        # Log exposure correlations
+        for var in continuous_outcomes:
+            r = corr_matrix.loc[PRIMARY_EXPOSURE, var]
+            logger.info(f"  Spearman r({get_var_label(var)}, exposure) = {r:.4f}")
+
+        # Heatmap
+        # Use human-readable labels for axes
+        label_map = {v: get_var_short_label(v) for v in corr_vars}
+        label_map[PRIMARY_EXPOSURE] = 'AI Exposure'
+        corr_display = corr_matrix.rename(index=label_map, columns=label_map)
+
+        fig, ax = plt.subplots(figsize=(12, 10))
+        sns.heatmap(corr_display, annot=True, fmt='.3f', cmap='RdBu_r',
+                    center=0, vmin=-1, vmax=1, square=True, ax=ax,
+                    linewidths=0.5, cbar_kws={'label': 'Spearman r'})
+        ax.set_title('Spearman Correlation Matrix: Exposure vs Outcomes', fontsize=14)
+        fig.tight_layout()
+        fig_path = os.path.join(figures_dir, 'correlation_heatmap_spearman.png')
+        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+        plt.close(fig)
+        logger.info(f"  Saved: {fig_path}")
     else:
-        logger.warning("  Variable 'iwyn' not available, skipping income analysis")
+        logger.warning("  Insufficient complete cases for correlation matrix")
 
-    # -------------------------------------------------------------------------
-    # 2.2: Employment Status (wstat)
-    # -------------------------------------------------------------------------
-    if 'wstat' in df.columns:
-        _analyze_employment(df, tables_dir, figures_dir)
-    else:
-        logger.warning("  Variable 'wstat' not available, skipping employment analysis")
+    # --- 2.2: Means by exposure status (unified table) ---
+    logger.info("\n--- 2.2: Means by Exposure Status ---")
+    means_rows = []
+    for var in outcome_vars:
+        if var not in df.columns:
+            continue
+        if var in categorical_vars:
+            continue  # Categorical vars handled in cross-tabs below
 
-    # -------------------------------------------------------------------------
-    # 2.3: Job Security
-    # -------------------------------------------------------------------------
-    if job_security_var and job_security_var in df.columns:
-        _analyze_job_security(df, job_security_var, tables_dir, figures_dir)
-    else:
-        logger.warning("  No job security variable available, skipping")
+        for exp_val, group_label in [(0, 'Not exposed'), (1, 'Exposed')]:
+            sub = df.loc[df['has_exposure'] == exp_val, var].dropna()
+            if len(sub) == 0:
+                continue
+            means_rows.append({
+                'variable': var,
+                'label': get_var_label(var),
+                'group': group_label,
+                'N': len(sub),
+                'mean': sub.mean(),
+                'sd': sub.std(),
+                'median': sub.median(),
+            })
 
+    means_df = pd.DataFrame(means_rows)
+    means_path = os.path.join(tables_dir, 'means_by_exposure_status.csv')
+    means_df.to_csv(means_path, index=False)
+    logger.info(f"  Saved: {means_path}")
 
-def _analyze_income(df: pd.DataFrame, tables_dir: str, figures_dir: str):
-    """Analyze income (iwyn) by exposure status."""
-    logger.info("\n--- 2.1: Income Analysis (iwyn) ---")
+    # Log the differences
+    for var in outcome_vars:
+        if var in categorical_vars or var not in df.columns:
+            continue
+        exposed = df.loc[df['has_exposure'] == 1, var].dropna()
+        not_exposed = df.loc[df['has_exposure'] == 0, var].dropna()
+        if len(exposed) > 0 and len(not_exposed) > 0:
+            diff = exposed.mean() - not_exposed.mean()
+            logger.info(f"  {get_var_label(var)}: exposed={exposed.mean():.3f}, "
+                        f"not exposed={not_exposed.mean():.3f}, diff={diff:.3f}")
 
-    # Mean income by exposure status with t-test
-    exposed = df.loc[df['has_exposure'] == 1, 'iwyn'].dropna()
-    not_exposed = df.loc[df['has_exposure'] == 0, 'iwyn'].dropna()
+    # --- 2.3: Cross-tabs for categorical variables ---
+    logger.info("\n--- 2.3: Cross-Tabs for Categorical Variables ---")
 
-    logger.info(f"  Exposed: N={len(exposed):,}, mean={exposed.mean():,.0f}, sd={exposed.std():,.0f}")
-    logger.info(f"  Not exposed: N={len(not_exposed):,}, mean={not_exposed.mean():,.0f}, sd={not_exposed.std():,.0f}")
+    for var in categorical_vars:
+        if var not in df.columns:
+            continue
 
-    if len(exposed) > 1 and len(not_exposed) > 1:
-        t_stat, p_val = stats.ttest_ind(exposed, not_exposed, equal_var=False)
-        logger.info(f"  Welch t-test: t={t_stat:.4f}, p={p_val:.6f}")
+        valid = df.loc[df[var].notna()].copy()
+        if len(valid) == 0:
+            continue
 
-        ttest_df = pd.DataFrame([{
-            'group_exposed_N': len(exposed),
-            'group_exposed_mean': exposed.mean(),
-            'group_exposed_sd': exposed.std(),
-            'group_not_exposed_N': len(not_exposed),
-            'group_not_exposed_mean': not_exposed.mean(),
-            'group_not_exposed_sd': not_exposed.std(),
-            'difference': exposed.mean() - not_exposed.mean(),
-            't_statistic': t_stat,
-            'p_value': p_val,
-        }])
-        ttest_path = os.path.join(tables_dir, 'income_by_exposure_ttest.csv')
-        ttest_df.to_csv(ttest_path, index=False)
-        logger.info(f"  Saved: {ttest_path}")
+        # Counts cross-tab
+        cross_counts = pd.crosstab(valid[var], valid['has_exposure'], margins=True)
+        counts_path = os.path.join(tables_dir, f'crosstab_{var}_counts.csv')
+        cross_counts.to_csv(counts_path)
 
-    # Binscatter: income vs exposure (among exposed)
-    df_exposed = df.loc[(df[PRIMARY_EXPOSURE] > 0) & df['iwyn'].notna()].copy()
-    if len(df_exposed) > 10:
-        n_bins = min(20, len(df_exposed) // 5)
-        if n_bins >= 2:
-            df_exposed['exposure_bin'] = pd.qcut(
-                df_exposed[PRIMARY_EXPOSURE], q=n_bins, duplicates='drop'
-            )
-            binscatter = df_exposed.groupby('exposure_bin', observed=True)['iwyn'].agg(['mean', 'count', 'sem'])
-            binscatter['bin_midpoint'] = [interval.mid for interval in binscatter.index]
+        # Proportions cross-tab (column-normalized)
+        cross_pct = pd.crosstab(valid[var], valid['has_exposure'],
+                                normalize='columns')
+        pct_path = os.path.join(tables_dir, f'crosstab_{var}_proportions.csv')
+        cross_pct.to_csv(pct_path)
 
+        logger.info(f"  {get_var_label(var)} ({var}): saved counts and proportions cross-tabs")
+
+        # Bar chart for top categories
+        top_cats = cross_counts.drop('All', errors='ignore').sum(axis=1).nlargest(10).index
+        plot_data = cross_pct.loc[cross_pct.index.isin(top_cats)].copy()
+        if plot_data.shape[1] >= 2:
+            plot_data.columns = ['Not Exposed', 'Exposed']
             fig, ax = plt.subplots(figsize=(10, 6))
-            ax.scatter(binscatter['bin_midpoint'], binscatter['mean'], s=binscatter['count'] * 2,
-                       alpha=0.7, edgecolors='black')
-            ax.set_xlabel(f'AI Exposure ({PRIMARY_EXPOSURE})')
-            ax.set_ylabel('Mean Income (iwyn)')
-            ax.set_title(f'Binscatter: Income vs. AI Exposure (N={len(df_exposed):,})')
-
-            # Add trend line
-            z = np.polyfit(binscatter['bin_midpoint'], binscatter['mean'], 1)
-            p = np.poly1d(z)
-            x_line = np.linspace(binscatter['bin_midpoint'].min(), binscatter['bin_midpoint'].max(), 100)
-            ax.plot(x_line, p(x_line), 'r--', alpha=0.7, label=f'Linear fit')
-            ax.legend()
+            plot_data.plot(kind='bar', ax=ax, edgecolor='black', alpha=0.8)
+            ax.set_xlabel(get_var_short_label(var))
+            ax.set_ylabel('Proportion')
+            ax.set_title(f'{get_var_short_label(var)} by AI Exposure Status')
+            ax.legend(title='Exposure Status')
+            plt.xticks(rotation=45, ha='right')
             fig.tight_layout()
-            fig_path = os.path.join(figures_dir, 'income_vs_exposure_binscatter.png')
+            fig_path = os.path.join(figures_dir, f'crosstab_{var}_barplot.png')
             fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
             plt.close(fig)
             logger.info(f"  Saved: {fig_path}")
 
-    # Income trends over time by exposure status
-    income_by_year = df.loc[df['iwyn'].notna()].groupby(['year', 'has_exposure'])['iwyn'].agg(
-        ['mean', 'count', 'sem']
+
+# =============================================================================
+# Section 3: Structured Regression Grid
+# =============================================================================
+
+def section_3_regression_grid(df: pd.DataFrame, output_dir: str,
+                               job_security_var: Optional[str] = None) -> pd.DataFrame:
+    """
+    Section 3: Structured Regression Grid.
+
+    For each continuous outcome, runs three models across three margin panels:
+      Extensive margin: binary has_exposure (0/1), full sample
+      Continuous margin: continuous PRIMARY_EXPOSURE score, full sample
+      Intensive margin:  continuous PRIMARY_EXPOSURE score, exposed-only subsample
+
+    Within each panel:
+      - Model A: outcome ~ exposure + year_dummies (pooled OLS)
+      - Model B: outcome ~ exposure + year_dummies + age + sex + education (OLS with controls)
+      - Model C: outcome ~ exposure | person FE + year FE (within-person)
+
+    Results include a 'margin' column identifying the panel.
+    Returns:
+        DataFrame with all regression results (used by Sections 4 and 5).
+    """
+    logger.info("\n" + "=" * 70)
+    logger.info("SECTION 3: STRUCTURED REGRESSION GRID")
+    logger.info("=" * 70)
+
+    tables_dir = os.path.join(output_dir, 'tables')
+    edu_var = _get_education_var(df)
+
+    if edu_var:
+        logger.info(f"  Education variable: {edu_var}")
+    else:
+        logger.warning("  No education variable found (educat/edcat), Model B will exclude education")
+
+    # Control variable summary
+    for ctrl in ['age', 'sex', edu_var]:
+        if ctrl and ctrl in df.columns:
+            n_valid = df[ctrl].notna().sum()
+            logger.info(f"  Control {ctrl}: {n_valid:,} valid observations")
+
+    outcomes = _get_regression_outcomes(df, job_security_var)
+    logger.info(f"  Outcomes to analyze: {outcomes}")
+
+    # Three panels: extensive (binary, full), continuous (score, full), intensive (score, exposed-only)
+    MARGINS = [
+        ('extensive',  'has_exposure',   False),  # binary exposed/unexposed, full sample
+        ('continuous', PRIMARY_EXPOSURE, False),  # continuous score, full sample
+        ('intensive',  PRIMARY_EXPOSURE, True),   # continuous score, exposed-only
+    ]
+
+    all_results = []
+
+    for var in outcomes:
+        if var not in df.columns:
+            logger.info(f"  Skipping {var}: not in data")
+            continue
+
+        # Base sample: outcome non-null and PRIMARY_EXPOSURE non-null
+        base_valid = df.loc[df[var].notna() & df[PRIMARY_EXPOSURE].notna()].copy()
+        n_valid = len(base_valid)
+        n_exposed = (base_valid['has_exposure'] == 1).sum()
+
+        if n_valid < 30 or n_exposed < 5:
+            logger.info(f"  Skipping {get_var_label(var)}: insufficient data "
+                        f"(N={n_valid}, exposed={n_exposed})")
+            continue
+
+        logger.info(f"\n  {get_var_label(var)} ({var}): N={n_valid:,}, exposed={n_exposed:,}")
+
+        for margin_name, exp_var, exposed_only in MARGINS:
+            valid = base_valid[base_valid['has_exposure'] == 1].copy() if exposed_only else base_valid
+            margin_n = len(valid)
+
+            if margin_n < 30:
+                logger.info(f"    [{margin_name}] Skipping: insufficient N={margin_n}")
+                continue
+
+            logger.info(f"    [{margin_name}] N={margin_n:,}, exposure_var={exp_var}")
+
+            # --- Model A: Pooled OLS with year FE ---
+            coef_a, se_a, p_a, r2_a, n_a = _run_ols_with_year_fe(valid, var, exp_var)
+            if not np.isnan(coef_a):
+                logger.info(f"      Model A (OLS + year FE): coef={coef_a:.4f}, se={se_a:.4f}, "
+                            f"p={p_a:.4f}{significance_stars(p_a)}, R2={r2_a:.4f}, N={n_a}")
+            else:
+                logger.info(f"      Model A (OLS + year FE): failed to estimate")
+
+            all_results.append({
+                'outcome': var,
+                'outcome_label': get_var_label(var),
+                'margin': margin_name,
+                'model_type': 'A_ols_yearfe',
+                'N': n_a,
+                'coef': coef_a,
+                'se': se_a,
+                'p': p_a,
+                'stars': significance_stars(p_a) if pd.notna(p_a) else '',
+                'r2': r2_a,
+                'r2_type': 'overall',
+            })
+
+            # --- Model B: OLS with year FE + controls ---
+            coef_b, se_b, p_b, r2_b, n_b = _run_ols_with_controls(valid, var, exp_var, edu_var)
+            if not np.isnan(coef_b):
+                logger.info(f"      Model B (OLS + controls): coef={coef_b:.4f}, se={se_b:.4f}, "
+                            f"p={p_b:.4f}{significance_stars(p_b)}, R2={r2_b:.4f}, N={n_b}")
+            else:
+                logger.info(f"      Model B (OLS + controls): failed to estimate")
+
+            all_results.append({
+                'outcome': var,
+                'outcome_label': get_var_label(var),
+                'margin': margin_name,
+                'model_type': 'B_ols_controls',
+                'N': n_b,
+                'coef': coef_b,
+                'se': se_b,
+                'p': p_b,
+                'stars': significance_stars(p_b) if pd.notna(p_b) else '',
+                'r2': r2_b,
+                'r2_type': 'overall',
+            })
+
+            # --- Model C: Person FE ---
+            # n_c comes from inside the function: persons with non-NaN data AND
+            # within-person exposure variation. It is smaller than the pre-filter
+            # sample and is the actual regression sample.
+            coef_c, se_c, p_c, r2_c, n_c = _run_person_fe_regression(valid, var, exp_var)
+            if not np.isnan(coef_c):
+                logger.info(f"      Model C (Person FE): coef={coef_c:.4f}, se={se_c:.4f}, "
+                            f"p={p_c:.4f}{significance_stars(p_c)}, R2={r2_c:.4f} (within)")
+            else:
+                logger.info(f"      Model C (Person FE): insufficient within-person variation")
+
+            all_results.append({
+                'outcome': var,
+                'outcome_label': get_var_label(var),
+                'margin': margin_name,
+                'model_type': 'C_person_fe',
+                'N': n_c,
+                'coef': coef_c,
+                'se': se_c,
+                'p': p_c,
+                'stars': significance_stars(p_c) if pd.notna(p_c) else '',
+                'r2': r2_c,
+                # Within-R²: variance explained among deviations from person means.
+                # NOT comparable to the overall R² in Models A and B.
+                'r2_type': 'within (not comparable to A/B)',
+            })
+
+    # Save full grid
+    results_df = pd.DataFrame(all_results)
+    if len(results_df) > 0:
+        grid_path = os.path.join(tables_dir, 'regression_grid_all_results.csv')
+        results_df.to_csv(grid_path, index=False)
+        logger.info(f"\n  Saved full regression grid: {grid_path}")
+        logger.info(f"  Total models estimated: {len(results_df)}")
+    else:
+        logger.warning("  No regression results produced")
+
+    return results_df
+
+
+# =============================================================================
+# Section 4: Collective Summary
+# =============================================================================
+
+def section_4_collective_summary(df: pd.DataFrame, regression_results: pd.DataFrame,
+                                  output_dir: str, job_security_var: Optional[str] = None):
+    """
+    Section 4: Collective Summary.
+
+    Produces:
+      - Coefficient heatmap: outcomes (rows) x model types (columns)
+      - Sign consistency table
+      - Effect size summary (standardized coefficients)
+      - Model fit comparison (R2)
+    """
+    logger.info("\n" + "=" * 70)
+    logger.info("SECTION 4: COLLECTIVE SUMMARY")
+    logger.info("=" * 70)
+
+    tables_dir = os.path.join(output_dir, 'tables')
+    figures_dir = os.path.join(output_dir, 'figures')
+
+    if len(regression_results) == 0:
+        logger.warning("  No regression results available for collective summary. Skipping.")
+        return
+
+    # --- 4.1: Coefficient heatmap (one per margin) ---
+    logger.info("\n--- 4.1: Coefficient Heatmap ---")
+
+    col_order = ['A_ols_yearfe', 'B_ols_controls', 'C_person_fe']
+    col_labels = {
+        'A_ols_yearfe': 'Model A\n(OLS + Year FE)',
+        'B_ols_controls': 'Model B\n(OLS + Controls)',
+        'C_person_fe': 'Model C\n(Person FE)',
+    }
+    margin_titles = {
+        'extensive':  'Extensive Margin (binary exposure)',
+        'continuous': 'Continuous Margin (full sample)',
+        'intensive':  'Intensive Margin (exposed only)',
+    }
+
+    for margin_name in ['extensive', 'continuous', 'intensive']:
+        margin_res = regression_results[regression_results['margin'] == margin_name]
+        if len(margin_res) == 0:
+            continue
+        pivot_coef = margin_res.pivot_table(index='outcome', columns='model_type', values='coef')
+        cols = [c for c in col_order if c in pivot_coef.columns]
+        pivot_display = pivot_coef[cols].rename(
+            index=lambda v: get_var_short_label(v),
+            columns=col_labels
+        )
+
+        fig, ax = plt.subplots(figsize=(10, max(6, len(pivot_display) * 0.8)))
+        sns.heatmap(pivot_display, annot=True, fmt='.4f', cmap='RdBu_r',
+                    center=0, linewidths=0.5, ax=ax, cbar_kws={'label': 'Coefficient'})
+        ax.set_title(f'Regression Coefficients — {margin_titles[margin_name]}', fontsize=14)
+        ax.set_ylabel('Outcome')
+        fig.tight_layout()
+        fig_path = os.path.join(figures_dir, f'coefficient_heatmap_{margin_name}.png')
+        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+        plt.close(fig)
+        logger.info(f"  Saved: {fig_path}")
+
+    # --- 4.2: Sign consistency table (per margin) ---
+    logger.info("\n--- 4.2: Sign Consistency ---")
+
+    sign_rows = []
+    for outcome_label in regression_results['outcome_label'].unique():
+      for margin_name in regression_results['margin'].unique():
+        sub = regression_results[
+            (regression_results['outcome_label'] == outcome_label) &
+            (regression_results['margin'] == margin_name)
+        ]
+        coefs = sub['coef'].dropna()
+        if len(coefs) == 0:
+            continue
+
+        signs = coefs.apply(lambda x: '+' if x > 0 else ('-' if x < 0 else '0'))
+        n_positive = (coefs > 0).sum()
+        n_negative = (coefs < 0).sum()
+        n_models = len(coefs)
+        consistent = 'Yes' if (n_positive == n_models or n_negative == n_models) else 'No'
+
+        sign_rows.append({
+            'outcome_label': outcome_label,
+            'outcome': sub['outcome'].iloc[0],
+            'margin': margin_name,
+            'n_models': n_models,
+            'n_positive': n_positive,
+            'n_negative': n_negative,
+            'sign_consistent': consistent,
+            'signs': ', '.join(signs.values),
+        })
+        logger.info(f"  [{margin_name}] {outcome_label}: {consistent} "
+                    f"(+:{n_positive}, -:{n_negative}, signs={', '.join(signs.values)})")
+
+    sign_df = pd.DataFrame(sign_rows)
+    sign_path = os.path.join(tables_dir, 'sign_consistency.csv')
+    sign_df.to_csv(sign_path, index=False)
+    logger.info(f"  Saved: {sign_path}")
+
+    # --- 4.3: Effect size summary (standardized coefficients) ---
+    logger.info("\n--- 4.3: Standardized Effect Sizes ---")
+
+    # SD of each exposure variable (extensive uses has_exposure, others use PRIMARY_EXPOSURE)
+    sd_by_margin = {
+        'extensive':  df['has_exposure'].std(),
+        'continuous': df[PRIMARY_EXPOSURE].std(),
+        'intensive':  df.loc[df['has_exposure'] == 1, PRIMARY_EXPOSURE].std(),
+    }
+
+    std_rows = []
+    for _, row in regression_results.iterrows():
+        outcome_var = row['outcome']
+        sd_exposure = sd_by_margin.get(row['margin'], df[PRIMARY_EXPOSURE].std())
+        if outcome_var in df.columns:
+            sd_outcome = df[outcome_var].std()
+            if pd.notna(row['coef']) and sd_outcome > 0 and sd_exposure > 0:
+                beta_std = row['coef'] * (sd_exposure / sd_outcome)
+            else:
+                beta_std = np.nan
+        else:
+            beta_std = np.nan
+
+        # Standardized betas WITHIN a margin are comparable across outcomes.
+        # Standardized betas ACROSS margins are NOT directly comparable: the
+        # extensive margin uses SD(binary indicator) ≤ 0.5 by construction,
+        # while the continuous and intensive margins use SD of the raw exposure
+        # score which can be much larger. Cross-margin comparisons are invalid.
+        margin_note = {
+            'extensive':  'SD of binary indicator (≤0.5); cross-margin comparison invalid',
+            'continuous': 'SD of continuous exposure score; cross-margin comparison invalid',
+            'intensive':  'SD of exposure score among exposed only; cross-margin comparison invalid',
+        }.get(row['margin'], '')
+        std_rows.append({
+            'outcome': row['outcome'],
+            'outcome_label': row['outcome_label'],
+            'margin': row['margin'],
+            'model_type': row['model_type'],
+            'coef_raw': row['coef'],
+            'coef_standardized': beta_std,
+            'sd_exposure': sd_exposure,
+            'sd_outcome': df[outcome_var].std() if outcome_var in df.columns else np.nan,
+            'comparability_note': margin_note,
+        })
+
+    std_df = pd.DataFrame(std_rows)
+    std_path = os.path.join(tables_dir, 'standardized_effect_sizes.csv')
+    std_df.to_csv(std_path, index=False)
+    logger.info(f"  Saved: {std_path}")
+
+    for _, row in std_df.iterrows():
+        if pd.notna(row['coef_standardized']):
+            logger.info(f"  [{row['margin']}] {row['outcome_label']} ({row['model_type']}): "
+                        f"beta_std={row['coef_standardized']:.4f}")
+
+    # --- 4.4: Model fit comparison (R2, per margin) ---
+    logger.info("\n--- 4.4: Model Fit Comparison (R2) ---")
+
+    for margin_name in ['extensive', 'continuous', 'intensive']:
+        margin_res = regression_results[regression_results['margin'] == margin_name]
+        if len(margin_res) == 0:
+            continue
+        pivot_r2 = margin_res.pivot_table(index='outcome_label', columns='model_type', values='r2')
+        cols = [c for c in col_order if c in pivot_r2.columns]
+        pivot_r2 = pivot_r2[cols]
+        r2_path = os.path.join(tables_dir, f'model_fit_r2_{margin_name}.csv')
+        pivot_r2.to_csv(r2_path)
+        logger.info(f"  [{margin_name}] Saved: {r2_path}")
+        for idx, row in pivot_r2.iterrows():
+            vals = ', '.join([f"{c}={row[c]:.4f}" for c in pivot_r2.columns if pd.notna(row[c])])
+            logger.info(f"    {idx}: {vals}")
+
+
+# =============================================================================
+# Section 5: Multiple Testing Adjustment
+# =============================================================================
+
+def section_5_multiple_testing(regression_results: pd.DataFrame, output_dir: str):
+    """
+    Section 5: Multiple Testing Adjustment.
+
+    Applies Benjamini-Hochberg FDR correction across all p-values from Section 3.
+
+    Produces:
+      - Table: original p, adjusted p, significant before/after correction
+      - Summary count of results surviving FDR correction
+    """
+    logger.info("\n" + "=" * 70)
+    logger.info("SECTION 5: MULTIPLE TESTING ADJUSTMENT (FDR)")
+    logger.info("=" * 70)
+
+    tables_dir = os.path.join(output_dir, 'tables')
+
+    if len(regression_results) == 0:
+        logger.warning("  No regression results for FDR correction. Skipping.")
+        return
+
+    # Filter to rows with valid p-values
+    valid_results = regression_results.dropna(subset=['p']).copy()
+    n_tests = len(valid_results)
+    logger.info(f"  Total tests: {n_tests}")
+
+    if n_tests == 0:
+        logger.warning("  No valid p-values for FDR correction. Skipping.")
+        return
+
+    # Apply Benjamini-Hochberg FDR correction
+    reject_bh, p_adjusted, _, _ = multipletests(
+        valid_results['p'].values, alpha=0.05, method='fdr_bh'
+    )
+
+    valid_results['p_original'] = valid_results['p']
+    valid_results['p_adjusted_fdr'] = p_adjusted
+    valid_results['sig_original_05'] = (valid_results['p_original'] < 0.05).astype(int)
+    valid_results['sig_adjusted_05'] = reject_bh.astype(int)
+    valid_results['stars_original'] = valid_results['p_original'].apply(significance_stars)
+    valid_results['stars_adjusted'] = valid_results['p_adjusted_fdr'].apply(significance_stars)
+
+    # Save full FDR table
+    fdr_cols = ['outcome', 'outcome_label', 'margin', 'model_type', 'coef', 'se',
+                'p_original', 'stars_original', 'p_adjusted_fdr', 'stars_adjusted',
+                'sig_original_05', 'sig_adjusted_05']
+    fdr_df = valid_results[fdr_cols].copy()
+    fdr_path = os.path.join(tables_dir, 'fdr_correction_results.csv')
+    fdr_df.to_csv(fdr_path, index=False)
+    logger.info(f"  Saved: {fdr_path}")
+
+    # Summary
+    n_sig_original = valid_results['sig_original_05'].sum()
+    n_sig_adjusted = valid_results['sig_adjusted_05'].sum()
+
+    logger.info(f"\n  FDR Correction Summary:")
+    logger.info(f"    Total tests: {n_tests}")
+    logger.info(f"    Significant at p<0.05 (unadjusted): {n_sig_original} ({100*n_sig_original/n_tests:.1f}%)")
+    logger.info(f"    Significant at p<0.05 (FDR-adjusted): {n_sig_adjusted} ({100*n_sig_adjusted/n_tests:.1f}%)")
+
+    # Log each result
+    for _, row in fdr_df.iterrows():
+        status = "SURVIVES" if row['sig_adjusted_05'] else "does not survive"
+        logger.info(f"    {row['outcome_label']} ({row['model_type']}): "
+                    f"p={row['p_original']:.4f}{row['stars_original']}, "
+                    f"p_adj={row['p_adjusted_fdr']:.4f}{row['stars_adjusted']} "
+                    f"-- {status} FDR")
+
+    # Summary table
+    summary_df = pd.DataFrame([{
+        'total_tests': n_tests,
+        'sig_unadjusted_05': n_sig_original,
+        'sig_fdr_adjusted_05': n_sig_adjusted,
+        'pct_surviving_fdr': 100 * n_sig_adjusted / n_tests if n_tests > 0 else 0,
+        'method': 'Benjamini-Hochberg',
+        'alpha': 0.05,
+    }])
+    summary_path = os.path.join(tables_dir, 'fdr_correction_summary.csv')
+    summary_df.to_csv(summary_path, index=False)
+    logger.info(f"  Saved: {summary_path}")
+
+
+# =============================================================================
+# Section 6: Intensive Margin Analysis
+# =============================================================================
+
+def section_6_intensive_margin(df: pd.DataFrame, output_dir: str,
+                                job_security_var: Optional[str] = None):
+    """
+    Section 6: Intensive Margin Analysis.
+
+    Among exposed workers only: how does the LEVEL of exposure relate to outcomes?
+
+    Produces:
+      - Tercile analysis (means by exposure tercile)
+      - Regression grid (Models A/B/C) restricted to exposed subsample
+    """
+    logger.info("\n" + "=" * 70)
+    logger.info("SECTION 6: INTENSIVE MARGIN ANALYSIS")
+    logger.info("=" * 70)
+
+    tables_dir = os.path.join(output_dir, 'tables')
+    figures_dir = os.path.join(output_dir, 'figures')
+
+    # Restrict to person-years with non-zero exposure
+    df_exposed = df.loc[df[PRIMARY_EXPOSURE] > 0].copy()
+    n_exposed = len(df_exposed)
+    n_persons_exposed = df_exposed['idpers'].nunique()
+    logger.info(f"  Working sample: {n_exposed:,} person-years, {n_persons_exposed:,} persons")
+    logger.info(f"  Exposure range: {df_exposed[PRIMARY_EXPOSURE].min():.4f} - "
+                f"{df_exposed[PRIMARY_EXPOSURE].max():.4f}")
+    logger.info(f"  Exposure mean: {df_exposed[PRIMARY_EXPOSURE].mean():.4f}, "
+                f"sd: {df_exposed[PRIMARY_EXPOSURE].std():.4f}")
+
+    if n_exposed < 50:
+        logger.warning("  Insufficient exposed observations for intensive margin analysis. Skipping.")
+        return
+
+    # --- 6.1: Exposure tercile descriptives ---
+    logger.info("\n--- 6.1: Exposure Tercile Analysis ---")
+
+    df_exposed['exposure_tercile'] = pd.qcut(
+        df_exposed[PRIMARY_EXPOSURE], q=3, labels=['Low', 'Medium', 'High'],
+        duplicates='drop'
+    )
+
+    outcomes = _get_regression_outcomes(df, job_security_var)
+    tercile_rows = []
+    for var in outcomes:
+        if var not in df_exposed.columns:
+            continue
+        for tercile in ['Low', 'Medium', 'High']:
+            sub = df_exposed.loc[df_exposed['exposure_tercile'] == tercile, var].dropna()
+            if len(sub) > 0:
+                tercile_rows.append({
+                    'variable': var,
+                    'label': get_var_label(var),
+                    'tercile': tercile,
+                    'N': len(sub),
+                    'mean': sub.mean(),
+                    'sd': sub.std(),
+                    'median': sub.median(),
+                })
+
+    if tercile_rows:
+        tercile_df = pd.DataFrame(tercile_rows)
+        tercile_path = os.path.join(tables_dir, 'intensive_tercile_means.csv')
+        tercile_df.to_csv(tercile_path, index=False)
+        logger.info(f"  Saved: {tercile_path}")
+
+        for var in outcomes:
+            var_data = tercile_df[tercile_df['variable'] == var]
+            if len(var_data) == 3:
+                low_mean = var_data.loc[var_data['tercile'] == 'Low', 'mean'].values[0]
+                high_mean = var_data.loc[var_data['tercile'] == 'High', 'mean'].values[0]
+                logger.info(f"    {get_var_label(var)}: Low={low_mean:.3f}, High={high_mean:.3f}, "
+                            f"diff={high_mean - low_mean:.3f}")
+
+    # Tercile bar chart for income
+    if 'iwyn' in df_exposed.columns:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        income_by_tercile = df_exposed.groupby('exposure_tercile')['iwyn'].agg(
+            ['mean', 'sem']
+        ).reindex(['Low', 'Medium', 'High'])
+        if income_by_tercile.notna().all().all():
+            ax.bar(income_by_tercile.index, income_by_tercile['mean'],
+                   yerr=1.96 * income_by_tercile['sem'],
+                   capsize=5, color=['#4575b4', '#ffffbf', '#d73027'],
+                   edgecolor='black', alpha=0.85)
+            ax.set_xlabel('AI Exposure Tercile (among exposed)')
+            ax.set_ylabel('Mean Yearly Income (CHF)')
+            ax.set_title('Income by AI Exposure Intensity')
+            fig.tight_layout()
+            fig_path = os.path.join(figures_dir, 'intensive_income_by_tercile.png')
+            fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+            plt.close(fig)
+            logger.info(f"  Saved: {fig_path}")
+        else:
+            plt.close(fig)
+
+    # --- 6.2: Regression grid (Models A/B/C) on exposed subsample ---
+    logger.info("\n--- 6.2: Regression Grid (Exposed Only) ---")
+
+    edu_var = _get_education_var(df)
+    intensive_results = []
+
+    for var in outcomes:
+        if var not in df_exposed.columns:
+            continue
+
+        valid = df_exposed.loc[df_exposed[var].notna() & df_exposed[PRIMARY_EXPOSURE].notna()].copy()
+        n_valid = len(valid)
+        if n_valid < 30:
+            logger.info(f"  {get_var_label(var)}: insufficient data ({n_valid}), skipping")
+            continue
+
+        logger.info(f"\n  {get_var_label(var)} ({var}): N={n_valid:,}")
+
+        # Model A: OLS + year FE (exposed only)
+        coef_a, se_a, p_a, r2_a, n_a = _run_ols_with_year_fe(valid, var, PRIMARY_EXPOSURE)
+        if not np.isnan(coef_a):
+            logger.info(f"    Model A (exposed): coef={coef_a:.4f}, se={se_a:.4f}, "
+                        f"p={p_a:.4f}{significance_stars(p_a)}, N={n_a}")
+
+        intensive_results.append({
+            'outcome': var,
+            'outcome_label': get_var_label(var),
+            'model_type': 'A_ols_yearfe',
+            'sample': 'exposed_only',
+            'N': n_a,
+            'coef': coef_a, 'se': se_a, 'p': p_a,
+            'stars': significance_stars(p_a) if pd.notna(p_a) else '',
+            'r2': r2_a,
+        })
+
+        # Model B: OLS + controls (exposed only)
+        coef_b, se_b, p_b, r2_b, n_b = _run_ols_with_controls(
+            valid, var, PRIMARY_EXPOSURE, edu_var
+        )
+        if not np.isnan(coef_b):
+            logger.info(f"    Model B (exposed): coef={coef_b:.4f}, se={se_b:.4f}, "
+                        f"p={p_b:.4f}{significance_stars(p_b)}, N={n_b}")
+
+        intensive_results.append({
+            'outcome': var,
+            'outcome_label': get_var_label(var),
+            'model_type': 'B_ols_controls',
+            'sample': 'exposed_only',
+            'N': n_b,
+            'coef': coef_b, 'se': se_b, 'p': p_b,
+            'stars': significance_stars(p_b) if pd.notna(p_b) else '',
+            'r2': r2_b,
+        })
+
+        # Model C: Person FE (exposed only)
+        coef_c, se_c, p_c, r2_c, n_c_intensive = _run_person_fe_regression(valid, var, PRIMARY_EXPOSURE)
+        if not np.isnan(coef_c):
+            logger.info(f"    Model C (exposed): coef={coef_c:.4f}, se={se_c:.4f}, "
+                        f"p={p_c:.4f}{significance_stars(p_c)}")
+        else:
+            logger.info(f"    Model C (exposed): insufficient within-person variation")
+
+        intensive_results.append({
+            'outcome': var,
+            'outcome_label': get_var_label(var),
+            'model_type': 'C_person_fe',
+            'sample': 'exposed_only',
+            'N': n_c_intensive,
+            'coef': coef_c, 'se': se_c, 'p': p_c,
+            'stars': significance_stars(p_c) if pd.notna(p_c) else '',
+            'r2': r2_c,
+        })
+
+    if intensive_results:
+        intensive_df = pd.DataFrame(intensive_results)
+        intensive_path = os.path.join(tables_dir, 'intensive_regression_grid.csv')
+        intensive_df.to_csv(intensive_path, index=False)
+        logger.info(f"\n  Saved: {intensive_path}")
+
+
+# =============================================================================
+# Section 7: Panel Dynamics
+# =============================================================================
+
+def section_7_panel_dynamics(df: pd.DataFrame, output_dir: str,
+                              job_security_var: Optional[str] = None):
+    """
+    Section 7: Panel Dynamics.
+
+    Produces:
+      - Switcher identification and summary
+      - Event study around first exposure
+      - Within-person transitions and variation statistics
+    """
+    logger.info("\n" + "=" * 70)
+    logger.info("SECTION 7: PANEL DYNAMICS")
+    logger.info("=" * 70)
+
+    tables_dir = os.path.join(output_dir, 'tables')
+    figures_dir = os.path.join(output_dir, 'figures')
+
+    # --- 7.1: Identify switchers ---
+    logger.info("\n--- 7.1: Identifying Switchers ---")
+
+    person_exposure = df.groupby('idpers').agg(
+        n_years=('year', 'count'),
+        n_exposed_years=('has_exposure', 'sum'),
+        ever_exposed=('exposed_ever', 'max'),
+        min_year=('year', 'min'),
+        max_year=('year', 'max'),
     ).reset_index()
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    for exposed_val, label, color in [(0, 'Not Exposed', 'steelblue'), (1, 'Exposed', 'coral')]:
-        sub = income_by_year[income_by_year['has_exposure'] == exposed_val]
-        ax.plot(sub['year'], sub['mean'], marker='o', label=f'{label}', color=color)
-        ax.fill_between(sub['year'],
-                        sub['mean'] - 1.96 * sub['sem'],
-                        sub['mean'] + 1.96 * sub['sem'],
-                        alpha=0.2, color=color)
-    ax.set_xlabel('Year')
-    ax.set_ylabel('Mean Income (iwyn)')
-    ax.set_title('Income Trends by AI Exposure Status')
-    ax.legend()
+    # Switchers: persons who have SOME years exposed and SOME years not
+    person_exposure['is_switcher'] = (
+        (person_exposure['n_exposed_years'] > 0) &
+        (person_exposure['n_exposed_years'] < person_exposure['n_years'])
+    ).astype(int)
+
+    # Always exposed (in all observed years)
+    person_exposure['always_exposed'] = (
+        (person_exposure['n_exposed_years'] > 0) &
+        (person_exposure['n_exposed_years'] == person_exposure['n_years'])
+    ).astype(int)
+
+    # Never exposed
+    person_exposure['never_exposed'] = (person_exposure['n_exposed_years'] == 0).astype(int)
+
+    n_switchers = person_exposure['is_switcher'].sum()
+    n_always = person_exposure['always_exposed'].sum()
+    n_never = person_exposure['never_exposed'].sum()
+    n_total_persons = len(person_exposure)
+
+    logger.info(f"  Total persons: {n_total_persons:,}")
+    logger.info(f"  Switchers (some exposed, some not): {n_switchers:,} ({100*n_switchers/n_total_persons:.2f}%)")
+    logger.info(f"  Always exposed: {n_always:,}")
+    logger.info(f"  Never exposed: {n_never:,}")
+
+    person_summary_path = os.path.join(tables_dir, 'person_exposure_summary.csv')
+    person_exposure.to_csv(person_summary_path, index=False)
+    logger.info(f"  Saved: {person_summary_path}")
+
+    switcher_summary = pd.DataFrame([{
+        'category': 'Never exposed',
+        'N_persons': n_never,
+        'pct': 100 * n_never / n_total_persons,
+    }, {
+        'category': 'Switcher',
+        'N_persons': n_switchers,
+        'pct': 100 * n_switchers / n_total_persons,
+    }, {
+        'category': 'Always exposed',
+        'N_persons': n_always,
+        'pct': 100 * n_always / n_total_persons,
+    }])
+    switcher_path = os.path.join(tables_dir, 'switcher_categories.csv')
+    switcher_summary.to_csv(switcher_path, index=False)
+    logger.info(f"  Saved: {switcher_path}")
+
+    # --- 7.2: Event study around first exposure ---
+    logger.info("\n--- 7.2: Event Study (First Exposure) ---")
+
+    _event_study(df, person_exposure, tables_dir, figures_dir)
+
+    # --- 7.3: Within-person variation statistics ---
+    logger.info("\n--- 7.3: Within-Person Variation ---")
+
+    _within_person_variation(df, tables_dir)
+
+    # --- 7.4: Within-person income transitions ---
+    logger.info("\n--- 7.4: Within-Person Income Transitions ---")
+
+    if 'iwyn' in df.columns:
+        _within_person_income_changes(df, tables_dir, figures_dir)
+    else:
+        logger.warning("  Variable 'iwyn' not available, skipping income transitions")
+
+    # --- 7.5: Job-switch × exposure-change matrix ---
+    logger.info("\n--- 7.5: Job-Switch × Exposure-Change Matrix ---")
+
+    _job_switch_exposure_matrix(df, tables_dir)
+
+    # --- 7.6: Causal event study — job switchers ---
+    logger.info("\n--- 7.6: Causal Event Study (Job Switchers) ---")
+
+    _job_switcher_causal_event_study(df, tables_dir, figures_dir)
+
+    # --- 7.7: Causal event study — firm AI adoption for stayers ---
+    logger.info("\n--- 7.7: Causal Event Study (Firm Adoption, Stayers) ---")
+
+    _firm_adoption_event_study(df, tables_dir, figures_dir)
+
+
+def _firm_adoption_event_study(df: pd.DataFrame, tables_dir: str, figures_dir: str):
+    """
+    Section 7.7: Event study around firm AI adoption for stayers.
+
+    This is the preferred causal design over §7.6. The treatment (firm AI
+    adoption) is external to the worker: the firm decides to adopt AI, and
+    the worker is affected regardless of their own choices.
+
+    Population: Persons who stay at the same employer (pw18 ∈ {1, 4}).
+      pw18 coding: 1=changed job (same employer), 2=changed employer (same job),
+                   3=changed both, 4=no change. So {1,4} = same employer.
+    Event: First year a stayer has positive AI exposure (previous year was
+           0 or NaN — i.e., not yet positive). This relaxes the strict
+           0→>0 requirement to include cases where the firm first appears
+           in our job-ad data with AI exposure.
+    Treated (D=1): Stayers whose firm ever has positive AI exposure.
+    Control (D=0): Stayers whose firm never has positive AI exposure
+                   (exposure is always 0 or NaN across all observed years).
+
+    Two analyses per outcome:
+      Descriptive: mean outcome by event_time for treated only (no natural
+                   event_time for never-adopting controls), normalized to t=-1.
+      Regression:  DiD — β_k from y_it = Σ_{k≠-1} β_k(D_i × 1[event_time=k])
+                   + person_FE + year_FE, with never-adopting stayers as control.
+                   Control observations have D_i=0 so all interaction terms are
+                   0 for them; they contribute only to person and year FEs.
+    """
+    needed_cols = ['idpers', 'year', 'pw18', PRIMARY_EXPOSURE]
+    missing = [c for c in needed_cols if c not in df.columns]
+    if missing:
+        logger.warning(f"  Skipping firm adoption event study: missing columns {missing}")
+        return
+
+    work = df[needed_cols].copy()
+    work['pw18'] = work['pw18'].where(work['pw18'] > 0, np.nan)
+    work = work.sort_values(['idpers', 'year'])
+    work['exposure_lag'] = work.groupby('idpers')[PRIMARY_EXPOSURE].shift(1)
+
+    # --- Diagnostics: N at each filter step ---
+    n_total_persons = work['idpers'].nunique()
+    # pw18: 1=changed job (same employer), 2=changed employer (same job),
+    #       3=changed both, 4=no change. Stayers = {1, 4} (same employer).
+    stayer_codes = {1, 4}
+    ever_stayer_ids = set(work.loc[work['pw18'].isin(stayer_codes), 'idpers'].unique())
+    n_ever_stayers = len(ever_stayer_ids)
+    n_with_any_exposure = work.loc[
+        work['idpers'].isin(ever_stayer_ids) & work[PRIMARY_EXPOSURE].notna(),
+        'idpers'
+    ].nunique()
+    logger.info(f"  Diagnostic: {n_total_persons:,} total persons")
+    logger.info(f"  Diagnostic: {n_ever_stayers:,} ever-stayers (pw18 in {{1,4}})")
+    logger.info(f"  Diagnostic: {n_with_any_exposure:,} ever-stayers with any non-NaN exposure")
+
+    # --- Treated: stayers where exposure first becomes positive ---
+    # Relaxed definition: previous year was 0 or NaN (not yet positive),
+    # current year is >0, while staying at same employer.
+    adoption_rows = work[
+        (work['pw18'].isin(stayer_codes)) &
+        (work[PRIMARY_EXPOSURE] > 0) &
+        ((work['exposure_lag'].isna()) | (work['exposure_lag'] == 0))
+    ]
+    first_adoption = (
+        adoption_rows.groupby('idpers')['year'].min()
+        .reset_index()
+        .rename(columns={'year': 'adoption_year'})
+    )
+    first_adoption['treated'] = 1
+
+    # --- Control: stayers whose exposure was never positive ---
+    # Includes persons with all-NaN exposure (firm not in our job-ad data)
+    # as well as confirmed-zero (firm in data but no AI applications).
+    treated_ids = set(first_adoption['idpers'].unique())
+    candidate_control_ids = ever_stayer_ids - treated_ids
+
+    person_max_exp = (
+        work[work['idpers'].isin(candidate_control_ids)]
+        .groupby('idpers')[PRIMARY_EXPOSURE].max()
+    )
+    # Never-positive: max is 0 (confirmed zero) or NaN (no exposure data)
+    never_positive_ids = set(
+        person_max_exp[(person_max_exp == 0) | person_max_exp.isna()].index
+    )
+    n_confirmed_zero = int((person_max_exp == 0).sum())
+    n_all_nan = int(person_max_exp.isna().sum())
+
+    n_treated = len(first_adoption)
+    n_control = len(never_positive_ids)
+    logger.info(f"  Treated stayers (first positive exposure): {n_treated:,}")
+    logger.info(f"  Control stayers (never positive): {n_control:,} "
+                f"({n_confirmed_zero:,} confirmed-zero + {n_all_nan:,} all-NaN)")
+
+    if n_treated < 10:
+        logger.warning(f"  Too few treated stayers ({n_treated}), skipping")
+        return
+    if n_control < 10:
+        logger.warning(f"  Too few control stayers ({n_control}), skipping")
+        return
+
+    # --- Build event panel ---
+    event_window = 5
+
+    # Treated panel: ±event_window years around adoption
+    treated_panel = df[df['idpers'].isin(treated_ids)].merge(
+        first_adoption[['idpers', 'adoption_year', 'treated']], on='idpers'
+    ).copy()
+    treated_panel['event_time'] = treated_panel['year'] - treated_panel['adoption_year']
+    treated_panel = treated_panel[
+        (treated_panel['event_time'] >= -event_window) &
+        (treated_panel['event_time'] <= event_window)
+    ]
+
+    # Control panel: all available observations (no natural event_time;
+    # event_time=0 is a placeholder — harmless because D_i=0 makes all
+    # interaction terms zero in the regression)
+    control_panel = df[df['idpers'].isin(never_positive_ids)].copy()
+    control_panel['treated'] = 0
+    control_panel['event_time'] = 0  # placeholder
+
+    logger.info(f"  Event window: [±{event_window} years] around adoption")
+    logger.info(f"  Treated person-years in window: {len(treated_panel):,}")
+    logger.info(f"  Control person-years: {len(control_panel):,}")
+
+    # Save summary table
+    summary = treated_panel.groupby(['event_time', 'treated']).size().reset_index(name='n_person_years')
+    summary_path = os.path.join(tables_dir, 'adoption_event_summary.csv')
+    summary.to_csv(summary_path, index=False)
+    logger.info(f"  Saved: {summary_path}")
+
+    # --- Outcomes ---
+    event_outcomes = {}
+    if 'iwyn' in df.columns:
+        event_outcomes['iwyn'] = get_var_label('iwyn')
+    job_sec_var = next((v for v in JOB_SECURITY_CANDIDATES if v in df.columns), None)
+    if job_sec_var:
+        event_outcomes[job_sec_var] = get_var_label(job_sec_var)
+    for var, lbl in POLITICAL_OUTCOMES_CONTINUOUS.items():
+        if var in df.columns:
+            event_outcomes[var] = lbl
+
+    for var, lbl in event_outcomes.items():
+        if var not in treated_panel.columns:
+            continue
+        n_valid = treated_panel[var].notna().sum()
+        if n_valid < 20:
+            logger.info(f"  [{var}] Too few treated observations ({n_valid}), skipping")
+            continue
+
+        logger.info(f"  [{var}] Running firm adoption event study (N treated={n_valid:,})")
+
+        # Part A: descriptive — treated trajectory only, normalized to t=-1
+        _adoption_means_plot(treated_panel, var, lbl, tables_dir, figures_dir)
+
+        # Part B: DiD regression with never-adopting stayers as control
+        reg_df = pd.concat([
+            treated_panel[['idpers', 'year', 'event_time', 'treated', var]],
+            control_panel[['idpers', 'year', 'event_time', 'treated', var]],
+        ], ignore_index=True)
+        _adoption_regression_plot(reg_df, var, lbl, tables_dir, figures_dir)
+
+
+def _adoption_means_plot(treated_panel: pd.DataFrame, var: str, label: str,
+                          tables_dir: str, figures_dir: str):
+    """
+    Descriptive: mean outcome for treated stayers by event_time, normalized
+    to 0 at t=-1. Shows the unconditional trajectory around firm AI adoption.
+    Control stayers have no natural event_time so are excluded from this plot.
+    """
+    valid = treated_panel.loc[treated_panel[var].notna()].copy()
+
+    ref_mean = valid.loc[valid['event_time'] == -1, var].mean()
+    if pd.isna(ref_mean):
+        logger.warning(f"    [{var}] No observations at t=-1, skipping means plot")
+        return
+
+    stats = valid.groupby('event_time')[var].agg(
+        mean='mean', sem='sem', count='count'
+    ).reset_index()
+    stats['mean_norm'] = stats['mean'] - ref_mean
+
+    table_path = os.path.join(tables_dir, f'adoption_event_means_{var}.csv')
+    stats.to_csv(table_path, index=False)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(stats['event_time'], stats['mean_norm'], marker='o', color='steelblue')
+    ax.fill_between(
+        stats['event_time'],
+        stats['mean_norm'] - 1.96 * stats['sem'],
+        stats['mean_norm'] + 1.96 * stats['sem'],
+        alpha=0.2, color='steelblue'
+    )
+    ax.axvline(0, color='red', linestyle='--', alpha=0.7, label='Firm AI adoption (t=0)')
+    ax.axhline(0, color='grey', linestyle=':', alpha=0.5, label='Reference (t=-1)')
+    ax.set_xlabel('Years Relative to Firm AI Adoption')
+    ax.set_ylabel(f'Change in Mean {get_var_short_label(var)} (normalized to t=-1)')
+    ax.set_title(f'Firm Adoption Event Study (Descriptive, Treated Stayers Only): '
+                 f'{get_var_short_label(var)}')
+    ax.legend(fontsize=9)
+
+    for _, row_data in stats.iterrows():
+        ax.annotate(f"n={int(row_data['count'])}",
+                    (row_data['event_time'], row_data['mean_norm']),
+                    textcoords='offset points', xytext=(0, 10),
+                    fontsize=6, ha='center', alpha=0.6)
+
     fig.tight_layout()
-    fig_path = os.path.join(figures_dir, 'income_trends_by_exposure.png')
+    fig_path = os.path.join(figures_dir, f'adoption_event_means_{var}.png')
     fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
     plt.close(fig)
-    logger.info(f"  Saved: {fig_path}")
+    logger.info(f"    [{var}] Saved means plot: {fig_path}")
 
-    income_trends_path = os.path.join(tables_dir, 'income_trends_by_exposure.csv')
-    income_by_year.to_csv(income_trends_path, index=False)
-    logger.info(f"  Saved: {income_trends_path}")
 
-    # Within-person income changes when exposure changes
-    _within_person_income_changes(df, tables_dir, figures_dir)
+def _adoption_regression_plot(reg_df: pd.DataFrame, var: str, label: str,
+                               tables_dir: str, figures_dir: str):
+    """
+    DiD regression: β_k from y_it = Σ_{k≠-1} β_k(D_i × 1[event_time=k])
+    + person_FE + year_FE, estimated via demeaned OLS.
+
+    Treated (D=1): stayers at AI-adopting firms, event_time = year - adoption_year.
+    Control (D=0): never-adopting stayers; all D_i × 1(event_time=k) = 0
+    regardless of their event_time placeholder, so they contribute only to
+    person FE and year FE — tightening the counterfactual.
+
+    β_k measures the average treatment effect on treated (ATT) at event_time k
+    relative to k=-1, after removing person-level time-invariant differences
+    and common year shocks.
+    """
+    valid = reg_df.loc[reg_df[var].notna()].copy()
+
+    # Only use event_times from the treated group for interaction dummies
+    treated_times = sorted(valid.loc[valid['treated'] == 1, 'event_time'].unique())
+    ref_k = -1
+    interact_times = [k for k in treated_times if k != ref_k]
+
+    if len(interact_times) < 2:
+        logger.warning(f"    [{var}] Too few event_time values for regression, skipping")
+        return
+
+    n_treated_persons = valid[valid['treated'] == 1]['idpers'].nunique()
+    n_control_persons = valid[valid['treated'] == 0]['idpers'].nunique()
+    if n_treated_persons < 5 or n_control_persons < 5:
+        logger.warning(f"    [{var}] Too few persons: treated={n_treated_persons}, "
+                       f"control={n_control_persons}, skipping")
+        return
+
+    # D_i × 1(event_time=k) — zero for all control rows by construction
+    for k in interact_times:
+        col = f'interact_k{k:+d}'
+        valid[col] = (valid['treated'] * (valid['event_time'] == k)).astype(float)
+
+    interact_cols = [f'interact_k{k:+d}' for k in interact_times]
+
+    year_dummies = pd.get_dummies(valid['year'], prefix='yr', drop_first=True, dtype=float)
+    year_dummies.index = valid.index
+    yd_cols = year_dummies.columns.tolist()
+    valid = pd.concat([valid, year_dummies], axis=1)
+
+    all_x_cols = interact_cols + yd_cols
+
+    try:
+        for col in [var] + all_x_cols:
+            person_means = valid.groupby('idpers')[col].transform('mean')
+            valid[f'{col}_dm'] = valid[col] - person_means
+
+        X_dm = valid[[f'{c}_dm' for c in all_x_cols]]
+        y_dm = valid[f'{var}_dm']
+
+        complete = X_dm.notna().all(axis=1) & y_dm.notna()
+        X_dm = X_dm[complete]
+        y_dm = y_dm[complete]
+        groups = valid.loc[complete, 'idpers']
+
+        if len(y_dm) < 20:
+            logger.warning(f"    [{var}] Too few observations after demeaning ({len(y_dm)}), skipping")
+            return
+
+        model = sm.OLS(y_dm, X_dm).fit(
+            cov_type='cluster', cov_kwds={'groups': groups}
+        )
+
+        interact_dm_cols = [f'interact_k{k:+d}_dm' for k in interact_times]
+        coefs = pd.DataFrame({
+            'event_time': interact_times,
+            'coef': [model.params[c] for c in interact_dm_cols],
+            'se':   [model.bse[c]    for c in interact_dm_cols],
+        })
+        ref_row = pd.DataFrame({'event_time': [ref_k], 'coef': [0.0], 'se': [0.0]})
+        coefs = pd.concat([coefs, ref_row], ignore_index=True).sort_values('event_time')
+        coefs['ci_lo'] = coefs['coef'] - 1.96 * coefs['se']
+        coefs['ci_hi'] = coefs['coef'] + 1.96 * coefs['se']
+
+        # Pre-trend F-test
+        pre_cols = [f'interact_k{k:+d}_dm' for k in interact_times if k < ref_k]
+        pre_trend_p = np.nan
+        pre_trend_note = ''
+        if len(pre_cols) >= 2:
+            try:
+                f_test = model.f_test([f'{c} = 0' for c in pre_cols])
+                pre_trend_p = float(f_test.pvalue)
+                pre_trend_note = f'Pre-trend F-test p={pre_trend_p:.3f}'
+                logger.info(f"    [{var}] {pre_trend_note}")
+            except Exception:
+                pass
+
+        coefs['pre_trend_f_p'] = pre_trend_p
+        table_path = os.path.join(tables_dir, f'adoption_event_coefs_{var}.csv')
+        coefs.to_csv(table_path, index=False)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(coefs['event_time'], coefs['coef'], marker='o', color='darkgreen')
+        ax.fill_between(coefs['event_time'], coefs['ci_lo'], coefs['ci_hi'],
+                        alpha=0.2, color='darkgreen')
+        ax.axvline(0, color='red', linestyle='--', alpha=0.7, label='Firm AI adoption (t=0)')
+        ax.axhline(0, color='grey', linestyle=':', alpha=0.5)
+        ax.set_xlabel('Years Relative to Firm AI Adoption')
+        ax.set_ylabel(f'β_k  (ATT relative to never-adopting stayers, ref=t=-1)')
+        title = (f'Firm Adoption DiD Event Study: {get_var_short_label(var)}\n'
+                 f'Treated={n_treated_persons} persons, Control={n_control_persons} persons')
+        if pre_trend_note:
+            title += f'\n{pre_trend_note}'
+        ax.set_title(title, fontsize=10)
+        ax.legend(fontsize=9)
+
+        fig.tight_layout()
+        fig_path = os.path.join(figures_dir, f'adoption_event_coefs_{var}.png')
+        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+        plt.close(fig)
+        logger.info(f"    [{var}] Saved coefficient plot: {fig_path}")
+
+    except Exception as e:
+        logger.warning(f"    [{var}] Regression failed: {e}")
+
+
+def _switcher_means_plot(event_df: pd.DataFrame, var: str, label: str,
+                         tables_dir: str, figures_dir: str):
+    """
+    Part A of the switcher event study: descriptive means plot.
+
+    Plots mean outcome by event_time for treated (exposure increased at switch)
+    and control (exposure stable/decreased) switchers, both series normalized
+    to 0 at t=-1. Pre-trends visible at t<0; divergence at t>=0 shows effect.
+    """
+    valid = event_df.loc[event_df[var].notna()].copy()
+
+    # Need the reference period (t=-1) for each group to normalize
+    ref = valid[valid['event_time'] == -1].groupby('treated')[var].mean()
+    if ref.empty or valid['event_time'].nunique() < 2:
+        logger.warning(f"    [{var}] Insufficient event-time variation for means plot, skipping")
+        return
+
+    stats = valid.groupby(['event_time', 'treated'])[var].agg(
+        mean='mean', sem='sem', count='count'
+    ).reset_index()
+
+    # Normalize to t=-1 within each group
+    stats['ref_mean'] = stats['treated'].map(ref)
+    stats['mean_norm'] = stats['mean'] - stats['ref_mean']
+
+    # Save table
+    table_path = os.path.join(tables_dir, f'switcher_event_means_{var}.csv')
+    stats.to_csv(table_path, index=False)
+
+    # Minimum N per group check
+    for grp, grp_label in [(1, 'Treated'), (0, 'Control')]:
+        grp_data = stats[stats['treated'] == grp]
+        if len(grp_data) < 2:
+            logger.warning(f"    [{var}] {grp_label} group has <2 event_time periods, skipping plot")
+            return
+
+    # Plot
+    colors = {1: 'steelblue', 0: 'darkorange'}
+    group_labels = {1: 'Exposure increased (treated)', 0: 'Exposure stable/decreased (control)'}
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for grp in [0, 1]:
+        grp_data = stats[stats['treated'] == grp].sort_values('event_time')
+        if grp_data.empty:
+            continue
+        ax.plot(grp_data['event_time'], grp_data['mean_norm'],
+                marker='o', color=colors[grp], label=group_labels[grp])
+        ax.fill_between(
+            grp_data['event_time'],
+            grp_data['mean_norm'] - 1.96 * grp_data['sem'],
+            grp_data['mean_norm'] + 1.96 * grp_data['sem'],
+            alpha=0.15, color=colors[grp]
+        )
+
+    ax.axvline(0, color='red', linestyle='--', alpha=0.7, label='Job switch (t=0)')
+    ax.axhline(0, color='grey', linestyle=':', alpha=0.5)
+    ax.set_xlabel('Years Relative to Job Switch')
+    ax.set_ylabel(f'Change in Mean {get_var_short_label(var)} (normalized to t=-1)')
+    ax.set_title(f'Switcher Event Study (Descriptive): {get_var_short_label(var)}')
+    ax.legend(fontsize=9)
+
+    # Annotate n per group at each event_time
+    for _, row_data in stats.iterrows():
+        offset = 8 if row_data['treated'] == 1 else -14
+        ax.annotate(f"n={int(row_data['count'])}",
+                    (row_data['event_time'], row_data['mean_norm']),
+                    textcoords='offset points', xytext=(0, offset),
+                    fontsize=6, ha='center',
+                    color=colors[row_data['treated']], alpha=0.7)
+
+    fig.tight_layout()
+    fig_path = os.path.join(figures_dir, f'switcher_event_means_{var}.png')
+    fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+    plt.close(fig)
+    logger.info(f"    [{var}] Saved means plot: {fig_path}")
+
+
+def _switcher_regression_plot(event_df: pd.DataFrame, var: str, label: str,
+                               tables_dir: str, figures_dir: str):
+    """
+    Part B of the switcher event study: DiD regression coefficient plot.
+
+    Regression: y_it = Σ_{k≠-1} β_k × (D_i × 1(event_time=k)) + person_FE + year_FE
+    where D_i = 1 for treated switchers (exposure increased at switch).
+
+    β_k is the differential effect on treated vs control at event_time=k,
+    relative to k=-1. Uses demeaned OLS with clustered SEs by person.
+
+    Pre-trend test: joint F-test on k<0 coefficients (expect p>0.05 for valid design).
+    """
+    valid = event_df.loc[event_df[var].notna()].copy()
+
+    event_times = sorted(valid['event_time'].unique())
+    ref_k = -1
+    interact_times = [k for k in event_times if k != ref_k]
+
+    if len(interact_times) < 2:
+        logger.warning(f"    [{var}] Too few event_time values for regression, skipping")
+        return
+
+    # Minimum persons per group
+    n_treated = valid[valid['treated'] == 1]['idpers'].nunique()
+    n_control = valid[valid['treated'] == 0]['idpers'].nunique()
+    if n_treated < 5 or n_control < 5:
+        logger.warning(f"    [{var}] Too few persons: treated={n_treated}, control={n_control}, skipping")
+        return
+
+    # Build D_i × 1(event_time=k) interaction regressors
+    for k in interact_times:
+        col = f'interact_k{k:+d}'
+        valid[col] = (valid['treated'] * (valid['event_time'] == k)).astype(float)
+
+    interact_cols = [f'interact_k{k:+d}' for k in interact_times]
+
+    # Year dummies
+    year_dummies = pd.get_dummies(valid['year'], prefix='yr', drop_first=True, dtype=float)
+    year_dummies.index = valid.index
+    yd_cols = year_dummies.columns.tolist()
+    valid = pd.concat([valid, year_dummies], axis=1)
+
+    all_x_cols = interact_cols + yd_cols
+
+    try:
+        # Person-demean outcome and all regressors
+        for col in [var] + all_x_cols:
+            person_means = valid.groupby('idpers')[col].transform('mean')
+            valid[f'{col}_dm'] = valid[col] - person_means
+
+        X_dm = valid[[f'{c}_dm' for c in all_x_cols]]
+        y_dm = valid[f'{var}_dm']
+
+        # Drop rows where any column is NaN after demeaning
+        complete = X_dm.notna().all(axis=1) & y_dm.notna()
+        X_dm = X_dm[complete]
+        y_dm = y_dm[complete]
+        groups = valid.loc[complete, 'idpers']
+
+        if len(y_dm) < 20:
+            logger.warning(f"    [{var}] Too few observations after demeaning ({len(y_dm)}), skipping")
+            return
+
+        model = sm.OLS(y_dm, X_dm).fit(
+            cov_type='cluster', cov_kwds={'groups': groups}
+        )
+
+        # Extract interaction coefficients only (not year dummies)
+        interact_dm_cols = [f'interact_k{k:+d}_dm' for k in interact_times]
+        coefs = pd.DataFrame({
+            'event_time': interact_times,
+            'coef': [model.params[c] for c in interact_dm_cols],
+            'se':   [model.bse[c]    for c in interact_dm_cols],
+        })
+        # Add reference row (k=-1, β=0 by construction)
+        ref_row = pd.DataFrame({'event_time': [ref_k], 'coef': [0.0], 'se': [0.0]})
+        coefs = pd.concat([coefs, ref_row], ignore_index=True).sort_values('event_time')
+        coefs['ci_lo'] = coefs['coef'] - 1.96 * coefs['se']
+        coefs['ci_hi'] = coefs['coef'] + 1.96 * coefs['se']
+
+        # Pre-trend F-test: joint significance of k < -1 coefficients
+        pre_cols = [f'interact_k{k:+d}_dm' for k in interact_times if k < ref_k]
+        pre_trend_p = np.nan
+        pre_trend_note = ''
+        if len(pre_cols) >= 2:
+            try:
+                f_test = model.f_test([f'{c} = 0' for c in pre_cols])
+                pre_trend_p = float(f_test.pvalue)
+                pre_trend_note = f'Pre-trend F-test p={pre_trend_p:.3f}'
+                logger.info(f"    [{var}] {pre_trend_note}")
+            except Exception:
+                pass
+
+        coefs['pre_trend_f_p'] = pre_trend_p
+        table_path = os.path.join(tables_dir, f'switcher_event_coefs_{var}.csv')
+        coefs.to_csv(table_path, index=False)
+
+        # Coefficient plot
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(coefs['event_time'], coefs['coef'], marker='o', color='steelblue')
+        ax.fill_between(coefs['event_time'], coefs['ci_lo'], coefs['ci_hi'],
+                        alpha=0.2, color='steelblue')
+        ax.axvline(0, color='red', linestyle='--', alpha=0.7, label='Job switch (t=0)')
+        ax.axhline(0, color='grey', linestyle=':', alpha=0.5)
+        ax.set_xlabel('Years Relative to Job Switch')
+        ax.set_ylabel(f'β_k  (differential effect on treated vs control, ref=t=-1)')
+        title = f'Switcher DiD Event Study: {get_var_short_label(var)}'
+        if pre_trend_note:
+            title += f'\n{pre_trend_note}'
+        ax.set_title(title, fontsize=10)
+        ax.legend(fontsize=9)
+
+        fig.tight_layout()
+        fig_path = os.path.join(figures_dir, f'switcher_event_coefs_{var}.png')
+        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+        plt.close(fig)
+        logger.info(f"    [{var}] Saved coefficient plot: {fig_path}")
+
+    except Exception as e:
+        logger.warning(f"    [{var}] Regression failed: {e}")
+
+
+def _job_switcher_causal_event_study(df: pd.DataFrame, tables_dir: str, figures_dir: str):
+    """
+    Section 7.6: Causal event study among job switchers.
+
+    Identification: Among persons who switch employers (pw18 ∈ {2, 3}; 2=changed
+    employer same job, 3=changed both employer and job), exposure at the new firm
+    varies quasi-randomly. Treatment (D_i=1) is defined as PRIMARY_EXPOSURE
+    increasing at the first switch (exposure_t > exposure_{t-1}).
+    Control (D_i=0) is exposure stable or decreased at the switch.
+
+    Two analyses per outcome:
+      Part A (descriptive): mean outcomes by event_time × treatment, normalized to t=-1.
+      Part B (regression):  β_k from y_it = Σ_{k≠-1} β_k(D_i × 1[event_time=k])
+                            + person_FE + year_FE, estimated via demeaned OLS.
+    """
+    needed_cols = ['idpers', 'year', 'pw18', PRIMARY_EXPOSURE]
+    missing = [c for c in needed_cols if c not in df.columns]
+    if missing:
+        logger.warning(f"  Skipping switcher event study: missing columns {missing}")
+        return
+
+    work = df[needed_cols].copy()
+    work['pw18'] = work['pw18'].where(work['pw18'] > 0, np.nan)
+
+    # Lag exposure within person to compute change at each transition
+    work = work.sort_values(['idpers', 'year'])
+    work['exposure_lag'] = work.groupby('idpers')[PRIMARY_EXPOSURE].shift(1)
+    work['exposure_delta'] = work[PRIMARY_EXPOSURE] - work['exposure_lag']
+
+    # Identify first job switch per person (pw18 ∈ {2, 3})
+    switches = work[work['pw18'].isin([2, 3]) &
+                   work[PRIMARY_EXPOSURE].notna() &
+                   work['exposure_lag'].notna()].copy()
+
+    if len(switches) == 0:
+        logger.warning("  No qualifying job switches with valid exposure data, skipping")
+        return
+
+    first_switch = switches.groupby('idpers').first().reset_index()[
+        ['idpers', 'year', 'exposure_delta']
+    ].rename(columns={'year': 'switch_year'})
+
+    # Treatment: exposure increased at first switch
+    first_switch['treated'] = (first_switch['exposure_delta'] > 0).astype(int)
+
+    n_treated = first_switch['treated'].sum()
+    n_control = (first_switch['treated'] == 0).sum()
+    logger.info(f"  Job switchers with valid exposure: {len(first_switch):,}")
+    logger.info(f"  Treated (exposure increased): {n_treated:,}")
+    logger.info(f"  Control (exposure stable/decreased): {n_control:,}")
+
+    if n_treated < 10 or n_control < 10:
+        logger.warning(f"  Insufficient switchers (need ≥10 per group): "
+                       f"treated={n_treated}, control={n_control}. Skipping.")
+        return
+
+    # Build event-time panel for all switchers (full df, not just switch rows)
+    event_df = df.merge(first_switch[['idpers', 'switch_year', 'treated']], on='idpers', how='inner')
+    event_df['event_time'] = event_df['year'] - event_df['switch_year']
+
+    event_window = 5
+    event_df = event_df[
+        (event_df['event_time'] >= -event_window) &
+        (event_df['event_time'] <= event_window)
+    ].copy()
+
+    logger.info(f"  Event window: [±{event_window} years] around first switch")
+    logger.info(f"  Person-years in event window: {len(event_df):,}")
+
+    # Save switcher summary table
+    summary = event_df.groupby(['event_time', 'treated']).size().reset_index(name='n_person_years')
+    summary_path = os.path.join(tables_dir, 'switcher_event_summary.csv')
+    summary.to_csv(summary_path, index=False)
+    logger.info(f"  Saved: {summary_path}")
+
+    # Outcomes to analyze
+    event_outcomes = {}
+    if 'iwyn' in df.columns:
+        event_outcomes['iwyn'] = get_var_label('iwyn')
+    job_sec_var = next((v for v in JOB_SECURITY_CANDIDATES if v in df.columns), None)
+    if job_sec_var:
+        event_outcomes[job_sec_var] = get_var_label(job_sec_var)
+    for var, lbl in POLITICAL_OUTCOMES_CONTINUOUS.items():
+        if var in df.columns:
+            event_outcomes[var] = lbl
+
+    for var, lbl in event_outcomes.items():
+        n_valid = event_df[var].notna().sum()
+        if n_valid < 20:
+            logger.info(f"  [{var}] Too few observations ({n_valid}), skipping")
+            continue
+
+        logger.info(f"  [{var}] Running switcher event study (N={n_valid:,})")
+        _switcher_means_plot(event_df, var, lbl, tables_dir, figures_dir)
+        _switcher_regression_plot(event_df, var, lbl, tables_dir, figures_dir)
+
+
+def _job_switch_exposure_matrix(df: pd.DataFrame, tables_dir: str):
+    """
+    2×2-style matrix of job mobility × exposure change at the person-year transition level.
+
+    Rows:  pw18 employer/job-change status (1=changed job same employer,
+           2=changed employer same job, 3=changed both, 4=no change)
+    Cols:  whether foy exposure changed year-on-year (changed / unchanged)
+
+    Only includes transitions where both dimensions are observed (pw18 ∈ {1,2,3,4}
+    and exposure is non-NaN in both t and t-1).
+    """
+    needed = ['idpers', 'year', 'pw18', PRIMARY_EXPOSURE]
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        logger.warning(f"  Skipping job-switch matrix: missing columns {missing}")
+        return
+    if 'pw18' not in df.columns:
+        logger.warning("  Skipping job-switch matrix: pw18 not in data")
+        return
+
+    work = df[needed].copy()
+
+    # Recode negative SHP sentinels to NaN
+    work['pw18'] = work['pw18'].where(work['pw18'] > 0, np.nan)
+
+    # Year-on-year exposure change within person
+    work = work.sort_values(['idpers', 'year'])
+    work['exposure_lag'] = work.groupby('idpers')[PRIMARY_EXPOSURE].shift(1)
+    work['exposure_changed'] = (
+        (work[PRIMARY_EXPOSURE] != work['exposure_lag'])
+        & work[PRIMARY_EXPOSURE].notna()
+        & work['exposure_lag'].notna()
+    )
+
+    # pw18: 1=changed job (same employer), 2=changed employer (same job),
+    #       3=changed both, 4=no change
+    valid = work[
+        work['pw18'].isin([1, 2, 3, 4])
+        & work[PRIMARY_EXPOSURE].notna()
+        & work['exposure_lag'].notna()
+    ].copy()
+
+    if len(valid) < 10:
+        logger.warning(f"  Too few valid transitions ({len(valid)}) for job-switch matrix, skipping")
+        return
+
+    logger.info(f"  Valid person-year transitions: {len(valid):,} ({valid['idpers'].nunique():,} persons)")
+
+    pw18_labels = {
+        1: 'Changed job (same employer)',
+        2: 'Changed employer (same job)',
+        3: 'Changed both',
+        4: 'No change',
+    }
+    valid['job_label'] = valid['pw18'].map(pw18_labels)
+    valid['exp_label'] = valid['exposure_changed'].map(
+        {True: 'Exposure changed', False: 'Exposure unchanged'}
+    )
+
+    # Count matrix
+    counts = pd.crosstab(valid['job_label'], valid['exp_label'], margins=True, margins_name='Total')
+
+    # Percentage of all valid transitions
+    pct = pd.crosstab(valid['job_label'], valid['exp_label'], normalize='all').mul(100).round(1)
+
+    # Row-percentage (what share of each job-mobility category had exposure change)
+    row_pct = pd.crosstab(valid['job_label'], valid['exp_label'], normalize='index').mul(100).round(1)
+
+    logger.info(f"\n  Counts:\n{counts.to_string()}")
+    logger.info(f"\n  % of all transitions:\n{pct.to_string()}")
+    logger.info(f"\n  Row % (within job-mobility category):\n{row_pct.to_string()}")
+
+    # Save all three tables
+    counts.to_csv(os.path.join(tables_dir, 'job_switch_exposure_matrix_counts.csv'))
+    pct.to_csv(os.path.join(tables_dir, 'job_switch_exposure_matrix_pct_total.csv'))
+    row_pct.to_csv(os.path.join(tables_dir, 'job_switch_exposure_matrix_pct_row.csv'))
+    logger.info(f"  Saved: job_switch_exposure_matrix_counts/pct_total/pct_row.csv")
+
+
+def _event_study(df: pd.DataFrame, person_exposure: pd.DataFrame,
+                 tables_dir: str, figures_dir: str):
+    """
+    Event study: outcomes before/after first exposure year.
+    """
+    # Identify first year of exposure for each person
+    exposed_persons = df.loc[df['has_exposure'] == 1, ['idpers', 'year']].copy()
+    if len(exposed_persons) == 0:
+        logger.warning("  No exposed person-years, skipping event study")
+        return
+
+    first_exposure = exposed_persons.groupby('idpers')['year'].min().reset_index()
+    first_exposure.columns = ['idpers', 'first_exposure_year']
+
+    # Merge back to full panel
+    df_event = df.merge(first_exposure, on='idpers', how='inner')
+    df_event['event_time'] = df_event['year'] - df_event['first_exposure_year']
+
+    # Restrict to reasonable event window
+    event_window = 5  # +/- 5 years around first exposure
+    df_event = df_event[(df_event['event_time'] >= -event_window) &
+                        (df_event['event_time'] <= event_window)]
+
+    logger.info(f"  Persons with first exposure: {first_exposure['idpers'].nunique():,}")
+    logger.info(f"  Event window: [{-event_window}, +{event_window}] years")
+    logger.info(f"  Person-years in event window: {len(df_event):,}")
+
+    # Outcome variables for event study
+    event_outcomes = {}
+    if 'iwyn' in df.columns:
+        event_outcomes['iwyn'] = get_var_label('iwyn')
+    job_sec_var = next((v for v in JOB_SECURITY_CANDIDATES if v in df.columns), None)
+    if job_sec_var:
+        event_outcomes[job_sec_var] = get_var_label(job_sec_var)
+    for var, label in POLITICAL_OUTCOMES_CONTINUOUS.items():
+        if var in df.columns:
+            event_outcomes[var] = label
+
+    for var, label in event_outcomes.items():
+        valid_event = df_event.loc[df_event[var].notna()]
+        if len(valid_event) < 20:
+            continue
+
+        event_means = valid_event.groupby('event_time')[var].agg(
+            ['mean', 'count', 'sem']
+        ).reset_index()
+
+        # Save table
+        event_table_path = os.path.join(tables_dir, f'event_study_{var}.csv')
+        event_means.to_csv(event_table_path, index=False)
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(event_means['event_time'], event_means['mean'], marker='o', color='steelblue')
+        ax.fill_between(
+            event_means['event_time'],
+            event_means['mean'] - 1.96 * event_means['sem'],
+            event_means['mean'] + 1.96 * event_means['sem'],
+            alpha=0.2, color='steelblue'
+        )
+        ax.axvline(0, color='red', linestyle='--', alpha=0.7, label='First exposure')
+        ax.set_xlabel('Years Relative to First AI Exposure')
+        ax.set_ylabel(f'Mean {get_var_short_label(var)}')
+        ax.set_title(f'Event Study: {get_var_short_label(var)} Around First AI Exposure')
+        ax.legend()
+
+        # Annotate sample sizes
+        for _, row_data in event_means.iterrows():
+            ax.annotate(f"n={int(row_data['count'])}",
+                       (row_data['event_time'], row_data['mean']),
+                       textcoords='offset points', xytext=(0, 10),
+                       fontsize=7, ha='center', alpha=0.6)
+
+        fig.tight_layout()
+        fig_path = os.path.join(figures_dir, f'event_study_{var}.png')
+        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+        plt.close(fig)
+        logger.info(f"  Event study {get_var_label(var)}: saved {fig_path}")
+
+
+def _within_person_variation(df: pd.DataFrame, tables_dir: str):
+    """Compute within-person variation statistics for exposure and outcomes."""
+
+    # Exposure within-person variation
+    person_exp_stats = df.groupby('idpers')[PRIMARY_EXPOSURE].agg(
+        ['mean', 'std', 'min', 'max', 'count']
+    ).reset_index()
+    person_exp_stats.columns = ['idpers', 'mean_exposure', 'sd_exposure',
+                                 'min_exposure', 'max_exposure', 'n_years']
+
+    # Focus on persons with any exposure
+    with_exposure = person_exp_stats[person_exp_stats['max_exposure'] > 0]
+    n_with_var = (with_exposure['sd_exposure'] > 0).sum()
+
+    logger.info(f"  Persons with any exposure: {len(with_exposure):,}")
+    logger.info(f"  Persons with within-person variation in exposure: {n_with_var:,}")
+
+    if len(with_exposure) > 0:
+        logger.info(f"  Mean within-person sd of exposure: {with_exposure['sd_exposure'].mean():.6f}")
+        logger.info(f"  Mean within-person range: {(with_exposure['max_exposure'] - with_exposure['min_exposure']).mean():.6f}")
+
+    # Within-person variation for outcomes (variance decomposition)
+    outcome_vars_for_variation = ['iwyn']
+    for var in POLITICAL_OUTCOMES_CONTINUOUS:
+        if var in df.columns:
+            outcome_vars_for_variation.append(var)
+
+    variation_rows = []
+    for var in outcome_vars_for_variation:
+        if var not in df.columns:
+            continue
+
+        person_var_stats = df.groupby('idpers')[var].agg(['mean', 'std', 'count'])
+
+        # Total variance
+        total_var = df[var].dropna().var()
+        # Between-person variance
+        between_var = person_var_stats['mean'].var()
+        # Within-person variance (average of individual variances)
+        within_var = (person_var_stats['std'] ** 2).mean()
+
+        if total_var > 0:
+            pct_b = 100 * between_var / total_var
+            pct_w = 100 * within_var / total_var
+            variation_rows.append({
+                'variable': var,
+                'label': get_var_label(var),
+                'total_variance': total_var,
+                'between_person_variance': between_var,
+                'within_person_variance': within_var,
+                'pct_between': pct_b,
+                'pct_within': pct_w,
+                'pct_sum': pct_b + pct_w,
+                # Between component is unweighted (each person contributes one
+                # person-mean regardless of how many waves they appear in).
+                # Within component is the unweighted average of per-person variances.
+                # In an unbalanced panel these two components do not add to total
+                # variance, so pct_sum ≠ 100%. Use pct_sum as a diagnostic: large
+                # deviations from 100 indicate high imbalance (e.g. many single-wave
+                # persons inflate between-variance relative to total).
+                'note': (
+                    'Unbalanced panel: between and within components are unweighted '
+                    'averages, so pct_between + pct_within ≠ 100%. '
+                    'pct_sum < 100 means single-wave persons reduce estimated within-variance; '
+                    'pct_sum > 100 means persons with many waves inflate between-variance.'
+                ),
+            })
+            logger.info(f"  {get_var_label(var)}: between={pct_b:.1f}%, within={pct_w:.1f}% "
+                        f"(sum={pct_b + pct_w:.1f}%)")
+
+    if variation_rows:
+        var_df = pd.DataFrame(variation_rows)
+        var_path = os.path.join(tables_dir, 'within_person_variance_decomposition.csv')
+        var_df.to_csv(var_path, index=False)
+        logger.info(f"  Saved: {var_path}")
 
 
 def _within_person_income_changes(df: pd.DataFrame, tables_dir: str, figures_dir: str):
     """Analyze within-person income changes conditional on exposure changes."""
-    logger.info("\n  Within-person income changes:")
+    logger.info("  Analyzing within-person income changes:")
 
     # Keep only person-years with valid income
     panel = df.loc[df['iwyn'].notna(), ['idpers', 'year', 'iwyn', 'has_exposure', PRIMARY_EXPOSURE]].copy()
@@ -701,1074 +2543,291 @@ def _within_person_income_changes(df: pd.DataFrame, tables_dir: str, figures_dir
         logger.info(f"  Saved: {trans_path}")
 
 
-def _analyze_employment(df: pd.DataFrame, tables_dir: str, figures_dir: str):
-    """Analyze employment status (wstat) by exposure."""
-    logger.info("\n--- 2.2: Employment Status (wstat) ---")
-
-    # Distribution of wstat by exposure
-    wstat_valid = df.loc[df['wstat'].notna()].copy()
-    cross_tab = pd.crosstab(
-        wstat_valid['wstat'],
-        wstat_valid['has_exposure'],
-        margins=True,
-        normalize='columns'
-    )
-    cross_tab_counts = pd.crosstab(
-        wstat_valid['wstat'],
-        wstat_valid['has_exposure'],
-        margins=True,
-    )
-
-    cross_tab_path = os.path.join(tables_dir, 'employment_status_by_exposure_pct.csv')
-    cross_tab.to_csv(cross_tab_path)
-    logger.info(f"  Saved: {cross_tab_path}")
-
-    counts_path = os.path.join(tables_dir, 'employment_status_by_exposure_counts.csv')
-    cross_tab_counts.to_csv(counts_path)
-    logger.info(f"  Saved: {counts_path}")
-
-    # Chi-square test
-    contingency = pd.crosstab(wstat_valid['wstat'], wstat_valid['has_exposure'])
-    if contingency.shape[0] > 1 and contingency.shape[1] > 1:
-        chi2, p_val, dof, expected = stats.chi2_contingency(contingency)
-        logger.info(f"  Chi-square test: chi2={chi2:.4f}, p={p_val:.6f}, dof={dof}")
-
-    # Bar chart of employment status by exposure
-    fig, ax = plt.subplots(figsize=(10, 6))
-    # Create plot-ready crosstab without margins
-    cross_tab_plot = pd.crosstab(
-        wstat_valid['wstat'], wstat_valid['has_exposure'], normalize='columns'
-    )
-    cross_tab_plot.columns = ['Not Exposed', 'Exposed']
-    cross_tab_plot.plot(kind='bar', ax=ax, edgecolor='black', alpha=0.8)
-    ax.set_xlabel('Employment Status (wstat)')
-    ax.set_ylabel('Proportion')
-    ax.set_title('Employment Status Distribution by AI Exposure')
-    ax.legend(title='Exposure Status')
-    plt.xticks(rotation=45, ha='right')
-    fig.tight_layout()
-    fig_path = os.path.join(figures_dir, 'employment_status_by_exposure.png')
-    fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-    plt.close(fig)
-    logger.info(f"  Saved: {fig_path}")
-
-    # Transition matrix: employment changes conditional on exposure changes
-    logger.info("  Employment transition matrix:")
-    panel = df.loc[df['wstat'].notna(), ['idpers', 'year', 'wstat', 'has_exposure']].copy()
-    panel = panel.sort_values(['idpers', 'year'])
-    panel['wstat_lag'] = panel.groupby('idpers')['wstat'].shift(1)
-    panel['exposure_lag'] = panel.groupby('idpers')['has_exposure'].shift(1)
-
-    panel_valid = panel.dropna(subset=['wstat_lag', 'exposure_lag'])
-
-    for exp_change, label in [(0, 'No exposure change'), (1, 'Gained exposure'), (-1, 'Lost exposure')]:
-        sub = panel_valid[
-            (panel_valid['has_exposure'] - panel_valid['exposure_lag']) == exp_change
-        ]
-        if len(sub) > 5:
-            trans_matrix = pd.crosstab(
-                sub['wstat_lag'].astype(int),
-                sub['wstat'].astype(int),
-                normalize='index'
-            )
-            trans_path = os.path.join(tables_dir, f'wstat_transition_{label.replace(" ", "_").lower()}.csv')
-            trans_matrix.to_csv(trans_path)
-            logger.info(f"    {label}: N={len(sub):,} transitions, saved to {trans_path}")
-
-
-def _analyze_job_security(df: pd.DataFrame, var: str, tables_dir: str, figures_dir: str):
-    """Analyze job security variable by exposure."""
-    logger.info(f"\n--- 2.3: Job Security ({var}) ---")
-
-    exposed = df.loc[df['has_exposure'] == 1, var].dropna()
-    not_exposed = df.loc[df['has_exposure'] == 0, var].dropna()
-
-    logger.info(f"  Exposed: N={len(exposed):,}, mean={exposed.mean():.3f}")
-    logger.info(f"  Not exposed: N={len(not_exposed):,}, mean={not_exposed.mean():.3f}")
-
-    if len(exposed) > 1 and len(not_exposed) > 1:
-        t_stat, p_val = stats.ttest_ind(exposed, not_exposed, equal_var=False)
-        logger.info(f"  Welch t-test: t={t_stat:.4f}, p={p_val:.6f}")
-
-        result_df = pd.DataFrame([{
-            'variable': var,
-            'exposed_N': len(exposed),
-            'exposed_mean': exposed.mean(),
-            'exposed_sd': exposed.std(),
-            'not_exposed_N': len(not_exposed),
-            'not_exposed_mean': not_exposed.mean(),
-            'not_exposed_sd': not_exposed.std(),
-            'difference': exposed.mean() - not_exposed.mean(),
-            't_statistic': t_stat,
-            'p_value': p_val,
-        }])
-        result_path = os.path.join(tables_dir, f'job_security_{var}_by_exposure.csv')
-        result_df.to_csv(result_path, index=False)
-        logger.info(f"  Saved: {result_path}")
-
-    # Box plot
-    fig, ax = plt.subplots(figsize=(8, 6))
-    plot_data = df.loc[df[var].notna()].copy()
-    plot_data['Exposure Status'] = plot_data['has_exposure'].map({0: 'Not Exposed', 1: 'Exposed'})
-    sns.boxplot(data=plot_data, x='Exposure Status', y=var, ax=ax)
-    ax.set_title(f'Job Security ({var}) by AI Exposure Status')
-    ax.set_ylabel(f'Job Security ({var})')
-    fig.tight_layout()
-    fig_path = os.path.join(figures_dir, f'job_security_{var}_by_exposure.png')
-    fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-    plt.close(fig)
-    logger.info(f"  Saved: {fig_path}")
-
-
 # =============================================================================
-# Section 3: Political Outcomes EDA
+# Section 8: Stacked Long-Difference (Causal)
 # =============================================================================
 
-def section_3_political_outcomes(df: pd.DataFrame, output_dir: str):
+def section_8_stacked_long_diff(df: pd.DataFrame, output_dir: str,
+                                 job_security_var: Optional[str] = None):
     """
-    Analyze political outcomes by AI exposure.
+    Section 8: Stacked Long-Difference Estimator for Firm AI Adoption.
 
-    For continuous (ordinal) outcomes: mean comparison, OLS, within-person FE regression
-    For categorical (pp19): party share comparison, conditional changes
+    For each adoption cohort g (year of first positive AI exposure while staying),
+    builds a clean sub-experiment:
+      - Treated: stayers first exposed in year g
+      - Control: stayers not yet treated by year g+L (clean counterfactual)
+      - Long difference: ΔY_i = Y_{g+L} - Y_{g-1}
+    Stacks all cohort-specific long-differences and estimates:
+      ΔY_ig = α_g + β × D_i + ε_ig   (cohort FE + treated indicator)
 
-    Produces:
-      - OLS and FE regression tables for each continuous outcome
-      - Distribution comparisons
-      - Left-right deep dive
-      - Vote choice analysis
+    Runs for multiple horizons L = 1, 2, 3 to show how effects build over time.
+    Clustered SEs at the person level.
+
+    pw18 coding: 1=changed job (same employer), 2=changed employer (same job),
+                 3=changed both, 4=no change. Stayers = {1, 4}.
     """
     logger.info("\n" + "=" * 70)
-    logger.info("SECTION 3: POLITICAL OUTCOMES EDA")
+    logger.info("SECTION 8: STACKED LONG-DIFFERENCE (CAUSAL)")
     logger.info("=" * 70)
 
     tables_dir = os.path.join(output_dir, 'tables')
     figures_dir = os.path.join(output_dir, 'figures')
 
-    # -------------------------------------------------------------------------
-    # 3.1: Continuous political outcomes (OLS + FE)
-    # -------------------------------------------------------------------------
-    _analyze_continuous_political(df, tables_dir, figures_dir)
-
-    # -------------------------------------------------------------------------
-    # 3.2: Left-right placement deep dive (pp10)
-    # -------------------------------------------------------------------------
-    if 'pp10' in df.columns:
-        _leftright_deep_dive(df, tables_dir, figures_dir)
-
-    # -------------------------------------------------------------------------
-    # 3.3: Vote choice analysis (pp19)
-    # -------------------------------------------------------------------------
-    if 'pp19' in df.columns:
-        _vote_choice_analysis(df, tables_dir, figures_dir)
-
-
-def _analyze_continuous_political(df: pd.DataFrame, tables_dir: str, figures_dir: str):
-    """OLS and FE regressions for each continuous political outcome."""
-    logger.info("\n--- 3.1: Continuous Political Outcomes ---")
-
-    all_results = []
-
-    for var, label in POLITICAL_OUTCOMES_CONTINUOUS.items():
-        if var not in df.columns:
-            logger.info(f"  Skipping {var}: not in data")
-            continue
-
-        valid = df.loc[df[var].notna() & df[PRIMARY_EXPOSURE].notna()].copy()
-        n_valid = len(valid)
-        n_exposed_valid = (valid['has_exposure'] == 1).sum()
-
-        if n_valid < 30 or n_exposed_valid < 5:
-            logger.info(f"  Skipping {var}: insufficient data (N={n_valid}, exposed={n_exposed_valid})")
-            continue
-
-        logger.info(f"\n  {get_var_label(var)}: N={n_valid:,}, exposed={n_exposed_valid:,}")
-
-        # Mean comparison
-        exposed_mean = valid.loc[valid['has_exposure'] == 1, var].mean()
-        not_exposed_mean = valid.loc[valid['has_exposure'] == 0, var].mean()
-        logger.info(f"    Mean: exposed={exposed_mean:.3f}, not exposed={not_exposed_mean:.3f}, "
-                    f"diff={exposed_mean - not_exposed_mean:.3f}")
-
-        # --- OLS with year FE ---
-        try:
-            valid['year_factor'] = valid['year'].astype(str)
-            year_dummies = pd.get_dummies(valid['year_factor'], prefix='yr', drop_first=True,
-                                          dtype=float)
-            X_ols = pd.concat([valid[[PRIMARY_EXPOSURE]], year_dummies], axis=1)
-            X_ols = sm.add_constant(X_ols)
-            y_ols = valid[var].astype(float)
-
-            model_ols = sm.OLS(y_ols, X_ols).fit(cov_type='HC1')
-            coef_ols = model_ols.params[PRIMARY_EXPOSURE]
-            se_ols = model_ols.bse[PRIMARY_EXPOSURE]
-            p_ols = model_ols.pvalues[PRIMARY_EXPOSURE]
-            r2_ols = model_ols.rsquared
-
-            logger.info(f"    OLS (year FE): coef={coef_ols:.4f}, se={se_ols:.4f}, "
-                        f"p={p_ols:.4f}{significance_stars(p_ols)}, R2={r2_ols:.4f}")
-        except Exception as e:
-            logger.warning(f"    OLS failed for {var}: {e}")
-            coef_ols = se_ols = p_ols = r2_ols = np.nan
-
-        # --- Within-person FE regression ---
-        coef_fe, se_fe, p_fe, r2_fe = _run_person_fe_regression(
-            valid, var, PRIMARY_EXPOSURE
-        )
-        if not np.isnan(coef_fe):
-            logger.info(f"    Person FE: coef={coef_fe:.4f}, se={se_fe:.4f}, "
-                        f"p={p_fe:.4f}{significance_stars(p_fe)}, R2={r2_fe:.4f}")
-        else:
-            logger.info(f"    Person FE: could not estimate (insufficient within-person variation)")
-
-        all_results.append({
-            'variable': var,
-            'label': label,
-            'N': n_valid,
-            'N_exposed': n_exposed_valid,
-            'mean_exposed': exposed_mean,
-            'mean_not_exposed': not_exposed_mean,
-            'mean_difference': exposed_mean - not_exposed_mean,
-            'ols_coef': coef_ols,
-            'ols_se': se_ols,
-            'ols_p': p_ols,
-            'ols_r2': r2_ols,
-            'fe_coef': coef_fe,
-            'fe_se': se_fe,
-            'fe_p': p_fe,
-            'fe_r2': r2_fe,
-        })
-
-    if all_results:
-        results_df = pd.DataFrame(all_results)
-        results_df['ols_stars'] = results_df['ols_p'].apply(lambda p: significance_stars(p) if pd.notna(p) else '')
-        results_df['fe_stars'] = results_df['fe_p'].apply(lambda p: significance_stars(p) if pd.notna(p) else '')
-        results_df['label'] = results_df['variable'].apply(get_var_label)
-        results_path = os.path.join(tables_dir, 'political_outcomes_regressions.csv')
-        results_df.to_csv(results_path, index=False)
-        logger.info(f"\n  Saved: {results_path}")
-
-
-def _run_person_fe_regression(df: pd.DataFrame, outcome_var: str,
-                               exposure_var: str) -> Tuple[float, float, float, float]:
-    """
-    Run within-person (fixed effects) regression.
-
-    Uses linearmodels PanelOLS if available, otherwise demeans manually.
-
-    Returns:
-        (coefficient, standard_error, p_value, r_squared)
-        Returns (NaN, NaN, NaN, NaN) if regression cannot be estimated.
-    """
-    panel = df[['idpers', 'year', outcome_var, exposure_var]].dropna().copy()
-
-    # Need persons with variation in exposure
-    person_var = panel.groupby('idpers')[exposure_var].std()
-    persons_with_variation = person_var[person_var > 0].index
-    panel_var = panel[panel['idpers'].isin(persons_with_variation)]
-
-    if len(panel_var) < 10 or len(persons_with_variation) < 2:
-        return (np.nan, np.nan, np.nan, np.nan)
-
-    if HAS_LINEARMODELS:
-        try:
-            panel_indexed = panel_var.set_index(['idpers', 'year'])
-            # Add year dummies
-            year_dummies = pd.get_dummies(panel_indexed.index.get_level_values('year'),
-                                          prefix='yr', drop_first=True, dtype=float)
-            year_dummies.index = panel_indexed.index
-            exog = pd.concat([panel_indexed[[exposure_var]], year_dummies], axis=1)
-
-            mod = PanelOLS(panel_indexed[outcome_var], exog, entity_effects=True,
-                          check_rank=False)
-            res = mod.fit(cov_type='clustered', cluster_entity=True)
-            return (res.params[exposure_var], res.std_errors[exposure_var],
-                    res.pvalues[exposure_var], res.rsquared_within)
-        except Exception as e:
-            logger.debug(f"  linearmodels PanelOLS failed: {e}, falling back to demeaned OLS")
-
-    # Fallback: demeaned OLS
-    try:
-        # Demean by person
-        for col in [outcome_var, exposure_var]:
-            person_means = panel_var.groupby('idpers')[col].transform('mean')
-            panel_var[f'{col}_dm'] = panel_var[col] - person_means
-
-        # Add demeaned year dummies
-        year_dummies = pd.get_dummies(panel_var['year'], prefix='yr', drop_first=True, dtype=float)
-        year_dummies.index = panel_var.index
-        panel_var = pd.concat([panel_var, year_dummies], axis=1)
-
-        # Demean year dummies by person
-        yd_cols = year_dummies.columns.tolist()
-        for col_yd in yd_cols:
-            pm = panel_var.groupby('idpers')[col_yd].transform('mean')
-            panel_var[f'{col_yd}_dm'] = panel_var[col_yd] - pm
-
-        yd_dm_cols = [f'{c}_dm' for c in yd_cols]
-        X_dm = panel_var[[f'{exposure_var}_dm'] + yd_dm_cols]
-        # No constant in demeaned FE regression (demeaning removes it by construction)
-        y_dm = panel_var[f'{outcome_var}_dm']
-
-        model = sm.OLS(y_dm, X_dm).fit(cov_type='cluster',
-                                         cov_kwds={'groups': panel_var['idpers']})
-        coef = model.params[f'{exposure_var}_dm']
-        se = model.bse[f'{exposure_var}_dm']
-        p = model.pvalues[f'{exposure_var}_dm']
-        r2 = model.rsquared
-
-        return (coef, se, p, r2)
-
-    except Exception as e:
-        logger.debug(f"  Demeaned OLS failed: {e}")
-        return (np.nan, np.nan, np.nan, np.nan)
-
-
-def _leftright_deep_dive(df: pd.DataFrame, tables_dir: str, figures_dir: str):
-    """Deep dive into left-right self-placement (pp10) by exposure."""
-    logger.info("\n--- 3.2: Left-Right Placement Deep Dive (pp10) ---")
-
-    valid = df.loc[df['pp10'].notna()].copy()
-    n_valid = len(valid)
-    logger.info(f"  Valid observations: {n_valid:,}")
-
-    # Distribution comparison
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-
-    for ax, (exp_val, label) in zip(axes, [(0, 'Not Exposed'), (1, 'Exposed')]):
-        sub = valid.loc[valid['has_exposure'] == exp_val, 'pp10']
-        if len(sub) > 0:
-            ax.hist(sub, bins=np.arange(-0.5, 11.5, 1), density=True,
-                    edgecolor='black', alpha=0.7)
-            ax.axvline(sub.mean(), color='red', linestyle='--',
-                       label=f'Mean: {sub.mean():.2f}')
-            ax.set_xlabel('Left (0) - Right (10)')
-            ax.set_ylabel('Density')
-            ax.set_title(f'{label} (N={len(sub):,})')
-            ax.legend()
-            ax.set_xlim(-0.5, 10.5)
-
-    fig.suptitle('Left-Right Self-Placement by AI Exposure Status', fontsize=14)
-    fig.tight_layout()
-    fig_path = os.path.join(figures_dir, 'leftright_distribution_by_exposure.png')
-    fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-    plt.close(fig)
-    logger.info(f"  Saved: {fig_path}")
-
-    # Trend over time
-    lr_by_year = valid.groupby(['year', 'has_exposure'])['pp10'].agg(
-        ['mean', 'count', 'sem']
-    ).reset_index()
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-    for exp_val, label, color in [(0, 'Not Exposed', 'steelblue'), (1, 'Exposed', 'coral')]:
-        sub = lr_by_year[lr_by_year['has_exposure'] == exp_val]
-        if len(sub) > 0:
-            ax.plot(sub['year'], sub['mean'], marker='o', label=label, color=color)
-            ax.fill_between(sub['year'],
-                            sub['mean'] - 1.96 * sub['sem'],
-                            sub['mean'] + 1.96 * sub['sem'],
-                            alpha=0.2, color=color)
-    ax.set_xlabel('Year')
-    ax.set_ylabel('Mean Left-Right Placement')
-    ax.set_title('Left-Right Self-Placement Trends by AI Exposure Status')
-    ax.legend()
-    fig.tight_layout()
-    fig_path = os.path.join(figures_dir, 'leftright_trends_by_exposure.png')
-    fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-    plt.close(fig)
-    logger.info(f"  Saved: {fig_path}")
-
-    lr_trends_path = os.path.join(tables_dir, 'leftright_trends_by_exposure.csv')
-    lr_by_year.to_csv(lr_trends_path, index=False)
-    logger.info(f"  Saved: {lr_trends_path}")
-
-
-def _vote_choice_analysis(df: pd.DataFrame, tables_dir: str, figures_dir: str):
-    """Analyze vote choice (pp19) by exposure. pp19 is CATEGORICAL - no means."""
-    logger.info("\n--- 3.3: Vote Choice Analysis (pp19) ---")
-
-    valid = df.loc[df['pp19'].notna()].copy()
-    valid['pp19'] = valid['pp19'].astype(int)
-    n_valid = len(valid)
-    logger.info(f"  Valid observations: {n_valid:,}")
-
-    if n_valid == 0:
-        logger.warning("  No valid pp19 data, skipping")
+    needed_cols = ['idpers', 'year', 'pw18', PRIMARY_EXPOSURE]
+    missing = [c for c in needed_cols if c not in df.columns]
+    if missing:
+        logger.warning(f"  Skipping stacked long-diff: missing columns {missing}")
         return
 
-    # Party shares by exposure status (column-normalized crosstab)
-    party_shares = pd.crosstab(
-        valid['pp19'],
-        valid['has_exposure'],
-        normalize='columns'
+    # --- Identify adoption cohorts among stayers ---
+    work = df[['idpers', 'year', 'pw18', PRIMARY_EXPOSURE]].copy()
+    work['pw18'] = work['pw18'].where(work['pw18'] > 0, np.nan)
+    work = work.sort_values(['idpers', 'year'])
+    work['exposure_lag'] = work.groupby('idpers')[PRIMARY_EXPOSURE].shift(1)
+
+    stayer_codes = {1, 4}
+    # First year of positive exposure while staying (lag was 0 or NaN)
+    adoption_rows = work[
+        (work['pw18'].isin(stayer_codes)) &
+        (work[PRIMARY_EXPOSURE] > 0) &
+        ((work['exposure_lag'].isna()) | (work['exposure_lag'] == 0))
+    ]
+    first_adoption = (
+        adoption_rows.groupby('idpers')['year'].min()
+        .reset_index()
+        .rename(columns={'year': 'adoption_year'})
     )
-    party_counts = pd.crosstab(valid['pp19'], valid['has_exposure'])
+    treated_ids = set(first_adoption['idpers'].unique())
 
-    shares_path = os.path.join(tables_dir, 'vote_choice_shares_by_exposure.csv')
-    party_shares.to_csv(shares_path)
-    logger.info(f"  Saved: {shares_path}")
+    # All stayer person-years (for control pool)
+    ever_stayer_ids = set(work.loc[work['pw18'].isin(stayer_codes), 'idpers'].unique())
 
-    counts_path = os.path.join(tables_dir, 'vote_choice_counts_by_exposure.csv')
-    party_counts.to_csv(counts_path)
-    logger.info(f"  Saved: {counts_path}")
+    n_treated = len(treated_ids)
+    logger.info(f"  Adoption cohorts identified: {n_treated:,} treated stayers")
+    logger.info(f"  Total stayer pool: {len(ever_stayer_ids):,} persons")
 
-    # Chi-square test
-    if party_counts.shape[0] > 1 and party_counts.shape[1] > 1:
-        chi2, p_val, dof, expected = stats.chi2_contingency(party_counts)
-        logger.info(f"  Chi-square test: chi2={chi2:.4f}, p={p_val:.6f}, dof={dof}")
-
-    # Bar chart of top party shares
-    fig, ax = plt.subplots(figsize=(12, 7))
-    # Show top 10 party codes by overall frequency
-    top_parties = party_counts.sum(axis=1).nlargest(10).index
-    plot_shares = party_shares.loc[party_shares.index.isin(top_parties)].copy()
-    if plot_shares.shape[1] == 2:
-        plot_shares.columns = ['Not Exposed', 'Exposed']
-    plot_shares.plot(kind='bar', ax=ax, edgecolor='black', alpha=0.8)
-    ax.set_xlabel('Party Code (pp19)')
-    ax.set_ylabel('Share')
-    ax.set_title('Vote Choice by AI Exposure Status (Top 10 Parties)')
-    ax.legend(title='Exposure Status')
-    plt.xticks(rotation=45, ha='right')
-    fig.tight_layout()
-    fig_path = os.path.join(figures_dir, 'vote_choice_by_exposure.png')
-    fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-    plt.close(fig)
-    logger.info(f"  Saved: {fig_path}")
-
-    # Vote choice changes conditional on exposure changes
-    logger.info("  Vote choice transitions conditional on exposure change:")
-    panel = valid[['idpers', 'year', 'pp19', 'has_exposure']].copy()
-    panel = panel.sort_values(['idpers', 'year'])
-    panel['pp19_lag'] = panel.groupby('idpers')['pp19'].shift(1)
-    panel['exposure_lag'] = panel.groupby('idpers')['has_exposure'].shift(1)
-
-    panel_valid = panel.dropna(subset=['pp19_lag', 'exposure_lag']).copy()
-    panel_valid['party_changed'] = (panel_valid['pp19'] != panel_valid['pp19_lag']).astype(int)
-    panel_valid['exposure_changed'] = panel_valid['has_exposure'] - panel_valid['exposure_lag']
-
-    # Party switch rate by exposure change
-    switch_rates = panel_valid.groupby(
-        panel_valid['exposure_changed'].map({-1: 'Lost exposure', 0: 'No change', 1: 'Gained exposure'})
-    )['party_changed'].agg(['mean', 'count']).reset_index()
-    switch_rates.columns = ['exposure_transition', 'party_switch_rate', 'N']
-
-    switch_path = os.path.join(tables_dir, 'vote_switch_rate_by_exposure_change.csv')
-    switch_rates.to_csv(switch_path, index=False)
-    logger.info(f"  Saved: {switch_path}")
-
-    for _, row in switch_rates.iterrows():
-        logger.info(f"    {row['exposure_transition']}: switch rate={row['party_switch_rate']:.3f}, "
-                    f"N={row['N']:,.0f}")
-
-
-# =============================================================================
-# Section 4: Panel Analysis
-# =============================================================================
-
-def section_4_panel_analysis(df: pd.DataFrame, output_dir: str):
-    """
-    Panel-level analysis: switchers, event studies, within-person variation.
-
-    Produces:
-      - Switcher identification
-      - Event study around first exposure
-      - Within-person variation statistics
-    """
-    logger.info("\n" + "=" * 70)
-    logger.info("SECTION 4: PANEL ANALYSIS")
-    logger.info("=" * 70)
-
-    tables_dir = os.path.join(output_dir, 'tables')
-    figures_dir = os.path.join(output_dir, 'figures')
-
-    # -------------------------------------------------------------------------
-    # 4.1: Identify switchers
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 4.1: Identifying Switchers ---")
-
-    person_exposure = df.groupby('idpers').agg(
-        n_years=('year', 'count'),
-        n_exposed_years=('has_exposure', 'sum'),
-        ever_exposed=('exposed_ever', 'max'),
-        min_year=('year', 'min'),
-        max_year=('year', 'max'),
-    ).reset_index()
-
-    # Switchers: persons who have SOME years exposed and SOME years not
-    person_exposure['is_switcher'] = (
-        (person_exposure['n_exposed_years'] > 0) &
-        (person_exposure['n_exposed_years'] < person_exposure['n_years'])
-    ).astype(int)
-
-    # Always exposed (in all observed years)
-    person_exposure['always_exposed'] = (
-        (person_exposure['n_exposed_years'] > 0) &
-        (person_exposure['n_exposed_years'] == person_exposure['n_years'])
-    ).astype(int)
-
-    # Never exposed
-    person_exposure['never_exposed'] = (person_exposure['n_exposed_years'] == 0).astype(int)
-
-    n_switchers = person_exposure['is_switcher'].sum()
-    n_always = person_exposure['always_exposed'].sum()
-    n_never = person_exposure['never_exposed'].sum()
-    n_total_persons = len(person_exposure)
-
-    logger.info(f"  Total persons: {n_total_persons:,}")
-    logger.info(f"  Switchers (some exposed, some not): {n_switchers:,} ({100*n_switchers/n_total_persons:.2f}%)")
-    logger.info(f"  Always exposed: {n_always:,}")
-    logger.info(f"  Never exposed: {n_never:,}")
-
-    person_summary_path = os.path.join(tables_dir, 'person_exposure_summary.csv')
-    person_exposure.to_csv(person_summary_path, index=False)
-    logger.info(f"  Saved: {person_summary_path}")
-
-    # Summary table
-    switcher_summary = pd.DataFrame([{
-        'category': 'Never exposed',
-        'N_persons': n_never,
-        'pct': 100 * n_never / n_total_persons,
-    }, {
-        'category': 'Switcher',
-        'N_persons': n_switchers,
-        'pct': 100 * n_switchers / n_total_persons,
-    }, {
-        'category': 'Always exposed',
-        'N_persons': n_always,
-        'pct': 100 * n_always / n_total_persons,
-    }])
-    switcher_path = os.path.join(tables_dir, 'switcher_categories.csv')
-    switcher_summary.to_csv(switcher_path, index=False)
-    logger.info(f"  Saved: {switcher_path}")
-
-    # -------------------------------------------------------------------------
-    # 4.2: Event study around first exposure
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 4.2: Event Study (First Exposure) ---")
-
-    _event_study(df, person_exposure, tables_dir, figures_dir)
-
-    # -------------------------------------------------------------------------
-    # 4.3: Within-person variation statistics
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 4.3: Within-Person Variation ---")
-
-    _within_person_variation(df, tables_dir)
-
-
-def _event_study(df: pd.DataFrame, person_exposure: pd.DataFrame,
-                 tables_dir: str, figures_dir: str):
-    """
-    Event study: outcomes before/after first exposure year.
-    """
-    # Identify first year of exposure for each person
-    exposed_persons = df.loc[df['has_exposure'] == 1, ['idpers', 'year']].copy()
-    if len(exposed_persons) == 0:
-        logger.warning("  No exposed person-years, skipping event study")
+    if n_treated < 10:
+        logger.warning(f"  Too few treated stayers ({n_treated}), skipping")
         return
 
-    first_exposure = exposed_persons.groupby('idpers')['year'].min().reset_index()
-    first_exposure.columns = ['idpers', 'first_exposure_year']
+    cohort_counts = first_adoption['adoption_year'].value_counts().sort_index()
+    logger.info(f"  Cohorts by year:\n{cohort_counts.to_string()}")
 
-    # Merge back to full panel
-    df_event = df.merge(first_exposure, on='idpers', how='inner')
-    df_event['event_time'] = df_event['year'] - df_event['first_exposure_year']
-
-    # Restrict to reasonable event window
-    event_window = 5  # +/- 5 years around first exposure
-    df_event = df_event[(df_event['event_time'] >= -event_window) &
-                        (df_event['event_time'] <= event_window)]
-
-    logger.info(f"  Persons with first exposure: {first_exposure['idpers'].nunique():,}")
-    logger.info(f"  Event window: [{-event_window}, +{event_window}] years")
-    logger.info(f"  Person-years in event window: {len(df_event):,}")
-
-    # Outcome variables for event study
-    event_outcomes = {}
+    # --- Build outcomes list ---
+    outcomes = {}
     if 'iwyn' in df.columns:
-        event_outcomes['iwyn'] = 'Income (iwyn)'
-    for var, label in POLITICAL_OUTCOMES_CONTINUOUS.items():
-        if var in df.columns:
-            event_outcomes[var] = label
-
-    for var, label in event_outcomes.items():
-        valid_event = df_event.loc[df_event[var].notna()]
-        if len(valid_event) < 20:
-            continue
-
-        event_means = valid_event.groupby('event_time')[var].agg(
-            ['mean', 'count', 'sem']
-        ).reset_index()
-
-        # Save table
-        event_table_path = os.path.join(tables_dir, f'event_study_{var}.csv')
-        event_means.to_csv(event_table_path, index=False)
-
-        # Plot
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(event_means['event_time'], event_means['mean'], marker='o', color='steelblue')
-        ax.fill_between(
-            event_means['event_time'],
-            event_means['mean'] - 1.96 * event_means['sem'],
-            event_means['mean'] + 1.96 * event_means['sem'],
-            alpha=0.2, color='steelblue'
-        )
-        ax.axvline(0, color='red', linestyle='--', alpha=0.7, label='First exposure')
-        ax.set_xlabel('Years Relative to First AI Exposure')
-        ax.set_ylabel(f'Mean {label}')
-        ax.set_title(f'Event Study: {label} Around First AI Exposure')
-        ax.legend()
-
-        # Annotate sample sizes
-        for _, row_data in event_means.iterrows():
-            ax.annotate(f"n={int(row_data['count'])}",
-                       (row_data['event_time'], row_data['mean']),
-                       textcoords='offset points', xytext=(0, 10),
-                       fontsize=7, ha='center', alpha=0.6)
-
-        fig.tight_layout()
-        fig_path = os.path.join(figures_dir, f'event_study_{var}.png')
-        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-        plt.close(fig)
-        logger.info(f"  Event study {var}: saved {fig_path}")
-
-
-def _within_person_variation(df: pd.DataFrame, tables_dir: str):
-    """Compute within-person variation statistics for exposure and outcomes."""
-
-    # Exposure within-person variation
-    person_exp_stats = df.groupby('idpers')[PRIMARY_EXPOSURE].agg(
-        ['mean', 'std', 'min', 'max', 'count']
-    ).reset_index()
-    person_exp_stats.columns = ['idpers', 'mean_exposure', 'sd_exposure',
-                                 'min_exposure', 'max_exposure', 'n_years']
-
-    # Focus on persons with any exposure
-    with_exposure = person_exp_stats[person_exp_stats['max_exposure'] > 0]
-    n_with_var = (with_exposure['sd_exposure'] > 0).sum()
-
-    logger.info(f"  Persons with any exposure: {len(with_exposure):,}")
-    logger.info(f"  Persons with within-person variation in exposure: {n_with_var:,}")
-
-    if len(with_exposure) > 0:
-        logger.info(f"  Mean within-person sd of exposure: {with_exposure['sd_exposure'].mean():.6f}")
-        logger.info(f"  Mean within-person range: {(with_exposure['max_exposure'] - with_exposure['min_exposure']).mean():.6f}")
-
-    # Within-person variation for outcomes
-    outcome_vars_for_variation = ['iwyn']
+        outcomes['iwyn'] = get_var_short_label('iwyn')
+    if job_security_var is None:
+        job_security_var = next((v for v in JOB_SECURITY_CANDIDATES if v in df.columns), None)
+    if job_security_var and job_security_var in df.columns:
+        outcomes[job_security_var] = get_var_short_label(job_security_var)
     for var in POLITICAL_OUTCOMES_CONTINUOUS:
         if var in df.columns:
-            outcome_vars_for_variation.append(var)
+            outcomes[var] = get_var_short_label(var)
 
-    variation_rows = []
-    for var in outcome_vars_for_variation:
-        if var not in df.columns:
-            continue
-
-        person_var_stats = df.groupby('idpers')[var].agg(['mean', 'std', 'count'])
-
-        # Total variance
-        total_var = df[var].dropna().var()
-        # Between-person variance
-        between_var = person_var_stats['mean'].var()
-        # Within-person variance (average of individual variances)
-        within_var = (person_var_stats['std'] ** 2).mean()
-
-        if total_var > 0:
-            # Note: for unbalanced panels, between + within may not equal total
-            pct_b = 100 * between_var / total_var
-            pct_w = 100 * within_var / total_var
-            variation_rows.append({
-                'variable': var,
-                'total_variance': total_var,
-                'between_person_variance': between_var,
-                'within_person_variance': within_var,
-                'pct_between': pct_b,
-                'pct_within': pct_w,
-                'pct_sum': pct_b + pct_w,
-                'note': 'unbalanced panel: pct_between + pct_within may differ from 100%',
-            })
-            logger.info(f"  {var}: between={pct_b:.1f}%, within={pct_w:.1f}% "
-                        f"(sum={pct_b + pct_w:.1f}%)")
-
-    if variation_rows:
-        var_df = pd.DataFrame(variation_rows)
-        var_path = os.path.join(tables_dir, 'within_person_variance_decomposition.csv')
-        var_df.to_csv(var_path, index=False)
-        logger.info(f"  Saved: {var_path}")
-
-
-# =============================================================================
-# Section 5: Intensive Margin Analysis
-# =============================================================================
-
-def section_5_intensive_margin(df: pd.DataFrame, output_dir: str, job_security_var: Optional[str] = None):
-    """
-    Intensive margin analysis: among exposed workers, how does the LEVEL of
-    AI exposure relate to outcomes?
-
-    This complements the extensive margin (binary exposed/not) in Sections 2-4
-    by exploiting continuous variation in hampole_ai_exposure_avg.
-    """
-    tables_dir = os.path.join(output_dir, 'tables')
-    figures_dir = os.path.join(output_dir, 'figures')
-
-    logger.info("\n" + "=" * 70)
-    logger.info("SECTION 5: INTENSIVE MARGIN ANALYSIS")
-    logger.info("=" * 70)
-
-    # Restrict to person-years with non-zero exposure
-    df_exposed = df.loc[df[PRIMARY_EXPOSURE] > 0].copy()
-    n_exposed = len(df_exposed)
-    n_persons_exposed = df_exposed['idpers'].nunique()
-    logger.info(f"  Working sample: {n_exposed:,} person-years, {n_persons_exposed:,} persons")
-    logger.info(f"  Exposure range: {df_exposed[PRIMARY_EXPOSURE].min():.4f} - "
-                f"{df_exposed[PRIMARY_EXPOSURE].max():.4f}")
-    logger.info(f"  Exposure mean: {df_exposed[PRIMARY_EXPOSURE].mean():.4f}, "
-                f"sd: {df_exposed[PRIMARY_EXPOSURE].std():.4f}")
-
-    if n_exposed < 50:
-        logger.warning("  Insufficient exposed observations for intensive margin analysis. Skipping.")
+    if not outcomes:
+        logger.warning("  No valid outcome variables found, skipping")
         return
 
-    # -------------------------------------------------------------------------
-    # 5.1: Exposure quantile descriptives
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 5.1: Exposure Quantile Analysis ---")
+    # --- Run for multiple horizons ---
+    horizons = [1, 2, 3]
+    all_results = []
 
-    # Create exposure terciles among exposed
-    df_exposed['exposure_tercile'] = pd.qcut(
-        df_exposed[PRIMARY_EXPOSURE], q=3, labels=['Low', 'Medium', 'High'],
-        duplicates='drop'
-    )
+    for L in horizons:
+        logger.info(f"\n  --- Horizon L={L} (ΔY = Y_{{g+{L}}} - Y_{{g-1}}) ---")
 
-    # Outcome means by tercile
-    continuous_outcomes = ['iwyn', 'pp10', 'pp13', 'pp17', 'pp22', 'pp16', 'pp15']
-    if job_security_var and job_security_var in df_exposed.columns:
-        continuous_outcomes.append(job_security_var)
+        stacked_rows = []
 
-    outcome_labels = {
-        'iwyn': 'Income (net)',
-        'pp10': 'Left-right (0-10)',
-        'pp13': 'Social benefits pref.',
-        'pp17': 'Taxes high income pref.',
-        'pp22': 'Gender equality pref.',
-        'pp16': 'Environment pref.',
-        'pp15': 'Foreigners equal chances',
-    }
-    if job_security_var:
-        outcome_labels[job_security_var] = 'Job security'
+        for g, cohort_df in first_adoption.groupby('adoption_year'):
+            cohort_treated_ids = set(cohort_df['idpers'].unique())
 
-    tercile_rows = []
-    for var in continuous_outcomes:
-        if var not in df_exposed.columns:
+            # Control for cohort g: stayers not yet treated by year g+L
+            # (their adoption_year > g+L, or they are never treated)
+            not_yet_treated = ever_stayer_ids - treated_ids  # never treated
+            late_treated = set(
+                first_adoption.loc[
+                    first_adoption['adoption_year'] > g + L, 'idpers'
+                ].unique()
+            )
+            control_ids_g = not_yet_treated | late_treated
+
+            if len(control_ids_g) < 5:
+                logger.info(f"    Cohort {g}: too few controls ({len(control_ids_g)}), skipping")
+                continue
+
+            # For treated: need Y at g-1 and g+L
+            for idp in cohort_treated_ids:
+                person_data = df[df['idpers'] == idp]
+                y_pre = person_data.loc[person_data['year'] == g - 1]
+                y_post = person_data.loc[person_data['year'] == g + L]
+                if len(y_pre) == 0 or len(y_post) == 0:
+                    continue
+                row = {'idpers': idp, 'cohort': g, 'treated': 1}
+                for var in outcomes:
+                    pre_val = y_pre[var].values[0] if var in y_pre.columns else np.nan
+                    post_val = y_post[var].values[0] if var in y_post.columns else np.nan
+                    row[f'{var}_pre'] = pre_val
+                    row[f'{var}_post'] = post_val
+                    row[f'{var}_diff'] = post_val - pre_val if pd.notna(pre_val) and pd.notna(post_val) else np.nan
+                stacked_rows.append(row)
+
+            # For controls: same g-1 and g+L
+            for idp in control_ids_g:
+                person_data = df[df['idpers'] == idp]
+                y_pre = person_data.loc[person_data['year'] == g - 1]
+                y_post = person_data.loc[person_data['year'] == g + L]
+                if len(y_pre) == 0 or len(y_post) == 0:
+                    continue
+                row = {'idpers': idp, 'cohort': g, 'treated': 0}
+                for var in outcomes:
+                    pre_val = y_pre[var].values[0] if var in y_pre.columns else np.nan
+                    post_val = y_post[var].values[0] if var in y_post.columns else np.nan
+                    row[f'{var}_pre'] = pre_val
+                    row[f'{var}_post'] = post_val
+                    row[f'{var}_diff'] = post_val - pre_val if pd.notna(pre_val) and pd.notna(post_val) else np.nan
+                stacked_rows.append(row)
+
+        if not stacked_rows:
+            logger.warning(f"    L={L}: No valid observations after stacking, skipping")
             continue
-        for tercile in ['Low', 'Medium', 'High']:
-            sub = df_exposed.loc[df_exposed['exposure_tercile'] == tercile, var].dropna()
-            if len(sub) > 0:
-                tercile_rows.append({
-                    'variable': var,
-                    'label': outcome_labels.get(var, var),
-                    'tercile': tercile,
-                    'N': len(sub),
-                    'mean': sub.mean(),
-                    'sd': sub.std(),
-                    'median': sub.median(),
+
+        stacked = pd.DataFrame(stacked_rows)
+        n_t = stacked['treated'].sum()
+        n_c = (stacked['treated'] == 0).sum()
+        n_cohorts = stacked['cohort'].nunique()
+        logger.info(f"    Stacked dataset: {len(stacked):,} obs, "
+                    f"{n_t:,} treated, {n_c:,} control, {n_cohorts} cohorts")
+
+        # Save stacked dataset
+        stacked_path = os.path.join(tables_dir, f'stacked_long_diff_L{L}.csv')
+        stacked.to_csv(stacked_path, index=False)
+        logger.info(f"    Saved: {stacked_path}")
+
+        # --- Estimate β for each outcome ---
+        for var, var_label in outcomes.items():
+            diff_col = f'{var}_diff'
+            valid = stacked[[diff_col, 'treated', 'cohort', 'idpers']].dropna(subset=[diff_col])
+
+            n_valid_t = valid['treated'].sum()
+            n_valid_c = (valid['treated'] == 0).sum()
+            if n_valid_t < 5 or n_valid_c < 5:
+                logger.info(f"    [{var}] L={L}: too few obs (treated={n_valid_t}, "
+                           f"control={n_valid_c}), skipping")
+                continue
+
+            # ΔY_ig = α_g + β × D_i + ε_ig
+            cohort_dummies = pd.get_dummies(valid['cohort'], prefix='cohort',
+                                            drop_first=True, dtype=float)
+            X = pd.concat([
+                valid[['treated']].reset_index(drop=True),
+                cohort_dummies.reset_index(drop=True)
+            ], axis=1)
+            y = valid[diff_col].reset_index(drop=True)
+            groups = valid['idpers'].reset_index(drop=True)
+
+            try:
+                model = sm.OLS(y, sm.add_constant(X)).fit(
+                    cov_type='cluster', cov_kwds={'groups': groups}
+                )
+                beta = model.params['treated']
+                se = model.bse['treated']
+                p = model.pvalues['treated']
+                ci_lo = beta - 1.96 * se
+                ci_hi = beta + 1.96 * se
+
+                all_results.append({
+                    'horizon': L,
+                    'outcome': var,
+                    'outcome_label': var_label,
+                    'beta': beta,
+                    'se': se,
+                    'p': p,
+                    'ci_lo': ci_lo,
+                    'ci_hi': ci_hi,
+                    'stars': significance_stars(p),
+                    'n_treated': int(n_valid_t),
+                    'n_control': int(n_valid_c),
+                    'n_cohorts': int(valid['cohort'].nunique()),
+                    'mean_diff_treated': valid.loc[valid['treated'] == 1, diff_col].mean(),
+                    'mean_diff_control': valid.loc[valid['treated'] == 0, diff_col].mean(),
                 })
 
-    if tercile_rows:
-        tercile_df = pd.DataFrame(tercile_rows)
-        tercile_path = os.path.join(tables_dir, 'intensive_margin_tercile_means.csv')
-        tercile_df.to_csv(tercile_path, index=False)
-        logger.info(f"  Saved: {tercile_path}")
+                logger.info(f"    [{var}] L={L}: β={beta:.4f} (SE={se:.4f}){significance_stars(p)} "
+                           f"N_t={int(n_valid_t)}, N_c={int(n_valid_c)}")
 
-        # Log key comparisons
-        for var in continuous_outcomes:
-            var_data = tercile_df[tercile_df['variable'] == var]
-            if len(var_data) == 3:
-                low_mean = var_data.loc[var_data['tercile'] == 'Low', 'mean'].values[0]
-                high_mean = var_data.loc[var_data['tercile'] == 'High', 'mean'].values[0]
-                logger.info(f"    {var}: Low tercile={low_mean:.3f}, High tercile={high_mean:.3f}, "
-                            f"diff={high_mean - low_mean:.3f}")
+            except Exception as e:
+                logger.warning(f"    [{var}] L={L}: regression failed: {e}")
 
-    # Tercile bar chart for income
-    if 'iwyn' in df_exposed.columns:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        income_by_tercile = df_exposed.groupby('exposure_tercile')['iwyn'].agg(['mean', 'sem']).reindex(
-            ['Low', 'Medium', 'High']
+    if not all_results:
+        logger.warning("  No results from any horizon, skipping output")
+        return
+
+    # --- Save combined results table ---
+    results_df = pd.DataFrame(all_results)
+    results_path = os.path.join(tables_dir, 'stacked_long_diff_results.csv')
+    results_df.to_csv(results_path, index=False)
+    logger.info(f"\n  Saved combined results: {results_path}")
+
+    # --- Coefficient-by-horizon plot for each outcome ---
+    for var, var_label in outcomes.items():
+        var_results = results_df[results_df['outcome'] == var]
+        if len(var_results) < 2:
+            continue
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.errorbar(
+            var_results['horizon'], var_results['beta'],
+            yerr=1.96 * var_results['se'],
+            marker='o', color='darkgreen', capsize=5, linewidth=2, markersize=8
         )
-        bars = ax.bar(income_by_tercile.index, income_by_tercile['mean'],
-                       yerr=1.96 * income_by_tercile['sem'],
-                       capsize=5, color=['#4575b4', '#ffffbf', '#d73027'],
-                       edgecolor='black', alpha=0.85)
-        ax.set_xlabel('AI Exposure Tercile (among exposed)')
-        ax.set_ylabel('Mean Yearly Income (CHF)')
-        ax.set_title('Income by AI Exposure Intensity')
-        fig.tight_layout()
-        fig_path = os.path.join(figures_dir, 'intensive_income_by_tercile.png')
-        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-        plt.close(fig)
-        logger.info(f"  Saved: {fig_path}")
+        ax.axhline(0, color='grey', linestyle=':', alpha=0.5)
+        ax.set_xlabel('Horizon L (years after adoption)')
+        ax.set_ylabel(f'β (ATT on Δ{var_label})')
+        ax.set_xticks(horizons)
 
-    # -------------------------------------------------------------------------
-    # 5.2: Continuous regressions (among exposed only)
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 5.2: Continuous Regressions (Exposed Only) ---")
-
-    regression_rows = []
-    for var in continuous_outcomes:
-        if var not in df_exposed.columns:
-            continue
-
-        valid = df_exposed[[PRIMARY_EXPOSURE, var, 'idpers', 'year']].dropna()
-        n_valid = len(valid)
-        if n_valid < 30:
-            logger.info(f"  {var}: insufficient observations ({n_valid}), skipping")
-            continue
-
-        # --- OLS with year FE (among exposed) ---
-        try:
-            year_dummies = pd.get_dummies(valid['year'].astype(str), prefix='yr',
-                                           drop_first=True, dtype=float)
-            X_ols = pd.concat([valid[[PRIMARY_EXPOSURE]].reset_index(drop=True),
-                                year_dummies.reset_index(drop=True)], axis=1)
-            X_ols = sm.add_constant(X_ols)
-            y_ols = valid[var].reset_index(drop=True).astype(float)
-
-            model_ols = sm.OLS(y_ols, X_ols).fit(cov_type='HC1')
-            coef_ols = model_ols.params[PRIMARY_EXPOSURE]
-            se_ols = model_ols.bse[PRIMARY_EXPOSURE]
-            p_ols = model_ols.pvalues[PRIMARY_EXPOSURE]
-            r2_ols = model_ols.rsquared
-            logger.info(f"  {get_var_label(var)} OLS (exposed only): coef={coef_ols:.4f}, "
-                        f"se={se_ols:.4f}, p={p_ols:.4f}{significance_stars(p_ols)}, N={n_valid}")
-        except Exception as e:
-            logger.warning(f"  {get_var_label(var)} OLS failed: {e}")
-            coef_ols = se_ols = p_ols = r2_ols = np.nan
-
-        # --- Person FE (among exposed) ---
-        coef_fe, se_fe, p_fe, r2_fe = _run_person_fe_regression(
-            valid, var, PRIMARY_EXPOSURE
-        )
-        if not np.isnan(coef_fe):
-            logger.info(f"  {get_var_label(var)} Person FE (exposed only): coef={coef_fe:.4f}, "
-                        f"se={se_fe:.4f}, p={p_fe:.4f}{significance_stars(p_fe)}")
-        else:
-            logger.info(f"  {get_var_label(var)} Person FE (exposed only): insufficient within-person variation")
-
-        regression_rows.append({
-            'variable': var,
-            'label': outcome_labels.get(var, var),
-            'sample': 'exposed_only',
-            'N': n_valid,
-            'ols_coef': coef_ols,
-            'ols_se': se_ols,
-            'ols_p': p_ols,
-            'ols_r2': r2_ols,
-            'fe_coef': coef_fe,
-            'fe_se': se_fe,
-            'fe_p': p_fe,
-            'fe_r2': r2_fe,
-        })
-
-    # -------------------------------------------------------------------------
-    # 5.3: Full sample continuous regressions
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 5.3: Continuous Regressions (Full Sample) ---")
-
-    for var in continuous_outcomes:
-        if var not in df.columns:
-            continue
-
-        valid = df[[PRIMARY_EXPOSURE, var, 'idpers', 'year']].dropna().copy()
-        # Fill NaN exposure with 0 (unexposed)
-        valid[PRIMARY_EXPOSURE] = valid[PRIMARY_EXPOSURE].fillna(0)
-        n_valid = len(valid)
-        if n_valid < 30:
-            continue
-
-        # --- OLS with year FE (full sample, continuous exposure) ---
-        try:
-            year_dummies = pd.get_dummies(valid['year'].astype(str), prefix='yr',
-                                           drop_first=True, dtype=float)
-            X_ols = pd.concat([valid[[PRIMARY_EXPOSURE]].reset_index(drop=True),
-                                year_dummies.reset_index(drop=True)], axis=1)
-            X_ols = sm.add_constant(X_ols)
-            y_ols = valid[var].reset_index(drop=True).astype(float)
-
-            model_ols = sm.OLS(y_ols, X_ols).fit(cov_type='HC1')
-            coef_ols = model_ols.params[PRIMARY_EXPOSURE]
-            se_ols = model_ols.bse[PRIMARY_EXPOSURE]
-            p_ols = model_ols.pvalues[PRIMARY_EXPOSURE]
-            r2_ols = model_ols.rsquared
-            logger.info(f"  {get_var_label(var)} OLS (full sample): coef={coef_ols:.4f}, "
-                        f"se={se_ols:.4f}, p={p_ols:.4f}{significance_stars(p_ols)}, N={n_valid}")
-        except Exception as e:
-            logger.warning(f"  {get_var_label(var)} OLS failed: {e}")
-            coef_ols = se_ols = p_ols = r2_ols = np.nan
-
-        # --- Person FE (full sample, continuous) ---
-        coef_fe, se_fe, p_fe, r2_fe = _run_person_fe_regression(
-            valid, var, PRIMARY_EXPOSURE
-        )
-        if not np.isnan(coef_fe):
-            logger.info(f"  {get_var_label(var)} Person FE (full sample): coef={coef_fe:.4f}, "
-                        f"se={se_fe:.4f}, p={p_fe:.4f}{significance_stars(p_fe)}")
-        else:
-            logger.info(f"  {get_var_label(var)} Person FE (full sample): insufficient within-person variation")
-
-        regression_rows.append({
-            'variable': var,
-            'label': outcome_labels.get(var, var),
-            'sample': 'full_sample',
-            'N': n_valid,
-            'ols_coef': coef_ols,
-            'ols_se': se_ols,
-            'ols_p': p_ols,
-            'ols_r2': r2_ols,
-            'fe_coef': coef_fe,
-            'fe_se': se_fe,
-            'fe_p': p_fe,
-            'fe_r2': r2_fe,
-        })
-
-    if regression_rows:
-        reg_df = pd.DataFrame(regression_rows)
-        # Add significance stars and human-readable labels
-        reg_df['ols_stars'] = reg_df['ols_p'].apply(lambda p: significance_stars(p) if pd.notna(p) else '')
-        reg_df['fe_stars'] = reg_df['fe_p'].apply(lambda p: significance_stars(p) if pd.notna(p) else '')
-        reg_df['label'] = reg_df['variable'].apply(get_var_label)
-        reg_path = os.path.join(tables_dir, 'intensive_margin_regressions.csv')
-        reg_df.to_csv(reg_path, index=False)
-        logger.info(f"\n  Saved: {reg_path}")
-
-    # -------------------------------------------------------------------------
-    # 5.4: Scatter plots — outcome vs continuous exposure
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 5.4: Scatter/Binscatter Plots ---")
-
-    key_outcomes = ['iwyn', 'pp10']
-    if job_security_var and job_security_var in df_exposed.columns:
-        key_outcomes.append(job_security_var)
-
-    for var in key_outcomes:
-        if var not in df_exposed.columns:
-            continue
-        plot_data = df_exposed[[PRIMARY_EXPOSURE, var]].dropna()
-        if len(plot_data) < 20:
-            continue
-
-        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-
-        # Left panel: raw scatter with LOESS/regression line
-        ax1 = axes[0]
-        ax1.scatter(plot_data[PRIMARY_EXPOSURE], plot_data[var],
-                    alpha=0.15, s=8, color='steelblue')
-        # Add OLS fit line
-        z = np.polyfit(plot_data[PRIMARY_EXPOSURE], plot_data[var], 1)
-        x_line = np.linspace(plot_data[PRIMARY_EXPOSURE].min(),
-                              plot_data[PRIMARY_EXPOSURE].max(), 100)
-        ax1.plot(x_line, np.polyval(z, x_line), color='red', linewidth=2,
-                 label=f'OLS slope={z[0]:.2f}')
-        ax1.set_xlabel('AI Exposure (continuous)')
-        ax1.set_ylabel(outcome_labels.get(var, var))
-        ax1.set_title(f'{outcome_labels.get(var, var)} vs AI Exposure')
-        ax1.legend()
-
-        # Right panel: binscatter (decile means)
-        ax2 = axes[1]
-        plot_data['exposure_decile'] = pd.qcut(
-            plot_data[PRIMARY_EXPOSURE], q=10, duplicates='drop'
-        )
-        bin_means = plot_data.groupby('exposure_decile').agg(
-            exposure_mean=(PRIMARY_EXPOSURE, 'mean'),
-            outcome_mean=(var, 'mean'),
-            outcome_se=(var, 'sem'),
-            n=(var, 'count')
-        ).reset_index()
-        ax2.errorbar(bin_means['exposure_mean'], bin_means['outcome_mean'],
-                      yerr=1.96 * bin_means['outcome_se'],
-                      fmt='o-', capsize=4, color='coral', markersize=8)
-        ax2.set_xlabel('AI Exposure (decile mean)')
-        ax2.set_ylabel(f'Mean {outcome_labels.get(var, var)}')
-        ax2.set_title(f'{outcome_labels.get(var, var)} — Binscatter by Exposure Decile')
-
-        fig.tight_layout()
-        fig_path = os.path.join(figures_dir, f'intensive_scatter_{var}.png')
-        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-        plt.close(fig)
-        logger.info(f"  Saved: {fig_path}")
-
-    # -------------------------------------------------------------------------
-    # 5.5: Within-person exposure intensity changes
-    # -------------------------------------------------------------------------
-    logger.info("\n--- 5.5: Within-Person Exposure Intensity Changes ---")
-
-    panel = df_exposed[['idpers', 'year', PRIMARY_EXPOSURE, 'iwyn']].copy()
-    panel = panel.sort_values(['idpers', 'year'])
-    panel['exposure_lag'] = panel.groupby('idpers')[PRIMARY_EXPOSURE].shift(1)
-    panel['exposure_change'] = panel[PRIMARY_EXPOSURE] - panel['exposure_lag']
-    panel['income_change'] = panel.groupby('idpers')['iwyn'].diff()
-
-    panel_valid = panel.dropna(subset=['exposure_change', 'income_change']).copy()
-    n_transitions = len(panel_valid)
-    logger.info(f"  Person-year transitions with both exposure and income change: {n_transitions:,}")
-
-    if n_transitions >= 20:
-        # Correlation between exposure change and income change
-        corr, p_corr = stats.pearsonr(panel_valid['exposure_change'],
-                                       panel_valid['income_change'])
-        logger.info(f"  Correlation(delta_exposure, delta_income): r={corr:.4f}, p={p_corr:.4f}")
-
-        # Binscatter: income change vs exposure change
-        fig, ax = plt.subplots(figsize=(8, 6))
-
-        # Create bins of exposure change
-        panel_valid['change_bin'] = pd.qcut(
-            panel_valid['exposure_change'].rank(method='first'), q=10, duplicates='drop'
-        )
-        bin_means = panel_valid.groupby('change_bin').agg(
-            exp_change_mean=('exposure_change', 'mean'),
-            inc_change_mean=('income_change', 'mean'),
-            inc_change_se=('income_change', 'sem'),
-            n=('income_change', 'count')
-        ).reset_index()
-
-        ax.errorbar(bin_means['exp_change_mean'], bin_means['inc_change_mean'],
-                      yerr=1.96 * bin_means['inc_change_se'],
-                      fmt='o-', capsize=4, color='steelblue', markersize=8)
-        ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-        ax.axvline(x=0, color='gray', linestyle='--', alpha=0.5)
-        ax.set_xlabel('Change in AI Exposure')
-        ax.set_ylabel('Change in Income (CHF)')
-        ax.set_title(f'Income Change vs Exposure Change (r={corr:.3f}, N={n_transitions:,})')
-        fig.tight_layout()
-        fig_path = os.path.join(figures_dir, 'intensive_delta_income_vs_delta_exposure.png')
-        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
-        plt.close(fig)
-        logger.info(f"  Saved: {fig_path}")
-
-        # Save summary table
-        change_summary = panel_valid.groupby(
-            panel_valid['exposure_change'].apply(
-                lambda x: 'Decreased' if x < -0.01 else ('Increased' if x > 0.01 else 'Stable')
+        # Annotate with N and stars
+        for _, row in var_results.iterrows():
+            ax.annotate(
+                f"N={row['n_treated']+row['n_control']}{row['stars']}",
+                (row['horizon'], row['beta']),
+                textcoords='offset points', xytext=(0, 12),
+                fontsize=8, ha='center', alpha=0.7
             )
-        ).agg(
-            N=('income_change', 'count'),
-            mean_income_change=('income_change', 'mean'),
-            median_income_change=('income_change', 'median'),
-            mean_exposure_change=('exposure_change', 'mean'),
-        ).reset_index()
-        change_summary.columns = ['exposure_direction', 'N', 'mean_income_change',
-                                   'median_income_change', 'mean_exposure_change']
-        change_path = os.path.join(tables_dir, 'intensive_exposure_income_changes.csv')
-        change_summary.to_csv(change_path, index=False)
-        logger.info(f"  Saved: {change_path}")
 
-        for _, row in change_summary.iterrows():
-            logger.info(f"    {row['exposure_direction']}: N={row['N']:,}, "
-                        f"mean income change={row['mean_income_change']:,.0f} CHF")
+        ax.set_title(f'Stacked Long-Difference: {var_label}\n'
+                     f'β = effect of firm AI adoption on ΔY (cohort FE, clustered SE)',
+                     fontsize=10)
+        fig.tight_layout()
+        fig_path = os.path.join(figures_dir, f'stacked_long_diff_{var}.png')
+        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+        plt.close(fig)
+        logger.info(f"  [{var}] Saved horizon plot: {fig_path}")
+
+    # --- Summary heatmap: outcomes × horizons ---
+    if len(results_df) >= 3:
+        pivot = results_df.pivot(index='outcome_label', columns='horizon', values='beta')
+        stars_pivot = results_df.pivot(index='outcome_label', columns='horizon', values='stars')
+
+        fig, ax = plt.subplots(figsize=(8, max(4, len(pivot) * 0.6)))
+        sns.heatmap(pivot, annot=True, fmt='.4f', cmap='RdBu_r', center=0,
+                    linewidths=0.5, ax=ax, cbar_kws={'label': 'β (ATT)'})
+
+        # Overlay stars
+        for i, outcome in enumerate(pivot.index):
+            for j, h in enumerate(pivot.columns):
+                star = stars_pivot.loc[outcome, h] if pd.notna(stars_pivot.loc[outcome, h]) else ''
+                if star:
+                    ax.text(j + 0.5, i + 0.75, star, ha='center', va='center',
+                            fontsize=10, color='black', fontweight='bold')
+
+        ax.set_xlabel('Horizon L (years)')
+        ax.set_ylabel('')
+        ax.set_title('Stacked Long-Difference: ATT by Outcome × Horizon', fontsize=11)
+        fig.tight_layout()
+        fig_path = os.path.join(figures_dir, 'stacked_long_diff_heatmap.png')
+        fig.savefig(fig_path, dpi=FIGURE_DPI, format=FIGURE_FORMAT)
+        plt.close(fig)
+        logger.info(f"  Saved heatmap: {fig_path}")
 
 
 # =============================================================================
@@ -1796,10 +2855,10 @@ def print_summary(df: pd.DataFrame, output_dir: str):
     logger.info(f"  Output directory: {output_dir}")
 
     # Count output files
-    n_tables = len([f for f in os.listdir(os.path.join(output_dir, 'tables'))
-                    if f.endswith('.csv')])
-    n_figures = len([f for f in os.listdir(os.path.join(output_dir, 'figures'))
-                     if f.endswith('.png')])
+    tables_path = os.path.join(output_dir, 'tables')
+    figures_path = os.path.join(output_dir, 'figures')
+    n_tables = len([f for f in os.listdir(tables_path) if f.endswith('.csv')]) if os.path.isdir(tables_path) else 0
+    n_figures = len([f for f in os.listdir(figures_path) if f.endswith('.png')]) if os.path.isdir(figures_path) else 0
     logger.info(f"  Tables generated: {n_tables}")
     logger.info(f"  Figures generated: {n_figures}")
     logger.info("=" * 70)
@@ -1810,35 +2869,39 @@ def print_summary(df: pd.DataFrame, output_dir: str):
 # =============================================================================
 
 def run_single_level(df: pd.DataFrame, output_dir: str, level_code: str,
+                      exposure_metric: str = 'hampole',
                       job_security_var: Optional[str] = None):
     """
-    Run the full EDA for one exposure level.
+    Run the full EDA for one exposure level and one exposure metric.
 
     Sets PRIMARY_EXPOSURE to the appropriate suffixed column, recreates
     has_exposure/exposed_ever indicators, and runs all analysis sections.
 
     Args:
         df: Full SHP DataFrame (loaded once, reused across levels)
-        output_dir: Base output directory (level subfolder will be created)
+        output_dir: Base output directory; outputs go to {output_dir}/{metric}/{level_code}/
         level_code: Exposure level code (e.g., 'foy', 'oy', 'f')
+        exposure_metric: Key into EXPOSURE_METRIC_BASES selecting which base column to use
         job_security_var: Job security variable name
     """
     global PRIMARY_EXPOSURE
 
     suffix = EXPOSURE_LEVEL_SUFFIXES[level_code]
-    col_name = f'hampole_ai_exposure_avg{suffix}'
+    base_col = EXPOSURE_METRIC_BASES[exposure_metric]
+    col_name = f'{base_col}{suffix}'
     label = EXPOSURE_LEVEL_LABELS[level_code]
 
     # Validate column exists
     if col_name not in df.columns:
-        logger.warning(f"Skipping level '{level_code}' ({label}): column '{col_name}' not found in data")
+        logger.warning(f"Skipping level '{level_code}' ({label}), metric '{exposure_metric}': "
+                       f"column '{col_name}' not found in data")
         return
 
     # Set the module-level PRIMARY_EXPOSURE for this run
     PRIMARY_EXPOSURE = col_name
 
-    # Create output subdirectory for this level
-    level_dir = os.path.join(output_dir, level_code)
+    # Create output subdirectory: {output_dir}/{metric}/{level_code}/
+    level_dir = os.path.join(output_dir, exposure_metric, level_code)
     tables_dir = os.path.join(level_dir, 'tables')
     figures_dir = os.path.join(level_dir, 'figures')
     os.makedirs(tables_dir, exist_ok=True)
@@ -1852,7 +2915,7 @@ def run_single_level(df: pd.DataFrame, output_dir: str, level_code: str,
     logger.addHandler(fh)
 
     logger.info("=" * 70)
-    logger.info(f"STAGE 7 SHP EDA — Level: {label} ({level_code})")
+    logger.info(f"STAGE 7 SHP EDA -- Level: {label} ({level_code}), Metric: {exposure_metric}")
     logger.info(f"Exposure column: {col_name}")
     logger.info("=" * 70)
 
@@ -1867,11 +2930,14 @@ def run_single_level(df: pd.DataFrame, output_dir: str, level_code: str,
     logger.info(f"  exposed_ever=1: {n_ever:,} person-years from {len(ever_exposed):,} persons")
 
     # Run all sections
-    section_1_descriptive_stats(df, level_dir, job_security_var)
-    section_2_economic_outcomes(df, level_dir, job_security_var)
-    section_3_political_outcomes(df, level_dir)
-    section_4_panel_analysis(df, level_dir)
-    section_5_intensive_margin(df, level_dir, job_security_var)
+    section_1_data_structure(df, level_dir, job_security_var)
+    section_2_pairwise_exploration(df, level_dir, job_security_var)
+    regression_results = section_3_regression_grid(df, level_dir, job_security_var)
+    section_4_collective_summary(df, regression_results, level_dir, job_security_var)
+    section_5_multiple_testing(regression_results, level_dir)
+    section_6_intensive_margin(df, level_dir, job_security_var)
+    section_7_panel_dynamics(df, level_dir, job_security_var)
+    section_8_stacked_long_diff(df, level_dir, job_security_var)
     print_summary(df, level_dir)
 
     logger.info(f"\nLevel '{level_code}' ({label}) complete.")
@@ -1891,6 +2957,7 @@ def run_pipeline(args):
     logger.info("=" * 70)
     logger.info(f"Input file: {args.input}")
     logger.info(f"Output directory: {args.output_dir}")
+    logger.info(f"Exposure metric: {args.exposure_metric} ({EXPOSURE_METRIC_BASES[args.exposure_metric]})")
     logger.info(f"Exposure levels: {args.exposure_levels}")
 
     # -------------------------------------------------------------------------
@@ -1918,7 +2985,7 @@ def run_pipeline(args):
         logger.info(f"# RUNNING LEVEL: {level_code} ({EXPOSURE_LEVEL_LABELS[level_code]})")
         logger.info("#" * 70)
 
-        run_single_level(df, args.output_dir, level_code, job_security_var)
+        run_single_level(df, args.output_dir, level_code, args.exposure_metric, job_security_var)
 
     logger.info("\n" + "=" * 70)
     logger.info("ALL LEVELS COMPLETE")
@@ -1937,30 +3004,59 @@ def parse_args():
         description="Stage 7 SHP: Exploratory Data Analysis of AI Exposure and Individual Outcomes",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Basic run
-  python3 stage_7_shp_eda.py \\
-      --input Data/shp_exposure/shp_exposure_isco4d_fallback.csv \\
-      --output-dir Data/shp_eda/
+Metrics (--exposure-metric) and levels (--exposure-levels) are independent dimensions.
 
-  # With absolute paths
-  python3 stage_7_shp_eda.py \\
-      --input /path/to/shp_exposure_isco4d_fallback.csv \\
-      --output-dir /path/to/shp_eda/
+Examples:
+  # Default: Hampole intensity-adjusted metric, foy level
+  # Output: Data/shp_eda/hampole/foy/
+  python3 stage_7_shp_eda.py --output-dir Data/shp_eda/
+
+  # Pre-intensity Hampole (no log-intensity scaling), foy level
+  # Output: Data/shp_eda/hampole_base/foy/
+  python3 stage_7_shp_eda.py --output-dir Data/shp_eda/ --exposure-metric hampole_base
+
+  # Binary metric, occupation×year level
+  # Output: Data/shp_eda/binary/oy/
+  python3 stage_7_shp_eda.py --output-dir Data/shp_eda/ --exposure-metric binary --exposure-levels oy
+
+  # Run all 4 metrics at foy level (run separately, each gets its own folder)
+  # Outputs: Data/shp_eda/hampole/foy/, Data/shp_eda/hampole_base/foy/, etc.
+  python3 stage_7_shp_eda.py --output-dir Data/shp_eda/ --exposure-metric hampole      --exposure-levels foy
+  python3 stage_7_shp_eda.py --output-dir Data/shp_eda/ --exposure-metric hampole_base --exposure-levels foy
+  python3 stage_7_shp_eda.py --output-dir Data/shp_eda/ --exposure-metric binary       --exposure-levels foy
+  python3 stage_7_shp_eda.py --output-dir Data/shp_eda/ --exposure-metric binary_base  --exposure-levels foy
         """
     )
 
     parser.add_argument(
         '--input',
         type=str,
-        default=str(base_dir / 'Data' / 'shp_exposure' / 'shp_exposure_isco4d_fallback.csv'),
-        help='Path to SHP exposure fallback file (default: Data/shp_exposure/shp_exposure_isco4d_fallback.csv)'
+        default=str(base_dir / 'Data' / 'shp_exposure' / 'shp_exposure_isco4d.csv'),
+        help='Path to SHP exposure file. Options: shp_exposure_isco4d.csv (default, exact 4d matches), '
+             'shp_exposure_isco4d_fallback.csv (hierarchical 4d→3d→2d), '
+             'shp_exposure_isco3d.csv, shp_exposure_isco2d.csv'
     )
     parser.add_argument(
         '--output-dir',
         type=str,
         default=str(base_dir / 'Data' / 'shp_eda'),
         help='Output directory for tables and figures (default: Data/shp_eda/)'
+    )
+
+    parser.add_argument(
+        '--exposure-metric',
+        type=str,
+        choices=list(EXPOSURE_METRIC_BASES.keys()),
+        default='hampole',
+        help=(
+            'Which of the 4 exposure metrics to use (2x2: method x intensity). '
+            'Independent of --exposure-levels. '
+            'hampole: Hampole share × log(1+N_apps) [default]; '
+            'hampole_base: Hampole share only, pre-intensity; '
+            'binary: binary exposure × log(1+N_apps); '
+            'binary_base: binary exposure only, pre-intensity. '
+            'Outputs go to {output_dir}/{metric}/{level}/ so each metric has its own folder.'
+        )
     )
 
     parser.add_argument(

@@ -1,0 +1,38 @@
+\begin{table}[htbp]
+\centering
+\caption{Economic Magnitudes: Translating Wage Effects to CHF and Policy Relevance}
+\label{tab:economic_magnitudes}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Effect} & \textbf{Log Points} & \textbf{SE} & \textbf{95\% CI} & \textbf{CHF/month}$^{\dagger}$ & \textbf{\% of Median} & \textbf{Annual Impact} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Main Results (1 SD increase in AI Exposure)}} \\
+Firm-Year FE (within firm) & $-0.0850$ & $0.0392$ & $[-0.162, -0.008]$ & $-\text{CHF}~29$ & $-1.2\%$ & $-\text{CHF}~348$ \\
+Occupation-Year FE (occupation) & $+0.1085$ & $0.0341$ & $[+0.041, +0.176]$ & $+\text{CHF}~37$ & $+1.5\%$ & $+\text{CHF}~444$ \\
+Sign Reversal Difference & $+0.1935$ & $0.0537$ & $[+0.088, +0.299]$ & $+\text{CHF}~66$ & $+2.7\%$ & $+\text{CHF}~792$ \\
+\midrule
+\multicolumn{7}{l}{\textbf{Heterogeneous Effects: Women}} \\
+Firm-Year FE (within firm) & $-0.1763$ & $0.0741$ & $[-0.321, -0.031]$ & $-\text{CHF}~60$ & $-2.4\%$ & $-\text{CHF}~720$ \\
+Occupation-Year FE (occupation) & $+0.1488$ & $0.0512$ & $[+0.048, +0.249]$ & $+\text{CHF}~51$ & $+2.0\%$ & $+\text{CHF}~612$ \\
+Sign Reversal Difference & $+0.3251$ & $0.0912$ & $[+0.147, +0.503]$ & $+\text{CHF}~111$ & $+4.4\%$ & $+\text{CHF}~1332$ \\
+\midrule
+\multicolumn{7}{l}{\textbf{Heterogeneous Effects: Older Workers ($\geq 45$)}} \\
+Firm-Year FE (within firm) & $-0.1583$ & $0.0517$ & $[-0.260, -0.057]$ & $-\text{CHF}~54$ & $-2.2\%$ & $-\text{CHF}~648$ \\
+Occupation-Year FE (occupation) & $+0.1373$ & $0.0414$ & $[+0.056, +0.219]$ & $+\text{CHF}~47$ & $+1.9\%$ & $+\text{CHF}~564$ \\
+Sign Reversal Difference & $+0.2956$ & $0.0681$ & $[+0.162, +0.429]$ & $+\text{CHF}~101$ & $+4.0\%$ & $+\text{CHF}~1212$ \\
+\bottomrule
+\multicolumn{7}{p{\textwidth}}{\footnotesize
+\textit{Notes:}
+CHF/month calculations assume median gross hourly wage of CHF 34.70 (SHP 2012-2023 average).
+Log point conversion: CHF/month = median hourly wage $\times$ log coefficient $\times$ 173 hours/month (assuming 4.33 weeks/month).
+Annual impacts: CHF/month $\times$ 12 months.
+CI construction: Coefficient $\pm$ 1.96 $\times$ SE.
+$^{\dagger}$ Interpretation: A 1 SD increase in firm-level AI adoption reduces a worker's wage by CHF 29/month when within-firm fixed effects dominate,
+but increases by CHF 37/month when occupation-level shifts dominate.
+For women, within-firm wage losses reach CHF 60/month ($-$2.4\% of median wage), the largest vulnerability identified.
+For older workers, within-firm losses reach CHF 54/month, also substantial. Policy relevance: annual wage losses for vulnerable groups reach CHF 720--1,332,
+equivalent to 0.9--1.7\% of annual wage income.
+}
+\end{tabular}
+\end{table}

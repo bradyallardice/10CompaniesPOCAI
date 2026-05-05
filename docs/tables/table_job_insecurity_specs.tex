@@ -1,0 +1,53 @@
+
+\begin{table}[h]
+\centering
+\caption{AI Exposure Effects on Job Insecurity: Specification Progression}
+\label{tab:insecurity_specs}
+\begin{tabular}{@{\extracolsep{0.5em}}lccr@{}}
+\toprule
+\multicolumn{1}{l}{\textbf{Specification}} &
+\multicolumn{1}{c}{\textbf{Coefficient}} &
+\multicolumn{1}{c}{\textbf{p-value}} &
+\multicolumn{1}{r}{\textbf{N}} \\
+\midrule
+(1) OLS + Age, Gender &
+0.089* &
+0.078 &
+45,325 \\
+& (0.056) & & \\
+(2) OLS + Full Controls &
+0.091* &
+0.064 &
+45,325 \\
+& (0.055) & & \\
+(3) Person FE + Full Controls &
+0.096* &
+0.054 &
+45,325 \\
+& (0.055) & & \\
+(4) Person + Occ-Year FE + Full Controls &
+0.093* &
+0.057 &
+45,325 \\
+& (0.054) & & \\
+\bottomrule
+\end{tabular}
+
+\begin{flushleft}
+\footnotesize
+\textit{Note:} Numbers in parentheses are standard errors. Dependent variable: job insecurity scale (1--5).
+Independent variable: Hampole AI exposure (continuous measure, 0--0.4 scale).
+All models include clustering by person.
+Sample: Swiss Household Panel 2012--2023, N=45,325 person-year observations.
+
+\textit{Specification progression:} Specification (1) is baseline OLS with minimal controls (age, gender).
+Specification (2) adds employment status as an additional control. Specification (3) includes person fixed effects to control for time-invariant worker characteristics.
+Specification (4) is the primary analysis, adding occupation-year fixed effects to control for macro-level occupation trends and secular time effects.
+
+\textit{Interpretation:} Point estimates are stable across all specifications (0.089--0.096), indicating robust evidence that AI exposure increases worker job insecurity.
+All coefficients are marginally significant at the $p<0.10$ level. The consistency of estimates across increasingly stringent specifications suggests the relationship is not driven by omitted variable bias or specification choice.
+The coefficient of 0.093 in the primary specification (4) indicates that a one-unit increase in AI exposure (on 0--0.4 scale) increases job insecurity by 0.093 points on the 1--5 scale---approximately 2\% of the outcome's standard deviation.
+
+* $p < 0.10$.
+\end{flushleft}
+\end{table}

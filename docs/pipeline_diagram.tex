@@ -1,0 +1,215 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc, shadows, decorations.pathreplacing}
+\usepackage{xcolor}
+\usepackage{fontawesome5}
+
+% Define colors for each stage
+\definecolor{datasource}{RGB}{52, 73, 94}       % Dark blue-gray
+\definecolor{extraction}{RGB}{41, 128, 185}     % Blue
+\definecolor{dedup}{RGB}{155, 89, 182}          % Purple
+\definecolor{processing}{RGB}{142, 68, 173}     % Purple
+\definecolor{matching}{RGB}{230, 126, 34}       % Orange
+\definecolor{exposure}{RGB}{39, 174, 96}        % Green
+\definecolor{linkage}{RGB}{231, 76, 60}         % Red
+\definecolor{analysis}{RGB}{52, 152, 219}       % Light blue
+
+\begin{document}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    y=1.35cm,
+    node distance=0.55cm and 0cm,
+    % Data source style
+    datasource/.style={rectangle, rounded corners=3pt, minimum width=1.8cm, minimum height=0.5cm,
+                        text centered, draw=datasource, fill=datasource!10, very thick,
+                        font=\tiny\sffamily\bfseries, text=datasource},
+    % Stage box style with improved text positioning
+    stagebox/.style={rectangle, rounded corners=4pt, minimum width=4.2cm, minimum height=1.25cm,
+                        align=center, draw=#1, fill=#1!8, very thick,
+                        font=\tiny\sffamily, text=black, drop shadow,
+                        execute at end node={\vspace{0.45cm}}},
+    % Output label style
+    output/.style={rectangle, rounded corners=2pt, minimum width=4cm, minimum height=0.35cm,
+                    text centered, draw=black!30, fill=black!3,
+                    font=\tiny\sffamily\itshape, text=black!70},
+    % Icon style
+    icon/.style={circle, minimum size=0.5cm, fill=#1, draw=#1!50!black, thick,
+                text=white, font=\tiny},
+    % Arrow styles
+    arrow/.style={-{Stealth[length=2mm]}, line width=0.8pt, draw=black!60, rounded corners=6pt},
+    dataarrow/.style={-{Stealth[length=1.5mm]}, line width=0.6pt, draw=datasource, dashed, rounded corners=4pt}
+]
+
+% =================================================================================
+% 1. DATA SOURCES (ordered left-to-right by destination stage: later stages on left)
+% =================================================================================
+\node[datasource, text width=1.7cm] (shp) at (-1.5, 0.7) {Swiss HH\\Panel};
+\node[datasource, text width=1.7cm] (crosswalk) at (0.2, 0.7) {ISCO/X28\\Crosswalk};
+\node[datasource, text width=1.7cm] (onet) at (1.9, 0.7) {O*NET\\19K Tasks};
+\node[datasource, text width=1.7cm] (keywords) at (3.6, 0.7) {AI Keywords\\Multilingual};
+\node[datasource, text width=1.7cm] (postgres) at (5.3, 0.7) {PostgreSQL\\14.7M Jobs};
+
+% Label for Inputs (removed upper brace)
+
+% Downward-pointing brace below data inputs, width of one stage box
+\draw[decorate, decoration={brace, amplitude=5pt, mirror, raise=10pt}, thick, color=black!70]
+    (0.4, -0.6) -- (4.6, -0.6)
+    node [midway, below=15pt, font=\sffamily\bfseries\small, color=black!80] {};
+
+% Routing coordinates - inputs go to the left to avoid crossing the pipeline
+\coordinate (routeLeft)  at (-1.0, 0);
+\coordinate (routeRight) at (5.8, 0);
+
+% Separate routing points for each input - proper spacing with route5 at -1.3
+\coordinate (route1) at (-1.8, 0);    % shp -> Stage 7 (leftmost, goes furthest)
+\coordinate (route2) at (-1.675, 0);  % crosswalk -> Stage 6
+\coordinate (route3) at (-1.55, 0);   % onet -> Stage 4
+\coordinate (route4) at (-1.425, 0);  % keywords -> Stage 0
+\coordinate (route5) at (-1.3, 0);    % postgres -> Stage 0 (rightmost)
+
+% =================================================================================
+% 2. PIPELINE STAGES
+% =================================================================================
+
+% --- STAGE 0: Keyword Extraction (y = -1.0) ---
+\node[stagebox=extraction, anchor=west, text width=3.6cm] at (0.4, -1.0) (stage0) {
+    \textbf{Stage 0: AI Keyword Extraction}\\[0.02cm]
+    Search job ads for multilingual AI/ML terms
+};
+\node[icon=extraction] at (stage0.west) (icon0) {\faSearch};
+\node[output, anchor=west] at (0.75, -1.4) (out0) {107K AI-related job advertisements};
+
+% --- STAGE 2: Deduplication (y = -2.2) ---
+\node[stagebox=dedup, anchor=west, text width=3.6cm] at (0.4, -2.2) (stage2) {
+    \textbf{Stage 2: Deduplication}\\[0.02cm]
+    Remove exact, false positive, and near duplicates
+};
+\node[icon=dedup] at (stage2.west) (icon2) {\faFilter};
+\node[output, anchor=west] at (0.75, -2.6) (out2) {57K clean, unique AI jobs};
+
+% --- STAGE 3: AI Application Extraction (y = -3.4) ---
+\node[stagebox=processing, anchor=west, text width=3.6cm] at (0.4, -3.4) (stage3) {
+    \textbf{Stage 3: AI App Extraction}\\[0.02cm]
+    LLM pipeline: Extract $\to$ Separate $\to$ Filter
+};
+\node[icon=processing] at (stage3.west) (icon3) {\faBrain};
+\node[output, anchor=west] at (0.75, -3.8) (out3) {Deduplicated AI applications};
+
+% --- STAGE 4: O*NET Similarity (y = -4.6) ---
+\node[stagebox=matching, anchor=west, text width=3.6cm] at (0.4, -4.6) (stage4) {
+    \textbf{Stage 4: O*NET Similarity}\\[0.02cm]
+    Find highest similarity task-app pairs (95th pct)
+};
+\node[icon=matching] at (stage4.west) (icon4) {\faProjectDiagram};
+\node[output, anchor=west] at (0.75, -5.0) (out4) {AI applications matched to O*NET tasks};
+
+% --- STAGE 5: Exposure Calculation (y = -5.8) ---
+\node[stagebox=exposure, anchor=west, text width=3.6cm] at (0.4, -5.8) (stage5) {
+    \textbf{Stage 5: Exposure Calculation}\\[0.02cm]
+    Aggregate to firm $\times$ occupation $\times$ year
+};
+\node[icon=exposure] at (stage5.west) (icon5) {\faCalculator};
+\node[output, anchor=west] at (0.75, -6.2) (out5) {AI exposure measures (Hampole \& Binary)};
+
+% --- STAGE 6: Link to Jobs (y = -7.0) ---
+\node[stagebox=linkage, anchor=west, text width=3.6cm] at (0.4, -7.0) (stage6) {
+    \textbf{Stage 6: Link to Jobs}\\[0.02cm]
+    Join exposure to actual job postings + diagnostics
+};
+\node[icon=linkage] at (stage6.west) (icon6) {\faLink};
+\node[output, anchor=west] at (0.75, -7.4) (out6) {Analysis-ready linked dataset};
+
+% --- STAGE 7: Analysis (y = -8.2) ---
+\node[stagebox=analysis, anchor=west, text width=3.6cm] at (0.4, -8.2) (stage7) {
+    \textbf{Stage 7: Analysis \& Reporting}\\[0.02cm]
+    Summary stats, figures, firm/occupation breakdowns
+};
+\node[icon=analysis] at (stage7.west) (icon7) {\faChartBar};
+\node[output, anchor=west] at (0.75, -8.6) (out7) {Visualizations, rankings, sensitivity analysis};
+
+% Input connection points (shared arrows split evenly, lone arrows go to side)
+\coordinate (icon0inA) at (icon0.160);  \coordinate (icon0inB) at (icon0.200);  % Shared
+\coordinate (icon4inA) at (icon4.160);  \coordinate (icon4inB) at (icon4.200);  % Shared
+\coordinate (icon5inA) at (icon5.160);  \coordinate (icon5inB) at (icon5.200);  % Shared
+\coordinate (icon6inA) at (icon6.160);  \coordinate (icon6inB) at (icon6.200);  % Shared
+\coordinate (icon7in) at (icon7.west);                                           % Lone input
+
+% =================================================================================
+% 3. PIPELINE ARROWS (between stages)
+% =================================================================================
+\newcommand{\drawpath}[3]{
+    \coordinate (m) at ($(#1.south)!0.5!(#2.north)$);
+    \draw[arrow] (#1.east) -- (routeRight |- #1.east) -- (routeRight |- m) -- (routeLeft |- m) -- (routeLeft |- #3) -- (#3);
+}
+
+\drawpath{out0}{stage2}{icon2.west}      % Lone input - to middle
+\drawpath{out2}{stage3}{icon3.west}      % Lone input - to middle
+\drawpath{out3}{stage4}{icon4inA}        % Shared input - upper split
+\drawpath{out4}{stage5}{icon5inA}        % Shared input - upper split
+\drawpath{out5}{stage6}{icon6inA}        % Shared input - upper split
+\drawpath{out6}{stage7}{icon7in}         % Lone input - to middle
+
+% =================================================================================
+% 4. DATA INPUT ARROWS (staggered turn y-levels to prevent any overlaps)
+% =================================================================================
+% SHP -> Stage 6 (icon6inB) - turns at y=0.075
+\draw[dataarrow] (shp.south) -- (shp.south |- 0, 0.075) -- (route1 |- 0, 0.075) -- (route1 |- icon6inB) -- (icon6inB);
+
+% Crosswalk -> Stage 5 (icon5inB) - turns at y=0.0
+\draw[dataarrow] (crosswalk.south) -- (crosswalk.south |- 0, 0.0) -- (route2 |- 0, 0.0) -- (route2 |- icon5inB) -- (icon5inB);
+
+% O*NET -> Stage 4 (icon4inB) - turns at y=-0.075
+\draw[dataarrow] (onet.south) -- (onet.south |- 0, -0.075) -- (route3 |- 0, -0.075) -- (route3 |- icon4inB) -- (icon4inB);
+
+% Keywords -> Stage 0 (icon0inB) - turns at y=-0.15
+\draw[dataarrow] (keywords.south) -- (keywords.south |- 0, -0.15) -- (route4 |- 0, -0.15) -- (route4 |- icon0inB) -- (icon0inB);
+
+% PostgreSQL -> Stage 0 (icon0inA) - turns at y=-0.225
+\draw[dataarrow] (postgres.south) -- (postgres.south |- 0, -0.225) -- (route5 |- 0, -0.225) -- (route5 |- icon0inA) -- (icon0inA);
+
+\end{tikzpicture}
+\caption{AI Exposure Pipeline: From Job Advertisements to Individual-Level Analysis}
+\label{fig:pipeline}
+\end{figure}
+
+\clearpage
+
+\section*{Pipeline Summary}
+
+\subsection*{Data Inputs}
+\begin{itemize}
+    \item \textbf{PostgreSQL}: 14.7M job advertisements from Swiss job market
+    \item \textbf{AI Keywords}: Multilingual keyword list (EN, DE, FR, IT)
+    \item \textbf{O*NET}: 19K occupational tasks with importance weights
+    \item \textbf{ISCO/X28 Crosswalk}: Occupational classification mapping
+    \item \textbf{Swiss Household Panel}: Individual respondent data for exposure linkage
+\end{itemize}
+
+\subsection*{Stage Descriptions}
+
+\textbf{Stage 0: AI Keyword Extraction} \\
+Uses multilingual keyword matching to identify AI-related job postings. Reduces 14.7M jobs to approximately 107K AI-relevant advertisements.
+
+\textbf{Stage 2: Deduplication} \\
+Removes exact duplicates, false positives (occurrence-level classification), and near duplicates using TF-IDF similarity. Results in 57K unique jobs (53\% reduction).
+
+\textbf{Stage 3: AI Application Extraction} \\
+Three-step LLM pipeline using O3 and GPT-5-mini models to extract, separate, and standardize AI applications from job descriptions. Performance: F1 scores improving from 0.78 $\to$ 0.84 $\to$ 0.92 across steps.
+
+\textbf{Stage 4: O*NET Similarity Analysis} \\
+Calculates similarity between extracted AI applications and O*NET occupational tasks. Filters matches at 95th percentile threshold. Uses BGE embeddings (or OpenAI) for semantic matching.
+
+\textbf{Stage 5: Exposure Calculation} \\
+Aggregates AI application usage to firm-occupation-year level. Applies two exposure methods: Hampole (share-based) and Binary. Includes intensity adjustment using $\log(1 + N_{\text{applications}})$.
+
+\textbf{Stage 6: Link to Jobs} \\
+Joins exposure measures to actual job postings in database. Includes occupational crosswalks (X28 $\to$ ISCO $\to$ O*NET). Produces diagnostics for unmatched records. Optional firm-level summary report.
+
+\textbf{Stage 7: Analysis \& Reporting} \\
+Comprehensive analysis including firm-level rankings, occupation-level exposures, firm-occupation pairs, time-series trends, and sensitivity analysis. Generates visualizations, heatmaps, and summary statistics.
+
+\end{document}

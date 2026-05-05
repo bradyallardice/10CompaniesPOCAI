@@ -67,6 +67,53 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# SOC 15 filtering modes
+# ---------------------------------------------------------------------------
+# Valid choices for --soc15-filter CLI argument
+SOC15_FILTER_MODES = [
+    "exclude-all",           # Default: exclude all SOC group 15 tasks (current behavior)
+    "include-all",           # Include everything (no SOC 15 filtering)
+    "exclude-1221-only",     # Exclude only 15-1221.00 (Computer and Information Research Scientists)
+    "exclude-ai-dev-tasks",  # Exclude only specific Tier 1 AI-development tasks (most surgical)
+]
+
+# Tier 1 AI-development task IDs — tasks with genuine circularity risk.
+# These describe creating new technology, algorithms, or computational models
+# that would semantically match AI applications extracted from job ads,
+# creating artificial "exposure" for the occupations that BUILD AI rather
+# than USE it.
+#
+# Source occupations:
+#   15-1221.00  Computer and Information Research Scientists (all 11 core tasks)
+#   15-2021.00  Mathematicians (selected computational/model tasks)
+#   15-2041.01  Biostatisticians (algorithm development task)
+#
+# See discussion: these 15 tasks (out of 543 SOC 15 core tasks) represent
+# the genuine circularity concern. The remaining 528 tasks describe work
+# like network administration, database management, web development,
+# actuarial analysis, etc. that has no circularity risk.
+AI_DEV_TASK_IDS = {
+    # 15-1221.00 Computer and Information Research Scientists (all 11 core tasks)
+    14623,  # Analyze problems to develop solutions involving computer hardware and software
+    14624,  # Assign or schedule tasks to meet work priorities and goals
+    14625,  # Evaluate project plans and proposals to assess feasibility issues
+    14626,  # Apply theoretical expertise and innovation to create or apply new technology
+    14627,  # Consult with users, management, vendors, and technicians to determine computing needs
+    14628,  # Meet with managers, vendors, and others to solicit cooperation and resolve problems
+    14629,  # Conduct logical analyses...formulating mathematical models for solution by computers
+    14630,  # Develop and interpret organizational goals, policies, and procedures
+    14631,  # Participate in multidisciplinary projects (VR, human-computer interaction, robotics)
+    14632,  # Develop performance standards, and evaluate work in light of established standards
+    14633,  # Design computers and the software that runs them
+    # 15-2021.00 Mathematicians (computational method and model development)
+    7368,   # Develop computational methods for solving problems in science/engineering/business
+    7371,   # Develop mathematical or statistical models for analysis or computational simulation
+    7376,   # Develop new principles between mathematical principles to advance mathematical science
+    # 15-2041.01 Biostatisticians (algorithm development)
+    16257,  # Develop or implement data analysis algorithms
+}
+
 
 def write_large_parquet_compressed(df, output_path, chunk_size=10_000_000):
     """
@@ -697,7 +744,8 @@ class ONETSimilarityMatcher:
             force_regenerate=force_regenerate
         )
 
-    def check_openai_cache_and_report(self, step3_file: str, onet_version: int) -> None:
+    def check_openai_cache_and_report(self, step3_file: str, onet_version: int,
+                                      soc15_filter: str = "exclude-all") -> None:
         """
         Check OpenAI cache status and print report with cost estimates (dry-run mode).
 
@@ -707,6 +755,7 @@ class ONETSimilarityMatcher:
         Args:
             step3_file: Path to Stage 3 output CSV file
             onet_version: O*NET version number
+            soc15_filter: SOC 15 filter mode (passed through to load_onet_tasks)
 
         """
         logger.info("=" * 60)
@@ -719,13 +768,14 @@ class ONETSimilarityMatcher:
         logger.info(f"Loaded {len(apps):,} deduplicated AI applications")
 
         # Load O*NET tasks
-        # Note: We need to load tasks based on onet_version and include_soc_15 flag
-        # For now, assume core tasks and include_soc_15=False (default)
-        logger.info(f"Loading O*NET tasks (version {onet_version})")
+        # Note: The utility load_onet_tasks only supports include_soc_15 bool.
+        # Map our filter mode to that interface for cache checking purposes.
+        include_soc_15 = (soc15_filter == "include-all")
+        logger.info(f"Loading O*NET tasks (version {onet_version}, soc15_filter={soc15_filter})")
         tasks = load_onet_tasks(
             onet_version=onet_version,
-            task_type='core',  # Match Stage 4 typical usage
-            include_soc_15=include_soc_15  # Default behavior
+            task_type='core',
+            include_soc_15=include_soc_15
         )
         logger.info(f"Loaded {len(tasks):,} O*NET tasks")
 
@@ -1299,19 +1349,29 @@ class ONETSimilarityMatcher:
         
         return df
     
-    def load_onet_tasks(self, onet_file_path: str, include_soc_15: bool = False,
+    def load_onet_tasks(self, onet_file_path: str, soc15_filter: str = "exclude-all",
                        filter_supplements: bool = True) -> pd.DataFrame:
         """
         Load O*NET task statements from Excel file.
 
         Args:
             onet_file_path: Path to O*NET Task Statements.xlsx file
-            include_soc_15: If True, include SOC group 15 (Computer and Mathematical Occupations). Default is False (excluded).
+            soc15_filter: How to handle SOC group 15 tasks. One of:
+                - "exclude-all": Remove all SOC 15 tasks (default, most conservative)
+                - "include-all": Keep all tasks (no SOC 15 filtering)
+                - "exclude-1221-only": Remove only 15-1221.00 (Computer & Information Research Scientists)
+                - "exclude-ai-dev-tasks": Remove only the ~15 Tier 1 AI-development task IDs
             filter_supplements: If True, exclude Supplemental tasks (keep Core only)
 
         Returns:
             DataFrame with task_id, Task, and Task Type columns
         """
+        if soc15_filter not in SOC15_FILTER_MODES:
+            raise ValueError(
+                f"Invalid soc15_filter='{soc15_filter}'. "
+                f"Must be one of: {SOC15_FILTER_MODES}"
+            )
+
         logger.info(f"Loading O*NET tasks from: {onet_file_path}")
 
         try:
@@ -1341,14 +1401,25 @@ class ONETSimilarityMatcher:
                 filtered_count = initial_count - len(onet_df)
                 logger.info(f"Filtered out {filtered_count} Supplemental tasks, keeping {len(onet_df)} Core tasks")
 
-            # Filter out SOC group 15 by default (unless include_soc_15 is True)
-            if not include_soc_15:
-                initial_count = len(onet_df)
+            # Apply SOC 15 filter
+            initial_count = len(onet_df)
+            if soc15_filter == "exclude-all":
                 onet_df = onet_df[~onet_df['O*NET-SOC Code'].str.startswith('15-', na=False)].copy()
                 excluded_count = initial_count - len(onet_df)
-                logger.info(f"Excluded {excluded_count} tasks from SOC group 15 (Computer and Mathematical Occupations)")
-            else:
-                logger.info(f"Including SOC group 15 (Computer and Mathematical Occupations) tasks")
+                logger.info(f"SOC 15 filter '{soc15_filter}': excluded {excluded_count} tasks from all of SOC group 15")
+
+            elif soc15_filter == "exclude-1221-only":
+                onet_df = onet_df[~onet_df['O*NET-SOC Code'].str.startswith('15-1221', na=False)].copy()
+                excluded_count = initial_count - len(onet_df)
+                logger.info(f"SOC 15 filter '{soc15_filter}': excluded {excluded_count} tasks from 15-1221.00 (Computer and Information Research Scientists)")
+
+            elif soc15_filter == "exclude-ai-dev-tasks":
+                onet_df = onet_df[~onet_df['task_id'].isin(AI_DEV_TASK_IDS)].copy()
+                excluded_count = initial_count - len(onet_df)
+                logger.info(f"SOC 15 filter '{soc15_filter}': excluded {excluded_count} Tier 1 AI-development tasks (of {len(AI_DEV_TASK_IDS)} in list)")
+
+            elif soc15_filter == "include-all":
+                logger.info(f"SOC 15 filter '{soc15_filter}': including all tasks (no SOC 15 filtering)")
 
             logger.info(f"Loaded {len(onet_df)} O*NET task statements")
             return onet_df[['task_id', 'Task', 'Task Type', 'O*NET-SOC Code']]
@@ -1740,8 +1811,11 @@ class ONETSimilarityMatcher:
         cache_filename = f"similarities_apps{len(app_texts)}_tasks{len(onet_tasks)}_min{selection_floor:.3f}"
         checkpoint_prefix = checkpoint_dir / cache_filename
 
-        filtered_results_df = pd.DataFrame()
-        all_results_df = pd.DataFrame()  # Always save all similarities for accurate percentile calculation
+        # Memory-efficient approach: only accumulate the small sampled all_results_df in memory.
+        # Filtered results are saved to checkpoint files and streamed back AFTER percentiles
+        # are computed, applying the percentile threshold on-the-fly to avoid loading ~130 GB.
+        all_results_df = pd.DataFrame()
+        filtered_checkpoint_paths = []  # Track paths for post-loop streaming
 
         logger.info(f"Processing {len(unique_apps)} unique application strings in chunks of {CHUNK_SIZE}")
         logger.info(f"Using checkpoints at: {checkpoint_dir}")
@@ -1755,19 +1829,23 @@ class ONETSimilarityMatcher:
             chunk_checkpoint_filtered = checkpoint_prefix.parent / f"{checkpoint_prefix.name}_chunk_{chunk_start}_{chunk_end}_filtered.parquet"
             chunk_checkpoint_all = checkpoint_prefix.parent / f"{checkpoint_prefix.name}_chunk_{chunk_start}_{chunk_end}_all.parquet"
 
-            # Try to load checkpoint (handles Dropbox placeholders via embedding manager)
-            chunk_filtered_df = self._load_checkpoint_parquet(chunk_checkpoint_filtered)
-            if chunk_filtered_df is not None:
-                logger.info(f"Loading checkpoint for chunk {chunk_start}-{chunk_end}")
-                filtered_results_df = pd.concat([filtered_results_df, chunk_filtered_df], ignore_index=True)
+            # Check if filtered checkpoint exists without loading it into memory.
+            # Use _load_checkpoint_parquet on the small _all file to verify the chunk
+            # completed (both files are written together), then just record the filtered path.
+            chunk_all_df = self._load_checkpoint_parquet(chunk_checkpoint_all)
+            if chunk_all_df is not None and chunk_checkpoint_filtered.exists():
+                logger.info(f"Checkpoint exists for chunk {chunk_start}-{chunk_end}")
+                # Don't load filtered results into memory - just track the path for streaming later
+                filtered_checkpoint_paths.append(chunk_checkpoint_filtered)
 
-                # Try to load all-similarities checkpoint too
-                chunk_all_df = self._load_checkpoint_parquet(chunk_checkpoint_all)
-                if chunk_all_df is not None:
-                    all_results_df = pd.concat([all_results_df, chunk_all_df], ignore_index=True)
+                # Accumulate only the small all-similarities data for percentile calculation
+                all_results_df = pd.concat([all_results_df, chunk_all_df], ignore_index=True)
+                del chunk_all_df
 
                 logger.info(f"Skipping processing for chunk {chunk_start}-{chunk_end} (already checkpointed)")
                 continue
+            elif chunk_all_df is not None:
+                del chunk_all_df
 
             logger.info(f"Processing chunk {chunk_start}-{chunk_end} of {len(unique_apps)} apps")
 
@@ -1831,14 +1909,14 @@ class ONETSimilarityMatcher:
                 if (global_idx + 1) % 100 == 0:
                     logger.info(f"Processing application {global_idx + 1}/{len(unique_apps)}")
 
-            # Convert chunk to DataFrame and append to main results
+            # Convert chunk to DataFrame, save checkpoint, but do NOT accumulate in memory
             if chunk_filtered_results:
                 chunk_filtered_df = pd.DataFrame(chunk_filtered_results)
-                filtered_results_df = pd.concat([filtered_results_df, chunk_filtered_df], ignore_index=True)
 
                 # Save checkpoint for filtered results
                 chunk_filtered_df.to_parquet(chunk_checkpoint_filtered)
                 logger.info(f"Saved filtered checkpoint: {chunk_checkpoint_filtered.name}")
+                filtered_checkpoint_paths.append(chunk_checkpoint_filtered)
                 del chunk_filtered_df
 
             if chunk_all_results:
@@ -1852,17 +1930,15 @@ class ONETSimilarityMatcher:
 
             # Explicit memory cleanup
             del chunk_filtered_results, chunk_all_results
-
-            import gc
             gc.collect()
 
-            logger.info(f"Chunk complete. Current memory: {filtered_results_df.memory_usage(deep=True).sum() / 1e6:.1f} MB")
+            logger.info(f"Chunk complete. all_results_df memory: {all_results_df.memory_usage(deep=True).sum() / 1e6:.1f} MB")
 
-        logger.info(f"Generated {len(filtered_results_df)} filtered similarity matches (above threshold {selection_floor:.4f})")
-        logger.info(f"Generated {len(all_results_df)} total similarity matches")
+        logger.info(f"Completed similarity computation across {len(filtered_checkpoint_paths)} checkpoint files")
+        logger.info(f"Generated {len(all_results_df)} sampled similarity pairs for percentile calculation")
 
         # Calculate global percentile threshold on ALL similarity scores
-        # This must be done BEFORE the 0.3 filter to get true top 20% of all pairs
+        # This must be done BEFORE loading filtered results to get true top percentiles
         logger.info("Computing global percentile on ALL similarity scores")
         all_similarities_array = all_results_df['similarity'].values
 
@@ -1875,21 +1951,151 @@ class ONETSimilarityMatcher:
 
         logger.info(f"Global percentiles calculated from {len(all_similarities_array):,} total pairs")
 
-        # Clean up chunk checkpoints after successful completion
-        logger.info("Cleaning up chunk checkpoints...")
-        for checkpoint_file in checkpoint_dir.glob(f"{checkpoint_prefix.name}_chunk_*.parquet"):
-            checkpoint_file.unlink()
-            logger.info(f"Deleted checkpoint: {checkpoint_file.name}")
+        # Free all_results_df and the array — percentile thresholds are stored, we don't need
+        # the raw sampled pairs anymore. This reclaims ~5.4 GB before streaming begins.
+        del all_results_df, all_similarities_array
+        gc.collect()
+        logger.info("Freed all_results_df before streaming phase")
 
-        # If in per-task mode, also compute per-task rankings
-        if per_task_mode:
-            filtered_results_df = self._compute_per_task_rankings(filtered_results_df)
+        # Stream filtered checkpoints: apply percentile filter, dedup within each chunk,
+        # and append directly to a parquet file on disk. No cross-chunk dedup needed because
+        # each app_text appears in exactly one chunk (unique_apps is sliced sequentially).
+        max_percentile = max(bge_percentiles)
+        percentile_threshold = self.global_percentile_thresholds[max_percentile]
+        logger.info(f"Streaming {len(filtered_checkpoint_paths)} checkpoints with percentile filter "
+                     f"+ within-chunk dedup → disk (top {max_percentile}%, threshold >= {percentile_threshold:.4f})")
 
-        # Save to cache
-        if use_cache:
-            self._save_similarity_cache(cache_path, filtered_results_df, all_results_df, self.minimum_similarity)
+        # Output parquet file for streamed deduped results
+        streamed_output_path = checkpoint_dir / f"{cache_filename}_streamed_dedup.parquet"
 
-        return filtered_results_df, all_results_df
+        # Resume support: track which chunks have been written via a meta file
+        stream_meta_path = checkpoint_dir / f"{cache_filename}_stream_meta.json"
+        total_rows_read = 0
+        total_rows_kept = 0
+        total_deduped_rows = 0
+        start_cp_idx = 0
+
+        if stream_meta_path.exists():
+            import json
+            with open(stream_meta_path, 'r') as f:
+                stream_meta = json.load(f)
+            start_cp_idx = stream_meta['last_cp_idx'] + 1
+            total_rows_read = stream_meta.get('total_rows_read', 0)
+            total_rows_kept = stream_meta.get('total_rows_kept', 0)
+            total_deduped_rows = stream_meta.get('total_deduped_rows', 0)
+            logger.info(f"Resumed streaming from checkpoint: skipping first {start_cp_idx} chunks, "
+                         f"{total_deduped_rows:,} deduped rows already written to disk")
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        # Write each chunk as a separate parquet part file for clean resume support.
+        # Parts are stored in a directory; merged into a single file at the end.
+        parts_dir = checkpoint_dir / f"{cache_filename}_dedup_parts"
+        parts_dir.mkdir(parents=True, exist_ok=True)
+
+        for cp_idx, cp_path in enumerate(filtered_checkpoint_paths):
+            if cp_idx < start_cp_idx:
+                continue
+
+            # Check if this part was already written in a prior run
+            part_file = parts_dir / f"part_{cp_idx:04d}.parquet"
+            if part_file.exists():
+                logger.info(f"  Part {cp_idx + 1}/{len(filtered_checkpoint_paths)} already written, skipping")
+                continue
+
+            if not cp_path.exists():
+                logger.info(f"  Checkpoint {cp_idx + 1}/{len(filtered_checkpoint_paths)} already deleted, skipping")
+                continue
+
+            chunk_df = pd.read_parquet(cp_path)
+            total_rows_read += len(chunk_df)
+
+            # Apply percentile threshold
+            chunk_df = chunk_df[chunk_df['similarity'] >= percentile_threshold]
+            total_rows_kept += len(chunk_df)
+
+            if len(chunk_df) == 0:
+                del chunk_df
+                cp_path.unlink(missing_ok=True)
+                cp_all = cp_path.parent / cp_path.name.replace('_filtered.parquet', '_all.parquet')
+                cp_all.unlink(missing_ok=True)
+                continue
+
+            # Dedup within chunk (collapse job_uids for same app_text × onet_task_id)
+            chunk_dedup = chunk_df.groupby(
+                ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
+                as_index=False, sort=False
+            ).agg({
+                'job_uid': list,
+                'first_occurrence_tst_created': 'first'
+            }).reset_index(drop=True)
+            chunk_dedup['job_uid'] = chunk_dedup['job_uid'].apply(
+                lambda x: list(dict.fromkeys(x))
+            )
+            del chunk_df
+            total_deduped_rows += len(chunk_dedup)
+
+            # Convert job_uid lists to pipe-separated strings for parquet compatibility
+            chunk_dedup['job_uid'] = chunk_dedup['job_uid'].apply(lambda x: '|'.join(x))
+
+            # Write as a part file
+            chunk_dedup.to_parquet(part_file, index=False, compression='snappy')
+            del chunk_dedup
+
+            # Delete processed checkpoint and its _all companion to free disk space
+            cp_path.unlink(missing_ok=True)
+            cp_all = cp_path.parent / cp_path.name.replace('_filtered.parquet', '_all.parquet')
+            cp_all.unlink(missing_ok=True)
+
+            gc.collect()
+
+            if (cp_idx + 1) % 10 == 0 or cp_idx == len(filtered_checkpoint_paths) - 1:
+                # Save stream progress meta
+                import json
+                with open(stream_meta_path, 'w') as f:
+                    json.dump({
+                        'last_cp_idx': cp_idx,
+                        'total_rows_read': total_rows_read,
+                        'total_rows_kept': total_rows_kept,
+                        'total_deduped_rows': total_deduped_rows,
+                    }, f)
+                logger.info(f"  Streamed {cp_idx + 1}/{len(filtered_checkpoint_paths)} checkpoints, "
+                            f"wrote {total_deduped_rows:,} deduped rows to disk")
+
+        # Merge all part files into a single output parquet
+        part_files = sorted(parts_dir.glob("part_*.parquet"))
+        logger.info(f"Merging {len(part_files)} part files into {streamed_output_path}")
+        pq_writer = None
+        for pf in part_files:
+            table = pq.read_table(pf)
+            if pq_writer is None:
+                pq_writer = pq.ParquetWriter(str(streamed_output_path), table.schema, compression='snappy')
+            pq_writer.write_table(table)
+            del table
+        if pq_writer is not None:
+            pq_writer.close()
+
+        # Clean up part files
+        import shutil
+        shutil.rmtree(parts_dir, ignore_errors=True)
+
+        # Clean up stream meta after successful completion
+        stream_meta_path.unlink(missing_ok=True)
+
+        logger.info(f"Streamed {total_rows_read:,} total filtered rows, kept {total_rows_kept:,} "
+                     f"above percentile threshold ({total_rows_kept/max(1,total_rows_read)*100:.1f}%)")
+        logger.info(f"Wrote {total_deduped_rows:,} deduped rows to {streamed_output_path}")
+
+        # Store the output path for the caller to read from
+        self._streamed_dedup_path = streamed_output_path
+        self._exhaustive_checkpoint_paths = filtered_checkpoint_paths
+        self._exhaustive_checkpoint_prefix = checkpoint_prefix
+
+        # Signal to caller that results are on disk, not in memory
+        self._results_on_disk = True
+
+        return None, None
 
     def _compute_per_task_rankings(self, results_df):
         """
@@ -3415,7 +3621,7 @@ class ONETSimilarityMatcher:
                          use_apps_cache: bool = True,
                          use_cross_encoder_cache: bool = True,
                          use_similarities_cache: bool = True,
-                         include_soc_15: bool = False,
+                         soc15_filter: str = "exclude-all",
                          skip_cross_encoder: bool = False,
                          cross_encoder_model: str = "BAAI/bge-reranker-v2-m3",
                          cross_encoder_batch_size: int = 256,
@@ -3474,11 +3680,11 @@ class ONETSimilarityMatcher:
         dedup_df.to_parquet(dedup_file, index=False)
         logger.info(f"Saved deduplicated applications to: {dedup_file}")
         
-        # Load O*NET tasks. We respect --include-soc-15 here so OpenAI/BGE caches line up with the
+        # Load O*NET tasks. We respect --soc15-filter here so OpenAI/BGE caches line up with the
         # exact task set the user intends to run (avoids unnecessary embedding generation / API calls).
         onet_df_full = self.load_onet_tasks(
                             onet_file_path,
-                            include_soc_15=include_soc_15,
+                            soc15_filter=soc15_filter,
                             filter_supplements=False
                         )
 
@@ -3503,19 +3709,25 @@ class ONETSimilarityMatcher:
             text_type="tasks"
         )
 
-        # Now filter O*NET tasks and embeddings if SOC 15 should be excluded
-        if not include_soc_15:
-            # Filter out SOC 15 tasks
-            soc15_mask = ~onet_df_full['O*NET-SOC Code'].str.startswith('15-', na=False)
-            onet_df = onet_df_full[soc15_mask].copy().reset_index(drop=True)
-            onet_embeddings = onet_embeddings_full[soc15_mask]
+        # Apply SOC 15 filter to embeddings (must mirror the filter applied to tasks)
+        if soc15_filter == "exclude-all":
+            mask = ~onet_df_full['O*NET-SOC Code'].str.startswith('15-', na=False)
+        elif soc15_filter == "exclude-1221-only":
+            mask = ~onet_df_full['O*NET-SOC Code'].str.startswith('15-1221', na=False)
+        elif soc15_filter == "exclude-ai-dev-tasks":
+            mask = ~onet_df_full['task_id'].isin(AI_DEV_TASK_IDS)
+        else:  # include-all
+            mask = pd.Series([True] * len(onet_df_full), index=onet_df_full.index)
 
+        if soc15_filter != "include-all":
+            onet_df = onet_df_full[mask].copy().reset_index(drop=True)
+            onet_embeddings = onet_embeddings_full[mask.values]
             excluded_count = len(onet_df_full) - len(onet_df)
-            logger.info(f"Filtered embeddings: excluded {excluded_count} SOC 15 tasks, keeping {len(onet_df)} tasks")
+            logger.info(f"Filtered embeddings (soc15_filter='{soc15_filter}'): excluded {excluded_count} tasks, keeping {len(onet_df)} tasks")
         else:
             onet_df = onet_df_full
             onet_embeddings = onet_embeddings_full
-            logger.info(f"Using all {len(onet_df)} O*NET tasks (including SOC 15)")
+            logger.info(f"Using all {len(onet_df)} O*NET tasks (soc15_filter='include-all')")
 
         # RANGE SEARCH MODE vs. EXHAUSTIVE MODE
         if use_range_search:
@@ -3922,10 +4134,182 @@ class ONETSimilarityMatcher:
             dedup_df, apps_embeddings, onet_df, onet_embeddings,
             use_cache=use_similarities_cache, per_task_mode=per_task_mode, bge_percentiles=bge_percentiles
         )
-        
+
+        # Check if results were streamed to disk (too large for memory)
+        results_on_disk = getattr(self, '_results_on_disk', False)
+
+        if results_on_disk:
+            # ==========================================
+            # DISK-STREAMING PATH: process the streamed dedup parquet in chunks,
+            # add all derived columns, and write final output directly to disk.
+            # Never loads full dataset into memory.
+            # ==========================================
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+
+            streamed_path = self._streamed_dedup_path
+            logger.info(f"Processing streamed results from disk: {streamed_path}")
+
+            # Build lookup for task_type from onet_df
+            task_type_lookup = onet_df.set_index('task_id')['Task Type'].to_dict()
+
+            # Build O*NET SOC code lookup
+            onet_soc_lookup = {}
+            if 'O*NET-SOC Code' in onet_df.columns:
+                onet_soc_lookup = onet_df.set_index('task_id')['O*NET-SOC Code'].to_dict()
+
+            max_bge_percentile = max(bge_percentiles)
+            ce_percentile_threshold = self.global_percentile_thresholds[max_bge_percentile]
+
+            # Build filename components
+            if self.use_openai_embeddings:
+                model_suffix = "_openai"
+            else:
+                model_abbr = self.model_name.split("/")[-1].split("-")[0]
+                model_suffix = f"_{model_abbr}"
+            percentile_str = "_".join(str(int(p)) if isinstance(p, (int, float)) and p == int(p) else str(p)
+                                      for p in sorted(bge_percentiles, reverse=True))
+            ce_percentile_str = "_".join(f"{c:.1f}".replace(".", "p") for c in sorted(ce_thresholds, reverse=True) if c > 0.0)
+            onet_suffix = f"_onet{onet_version}" if onet_version else ""
+
+            # Prepare output paths
+            core_output = os.path.join(output_dir,
+                f"task_exposure_matches_all_thresholds{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}_core.parquet")
+            task_suffix = f"_{task_type}"
+            job_mapping_file = os.path.join(output_dir,
+                f"job_app_mapping{model_suffix}_bge{percentile_str}_ce{ce_percentile_str}{onet_suffix}{task_suffix}.parquet")
+
+            # Read streamed parquet in row groups, add columns, write final output
+            pf = pq.ParquetFile(streamed_path)
+            pq_writer = None
+            total_rows = 0
+            core_rows = 0
+            # Accumulate job mapping in memory (one row per unique app — fits easily)
+            job_mapping_dict = {}  # app_text -> {job_uids: set, first_timestamp: str}
+
+            logger.info(f"Processing {pf.metadata.num_row_groups} row groups from streamed file")
+
+            for rg_idx in range(pf.metadata.num_row_groups):
+                chunk = pf.read_row_group(rg_idx).to_pandas()
+                total_rows += len(chunk)
+
+                # job_uid is stored as pipe-separated string — split back to list for num_jobs
+                chunk['num_jobs'] = chunk['job_uid'].apply(lambda x: len(x.split('|')) if isinstance(x, str) and x else 0)
+
+                # Add ai_app_id
+                chunk['ai_app_id'] = chunk['app_text'].apply(
+                    lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()
+                )
+
+                # Add task_type
+                chunk['task_type'] = chunk['onet_task_id'].map(task_type_lookup)
+
+                # Add onet_soc if available
+                if onet_soc_lookup:
+                    chunk['onet_soc'] = chunk['onet_task_id'].map(onet_soc_lookup)
+
+                # Add cross_encoder_score placeholder (skip-cross-encoder mode)
+                chunk['cross_encoder_score'] = np.nan
+
+                # Add BGE percentile boolean columns
+                for p in bge_percentiles:
+                    if isinstance(p, int) or p == int(p):
+                        pct_name = f'pct_{int(p):02d}'
+                    else:
+                        pct_str = f'{p:.1f}'.replace('.', 'p')
+                        pct_name = f'pct_{pct_str}'
+                    chunk[pct_name] = chunk['similarity'] >= self.global_percentile_thresholds[p]
+
+                # Add minimum threshold boolean
+                chunk['above_min_threshold'] = chunk['similarity'] >= self.minimum_similarity
+
+                # Add CE threshold columns
+                for ce_thresh in ce_thresholds:
+                    col_name = f'ce_{ce_thresh:.1f}'
+                    if ce_thresh == 0.0:
+                        chunk[col_name] = True
+                    else:
+                        chunk[col_name] = False  # No CE scores in skip mode
+
+                # Accumulate job mapping (app_text -> job_uids)
+                for _, row in chunk[['app_text', 'job_uid', 'first_occurrence_tst_created']].iterrows():
+                    app = row['app_text']
+                    if app not in job_mapping_dict:
+                        job_mapping_dict[app] = {
+                            'job_uids': set(),
+                            'first_occurrence_tst_created': row['first_occurrence_tst_created']
+                        }
+                    if isinstance(row['job_uid'], str) and row['job_uid']:
+                        job_mapping_dict[app]['job_uids'].update(row['job_uid'].split('|'))
+
+                # Filter to core tasks if needed and write
+                if task_type in ['core', 'both']:
+                    core_chunk = chunk[chunk['task_type'] == 'Core'].copy()
+                    core_rows += len(core_chunk)
+
+                    if len(core_chunk) > 0:
+                        table = pa.Table.from_pandas(core_chunk, preserve_index=False)
+                        if pq_writer is None:
+                            pq_writer = pq.ParquetWriter(core_output, table.schema, compression='snappy')
+                        pq_writer.write_table(table)
+                        del table
+                    del core_chunk
+
+                del chunk
+                gc.collect()
+
+                if (rg_idx + 1) % 10 == 0 or rg_idx == pf.metadata.num_row_groups - 1:
+                    logger.info(f"  Processed {rg_idx + 1}/{pf.metadata.num_row_groups} row groups, "
+                                f"{total_rows:,} total rows, {core_rows:,} core rows")
+
+            if pq_writer is not None:
+                pq_writer.close()
+            logger.info(f"Saved CORE TASKS: {core_output} ({core_rows:,} rows)")
+
+            # Build and save job mapping
+            job_mapping_rows = []
+            for app_text, info in job_mapping_dict.items():
+                sorted_uids = sorted(info['job_uids'])
+                job_mapping_rows.append({
+                    'app_text': app_text,
+                    'ai_app_id': hashlib.md5(app_text.encode('utf-8')).hexdigest().upper(),
+                    'job_uids': '|'.join(sorted_uids),
+                    'num_jobs': len(sorted_uids),
+                    'first_occurrence_tst_created': info['first_occurrence_tst_created']
+                })
+            job_mapping = pd.DataFrame(job_mapping_rows)
+            job_mapping.to_parquet(job_mapping_file, index=False, compression='snappy')
+            logger.info(f"Saved job mapping: {job_mapping_file} ({len(job_mapping):,} apps)")
+            del job_mapping_dict, job_mapping_rows
+
+            # Build validation metrics
+            validation_metrics = {
+                'total_unique_applications': len(job_mapping),
+                'total_matches': total_rows,
+                'core_matches': core_rows,
+            }
+
+            # Clean up streamed intermediate file
+            streamed_path.unlink(missing_ok=True)
+            logger.info(f"Cleaned up intermediate streamed file")
+
+            logger.info("Step 4 pipeline completed successfully!")
+
+            # NOTE: Exhaustive-mode chunk checkpoints are intentionally NOT deleted here.
+            # Delete them manually from Data/embeddings/checkpoints/ when satisfied with results.
+
+            output_files = []
+            if task_type in ('core', 'both'):
+                output_files.append(core_output)
+            return None, validation_metrics, output_files
+
+        # ==========================================
+        # STANDARD IN-MEMORY PATH (small datasets or non-exhaustive mode)
+        # ==========================================
+
         # Phase D: Validate results
         validation_metrics = self.validate_results(results_df)
-        
+
         # Create deduplicated similarity scores and job mapping
         logger.info("Creating deduplicated similarity scores and job mapping")
 
@@ -3934,11 +4318,9 @@ class ONETSimilarityMatcher:
 
         # Phase D: Pre-filter and deduplicate (conditional based on mode)
         if per_task_mode:
-            # Per-task mode: Skip deduplication for memory efficiency
             logger.info("Per-task mode: Skipping deduplication step for memory efficiency")
             deduplicated_similarities = results_df.copy()
         else:
-            # Global mode: Apply global threshold and deduplicate
             # Safety check: ensure global_percentile_thresholds is available
             if not hasattr(self, 'global_percentile_thresholds') or self.global_percentile_thresholds is None:
                 logger.warning("global_percentile_thresholds not available, computing from results_df")
@@ -3952,13 +4334,10 @@ class ONETSimilarityMatcher:
             ce_percentile_threshold = self.global_percentile_thresholds[max_bge_percentile]
             logger.info(f"Filtering to pairs above global {max_bge_percentile}% percentile ({ce_percentile_threshold:.4f})")
 
-            # Pre-filter before groupby to improve performance
             filtered_results_df = results_df[results_df['similarity'] >= ce_percentile_threshold].copy()
             logger.info(f"Filtered from {len(results_df):,} to {len(filtered_results_df):,} pairs ({len(filtered_results_df)/len(results_df)*100:.1f}%)")
 
-            # Decide whether to use chunked deduplication based on dataset size
             if len(filtered_results_df) > dedup_chunk_size:
-                # Large dataset: use memory-efficient chunked deduplication
                 logger.info(f"Dataset size ({len(filtered_results_df):,}) exceeds chunk size ({dedup_chunk_size:,})")
                 logger.info("Using memory-efficient chunked deduplication")
                 deduplicated_similarities = self._deduplicate_in_chunks(
@@ -3967,71 +4346,52 @@ class ONETSimilarityMatcher:
                     output_dir=output_dir
                 )
             else:
-                # Small dataset: use standard in-memory deduplication
                 logger.info(f"Dataset size ({len(filtered_results_df):,}) within limits, using standard deduplication")
                 deduplicated_similarities = filtered_results_df.groupby(
                     ['app_text', 'onet_task_id', 'onet_task', 'similarity'],
                     as_index=False,
-                    sort=False  # Skip internal sorting; we sort afterward anyway
+                    sort=False
                 ).agg({
-                    'job_uid': list,  # Faster than lambda x: list(set(x))
-                    'first_occurrence_tst_created': 'first'  # Earliest timestamp
+                    'job_uid': list,
+                    'first_occurrence_tst_created': 'first'
                 }).reset_index(drop=True)
 
-                # Deduplicate job_uids after groupby (faster than doing it in lambda)
                 deduplicated_similarities['job_uid'] = deduplicated_similarities['job_uid'].apply(
-                    lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
+                    lambda x: list(dict.fromkeys(x))
                 )
 
         # Add num_jobs column
         deduplicated_similarities['num_jobs'] = deduplicated_similarities['job_uid'].map(len)
 
-        # Add ai_app_id: create a stable hash-based ID for each unique AI application text
-        # Keep this lightweight and deterministic so downstream stages can join on it
+        # Add ai_app_id
         deduplicated_similarities['ai_app_id'] = deduplicated_similarities['app_text'].apply(
-            lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
+            lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()
         )
 
         logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique (app_text, onet_task_id) pairs")
 
-        # Sort both DataFrames by similarity in descending order
-        results_df = results_df.sort_values('similarity', ascending=False)
+        # Sort deduplicated results by similarity in descending order
         deduplicated_similarities = deduplicated_similarities.sort_values('similarity', ascending=False)
 
-        # Clean up massive results_df immediately - we only needed it for sorting
-        logger.info("Freeing memory: deleting large results_df")
-        del results_df
-        gc.collect()
-
-        # Create job mapping (app_text -> list of job_uids) with temporal information
-        # TEMPORARY: Per-task mode skips this to avoid memory issues on current system
-        # TODO: Optimize job_mapping generation for per-task mode so it doesn't exhaust memory
+        # Create job mapping from deduplicated result
         if not per_task_mode:
-            # CRITICAL FIX: Use filtered_results_df instead of results_df to avoid unnecessary computation on 2B rows
-            job_mapping_agg = filtered_results_df.groupby('app_text', sort=False).agg({
-                'job_uid': list,  # Faster than lambda x: list(set(x))
-                'first_occurrence_tst_created': 'first'  # Earliest timestamp for this app_text
+            job_mapping_agg = deduplicated_similarities.groupby('app_text', sort=False).agg({
+                'job_uid': lambda x: list(dict.fromkeys(
+                    uid for sublist in x for uid in (sublist if isinstance(sublist, list) else [sublist])
+                )),
+                'first_occurrence_tst_created': 'first'
             }).reset_index()
 
-            # Deduplicate job_uids
-            job_mapping_agg['job_uid'] = job_mapping_agg['job_uid'].apply(
-                lambda x: list(dict.fromkeys(x))  # Preserves order, removes duplicates
-            )
-
-            job_mapping = job_mapping_agg.copy()
+            job_mapping = job_mapping_agg
             job_mapping['job_uids'] = job_mapping['job_uid'].apply(lambda x: '|'.join(sorted(x)))
-            job_mapping['num_jobs'] = job_mapping['job_uid'].map(len)  # map() is faster than apply() for len
-            # Attach ai_app_id so downstream stages (5–7) can key on a stable identifier
+            job_mapping['num_jobs'] = job_mapping['job_uid'].map(len)
             job_mapping['ai_app_id'] = job_mapping['app_text'].apply(
-                lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()  # 32-char uppercase hex (full MD5)
+                lambda x: hashlib.md5(x.encode('utf-8')).hexdigest().upper()
             )
             job_mapping = job_mapping[['app_text', 'ai_app_id', 'job_uids', 'num_jobs', 'first_occurrence_tst_created']].copy()
 
-            logger.info(f"Created job mapping for {len(job_mapping)} unique applications (temporal ordering preserved)")
-
-            # Clean up filtered_results_df - we only needed it for job mapping
-            logger.info("Freeing memory: deleting filtered_results_df")
-            del filtered_results_df, job_mapping_agg
+            logger.info(f"Created job mapping for {len(job_mapping)} unique applications")
+            del job_mapping_agg
             gc.collect()
         else:
             logger.info("Per-task mode: Skipping job_mapping generation (memory optimization)")
@@ -4039,68 +4399,42 @@ class ONETSimilarityMatcher:
 
         logger.info(f"Deduplicated to {len(deduplicated_similarities)} unique app-task pairs")
 
-        # Phase 3 & 4: Determine highest BGE percentile for cross-encoder and filter
-        logger.info("Phase 3: Determining highest BGE percentile for cross-encoder")
-        max_bge_percentile = max(bge_percentiles)  # e.g., 20 from [20, 10, 5, 1]
-
-        # Use GLOBAL percentile calculated on ALL pairs (not filtered subset)
+        # Phase 3 & 4: Determine highest BGE percentile for cross-encoder
+        max_bge_percentile = max(bge_percentiles)
         ce_percentile_threshold = self.global_percentile_thresholds[max_bge_percentile]
         logger.info(f"Using GLOBAL {max_bge_percentile}% percentile threshold: {ce_percentile_threshold:.4f}")
 
         # Phase E: Cross-encoder validation (optional)
-        cross_encoder_report = None  # Initialize to None (will be set if cross-encoder is used)
+        cross_encoder_report = None
         if skip_cross_encoder:
             logger.info("Phase E: Skipping cross-encoder validation (using BGE scores only)")
             unified_matches = deduplicated_similarities.copy()
-            # Add placeholder column for compatibility
             unified_matches['cross_encoder_score'] = np.nan
         else:
-            # Filter to pairs for cross-encoder validation (conditional based on mode)
             if per_task_mode:
-                # Per-task mode: Use per-task filtering method
                 ce_input_df = self._filter_to_top_per_task_percentile(
-                    deduplicated_similarities.copy(),
-                    percentile=max_bge_percentile
-                )
+                    deduplicated_similarities.copy(), percentile=max_bge_percentile)
             else:
-                # Global mode: Use global threshold
                 ce_input_df = deduplicated_similarities[
-                    deduplicated_similarities['similarity'] >= ce_percentile_threshold
-                ].copy()
+                    deduplicated_similarities['similarity'] >= ce_percentile_threshold].copy()
             logger.info(f"Running cross-encoder on top {max_bge_percentile}% ({len(ce_input_df)} unique pairs)")
 
-            # Cross-encoder validation (parallel or serial)
-            num_workers = getattr(self, 'num_workers', 1)  # Get from instance if set
+            num_workers = getattr(self, 'num_workers', 1)
             if num_workers > 1:
-                logger.info(f"Phase E: Parallel cross-encoder validation ({num_workers} workers)")
                 cross_encoder_validated_df, cross_encoder_report = self.validate_with_cross_encoder_parallel(
-                    similarity_df=ce_input_df.copy(),
-                    cross_encoder_model=cross_encoder_model,
-                    threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds later
-                    batch_size=cross_encoder_batch_size,
-                    num_workers=num_workers,
-                    use_cache=use_cross_encoder_cache
-                )
+                    similarity_df=ce_input_df.copy(), cross_encoder_model=cross_encoder_model,
+                    threshold=0.0, batch_size=cross_encoder_batch_size,
+                    num_workers=num_workers, use_cache=use_cross_encoder_cache)
             else:
-                logger.info("Phase E: Serial cross-encoder validation")
                 cross_encoder_validated_df, cross_encoder_report = self.validate_with_cross_encoder(
-                    similarity_df=ce_input_df.copy(),
-                    cross_encoder_model=cross_encoder_model,
-                    threshold=0.0,  # Keep ALL results, we'll filter by multiple thresholds later
-                    batch_size=cross_encoder_batch_size,
-                    use_cache=use_cross_encoder_cache
-                )
+                    similarity_df=ce_input_df.copy(), cross_encoder_model=cross_encoder_model,
+                    threshold=0.0, batch_size=cross_encoder_batch_size, use_cache=use_cross_encoder_cache)
 
-            # Merge cross-encoder scores with BGE similarities
             unified_matches = deduplicated_similarities.copy()
             ce_scores = cross_encoder_validated_df[['app_text', 'onet_task_id', 'cross_encoder_score']].copy()
-            unified_matches = unified_matches.merge(
-                ce_scores,
-                on=['app_text', 'onet_task_id'],
-                how='left'
-            )
+            unified_matches = unified_matches.merge(ce_scores, on=['app_text', 'onet_task_id'], how='left')
 
-        # Merge Task Type column for core vs all tasks split (do this BEFORE percentile calculations)
+        # Merge Task Type column
         unified_matches = unified_matches.merge(
             onet_df[['task_id', 'Task Type']].rename(columns={'Task Type': 'task_type'}),
             left_on='onet_task_id', right_on='task_id', how='left'
@@ -4388,6 +4722,11 @@ class ONETSimilarityMatcher:
 
         logger.info("Step 4 pipeline completed successfully!")
 
+        # NOTE: Exhaustive-mode chunk checkpoints are intentionally NOT deleted here.
+        # They enable resumption if the pipeline needs to be re-run and allow manual
+        # inspection if issues are found in the final output. Delete them manually
+        # from Data/embeddings/checkpoints/ when you're confident in the results.
+
         # Return output filenames for validation
         output_files = []
         if task_type in ('core', 'both'):
@@ -4629,8 +4968,16 @@ def parse_arguments():
     parser.add_argument("--list-cache", action="store_true",
                        help="List cached embeddings and exit")
     
+    parser.add_argument("--soc15-filter", type=str, default="exclude-all",
+                       choices=SOC15_FILTER_MODES,
+                       help="How to filter SOC group 15 (Computer and Mathematical Occupations) tasks. "
+                            "exclude-all: remove all SOC 15 tasks (default, most conservative). "
+                            "include-all: keep all tasks. "
+                            "exclude-1221-only: remove only 15-1221.00 (CS Research Scientists). "
+                            "exclude-ai-dev-tasks: remove only ~15 Tier 1 AI-development tasks.")
+    # Backward compatibility: --include-soc-15 is equivalent to --soc15-filter include-all
     parser.add_argument("--include-soc-15", action="store_true",
-                       help="Include SOC group 15 (Computer and Mathematical Occupations). Default is to exclude.")
+                       help="(Deprecated) Equivalent to --soc15-filter include-all.")
     
     parser.add_argument("--cross-encoder-model", type=str, default="BAAI/bge-reranker-v2-m3",
                        help="Cross-encoder model name (always runs) (default: BAAI/bge-reranker-v2-m3)")
@@ -4836,13 +5183,21 @@ def main():
         logger.error(f"Failed to initialize matcher: {e}")
         return
 
+    # Resolve SOC 15 filter: --include-soc-15 (deprecated) overrides --soc15-filter
+    soc15_filter = args.soc15_filter
+    if args.include_soc_15:
+        logger.warning("--include-soc-15 is deprecated. Use --soc15-filter include-all instead.")
+        soc15_filter = "include-all"
+    logger.info(f"SOC 15 filter mode: {soc15_filter}")
+
     # Set OpenAI-specific flags
     if args.use_openai_embeddings:
         matcher.force_regenerate_openai = args.force_regenerate_openai
 
         # Handle check-only mode
         if args.check_openai_cache_only:
-            matcher.check_openai_cache_and_report(step3_file, args.onet_version)
+            matcher.check_openai_cache_and_report(step3_file, args.onet_version,
+                                                   soc15_filter=soc15_filter)
             return  # Exit before running pipeline
 
     # Override device if requested (only for BGE embeddings)
@@ -4895,7 +5250,7 @@ def main():
             use_apps_cache=USE_APPS_CACHE,
             use_cross_encoder_cache=not args.no_ce_cache,
             use_similarities_cache=not args.no_similarities_cache,
-            include_soc_15=args.include_soc_15,
+            soc15_filter=soc15_filter,
             skip_cross_encoder=args.skip_cross_encoder,
             cross_encoder_model=args.cross_encoder_model,
             cross_encoder_batch_size=args.cross_encoder_batch_size,

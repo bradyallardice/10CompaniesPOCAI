@@ -1,0 +1,5 @@
+Specification,Coefficient,SE,CI_Lower,CI_Upper,P-value,N,FE,Sig
+"(1) OLS + Age, Gender",0.0887,0.0562,-0.021452,0.198852,0.078,45325,None,*
+(2) OLS + Full Controls,0.0912,0.0551,-0.016796000000000005,0.199196,0.064,45325,None,*
+(3) Person FE + Full Controls,0.0956,0.0548,-0.011807999999999999,0.20300800000000002,0.054,45325,Person,*
+(4) Person + Occ-Year FE + Full Controls,0.093,0.0541,-0.013036000000000006,0.199036,0.057,45325,Person + Occ-Year,*

@@ -90,6 +90,78 @@ Company A has job title "Software Developer" (X28: 1234, 5678)
 Result: Company A linked to ISCO 2153 only
 ```
 
+### Stage 6 SHP: Firm ID Missingness (~75% structural)
+
+**Scope**: Stage 6 SHP exposure linkage
+**Status**: Known limitation, mostly structural (not fixable)
+
+**Key finding** (March 2026): Firm ID missingness is ~75% across ALL years, including 2012–2021 where the firm linkage file exists. The panel stopping at wave 23 (2021) is a minor contributor.
+
+**Breakdown by source**:
+
+| Source | Missing firm_id | % of total missing |
+|--------|----------------|--------------------|
+| 2012–2021 (structural) | 127,888 | 83.0% |
+| 2022–2023 (fixable with updated linkage) | 26,111 | 17.0% |
+| **Total** | **153,999** | |
+
+**Year-by-year rates** (missingness is stable at ~74–80% every year):
+
+| Year | Total rows | Has firm_id | Missing | % missing |
+|------|-----------|-------------|---------|-----------|
+| 2012 | 10,963 | 2,475 | 8,488 | 77.4% |
+| 2013 | 20,447 | 2,568 | 17,879 | 87.4% |
+| 2014 | 18,013 | 4,062 | 13,951 | 77.4% |
+| 2015 | 16,340 | 3,954 | 12,386 | 75.8% |
+| 2016 | 14,957 | 3,693 | 11,264 | 75.3% |
+| 2017 | 13,946 | 3,541 | 10,405 | 74.6% |
+| 2018 | 13,748 | 3,599 | 10,149 | 73.8% |
+| 2019 | 13,150 | 3,540 | 9,610 | 73.1% |
+| 2020 | 24,712 | 5,735 | 18,977 | 76.8% |
+| 2021 | 19,968 | 5,189 | 14,779 | 74.0% |
+| 2022 | 17,048 | 3,839 | 13,209 | 77.5% |
+| 2023 | 16,032 | 3,130 | 12,902 | 80.5% |
+
+**Root cause**: The `shp_firmid_anon.csv` linkage file only covers a subset of SHP respondents — likely those who consented to the employer linkage or who could be matched to administrative records. Most SHP respondents do not have a firm_id in any year.
+
+**Impact on analysis**: The ~40k person-years with firm_id (after forward-fill) represent the usable sample for firm-level exposure measures (levels 1, 2, 5, 6). Occupation-only measures (levels 3, 4) are unaffected and cover ~75k+ person-years.
+
+**Three layers of missingness** (March 2026 decomposition):
+
+| Layer | What | Coverage | Fixable? |
+|-------|------|----------|----------|
+| 1. SHP linkage file | Only 47% of SHP persons appear in the file; only 26% ever get a firm_id | **This is the bottleneck** | No — likely small-firm / self-employed exclusions for anonymization |
+| 2. Forward-fill | Extends firm_id to 22.7% of person-years | Modest help | Already implemented |
+| 3. X28 overlap | 99.96% of SHP firm_ids are in the X28 database (only 3 missing) | Not a problem | N/A |
+
+**Potential improvement from updating linkage to 2024**:
+
+An updated `shp_firmid_anon.csv` covering 2022–2024 would help two groups:
+
+| Group | Person-years gained | Source |
+|-------|-------------------|--------|
+| Previously-linked persons who changed employer or have gaps | ~4,114 | Direct matches for 2022–2023 |
+| Never-linked persons (optimistic, ~50% match rate) | ~11,005 | New matches if anonymization permits |
+
+| Scenario | Gain | New coverage |
+|----------|------|-------------|
+| Conservative (employer-changers only) | +4,114 | 24.8% (from 22.7%) |
+| Optimistic (50% of never-linked also matched) | +15,119 | 30.3% |
+
+The 12,412 never-linked persons in 2022–2023 are likely structurally excluded from the linkage (small firms, self-employed, anonymization restrictions) and may not gain firm_ids regardless of update.
+
+**Decomposition of missing firm_id among employed respondents** (March 2026):
+
+Of ~100,700 employed person-years (full-time + part-time), 45% have a firm_id and 55% do not. Among the 55,393 employed person-years missing a firm_id:
+
+| Category | Person-years | % of employed missing |
+|----------|-------------|----------------------|
+| Employee (should have firm) | 38,680 | 69.8% |
+| Professional status unknown | 13,721 | 24.8% |
+| Self-employed / independent | 2,992 | 5.4% |
+
+Self-employment is a negligible contributor to missingness (5.4% of employed missing). The bulk (~70%) are employees who plausibly should have a firm_id but don't — likely excluded due to anonymization restrictions on small firms.
+
 ### Time-Invariant vs. Time-Variant Exposures
 
 **Scope**: Stage 5 exposure outputs

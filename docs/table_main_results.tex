@@ -1,0 +1,28 @@
+\begin{table}[htbp]
+\centering
+\caption{AI Exposure and Wages: Firm-Year vs. Occupation-Year Fixed Effects}
+\label{tab:main_results}
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{\textbf{Firm-Year FE}} & \multicolumn{2}{c}{\textbf{Occupation-Year FE}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+\textbf{Specification} & \textbf{Coeff.} & \textbf{(SE)} & \textbf{Coeff.} & \textbf{(SE)} \\
+\midrule
+AI Exposure & $-0.0850^*$ & $(0.0392)$ & $+0.1085^{**}$ & $(0.0341)$ \\
+& \multicolumn{2}{c}{} & \multicolumn{2}{c}{} \\
+\multicolumn{5}{l}{\textbf{Difference (OY-FE minus FY-FE):}} \\
+Sign Reversal & \multicolumn{4}{c}{$+0.1935^{**}$ (SE: 0.0537, p=0.001)} \\
+\midrule
+\textbf{Sample Size:} & \multicolumn{4}{c}{37,279 person-year observations} \\
+\textbf{Clustering:} & \multicolumn{4}{c}{Person-level} \\
+\textbf{Controls:} & \multicolumn{4}{c}{Age, tenure, gender, education (all specifications)} \\
+\bottomrule
+\multicolumn{5}{p{\textwidth}}{\footnotesize \textit{Notes:}
+Dependent variable: log hourly wage. AI Exposure is standardized (mean 0, SD 1).
+Significance levels: $^* p<0.05$, $^{**} p<0.01$.
+Firm-Year FE captures within-firm selection: workers within firms with higher AI adoption.
+Occupation-Year FE captures occupation-level shifts: workers' occupations shift toward AI-exposed roles.
+The reversal indicates that selection effects dominate within firms (negative) while composition effects dominate across occupations (positive).
+}
+\end{tabular}
+\end{table}

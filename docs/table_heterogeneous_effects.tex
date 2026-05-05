@@ -1,0 +1,38 @@
+\begin{table}[htbp]
+\centering
+\caption{Heterogeneous Effects by Gender and Age: AI Exposure and Wages}
+\label{tab:heterogeneous_effects}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+& \multicolumn{3}{c}{\textbf{Gender}} & \multicolumn{3}{c}{\textbf{Age}} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+& \textbf{Male} & \textbf{Female} & \textbf{Diff.} & \textbf{Young} & \textbf{Old} & \textbf{Diff.} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Firm-Year Fixed Effects (Within-Firm Selection)}} \\
+AI Exposure & $-0.0167$ & $-0.1763^*$ & $-0.1596$ & $+0.0230$ & $-0.1583^*$ & $-0.1813^*$ \\
+& $(0.0564)$ & $(0.0741)$ & $(0.0950)$ & $(0.0717)$ & $(0.0517)$ & $(0.0883)$ \\
+\midrule
+\multicolumn{7}{l}{\textbf{Occupation-Year Fixed Effects (Occupation Composition)}} \\
+AI Exposure & $+0.1189^{**}$ & $+0.1488^{**}$ & $+0.0299$ & $+0.1676$ & $+0.1373^{**}$ & $-0.0303$ \\
+& $(0.0366)$ & $(0.0512)$ & $(0.0633)$ & $(0.1033)$ & $(0.0414)$ & $(0.1150)$ \\
+\midrule
+\multicolumn{7}{l}{\textbf{Sign Reversal (OY-FE minus FY-FE)}} \\
+Difference & $+0.1356^{**}$ & $+0.3251^{**}$ & --- & $+0.1446$ & $+0.2956^{**}$ & --- \\
+& $(0.0691)$ & $(0.0912)$ & & $(0.1268)$ & $(0.0681)$ & \\
+\midrule
+\textbf{N (person-years):} & 19,480 & 17,799 & & 18,692 & 18,587 & \\
+\textbf{Clustering:} & \multicolumn{6}{c}{Person-level} \\
+\bottomrule
+\multicolumn{7}{p{\textwidth}}{\footnotesize \textit{Notes:}
+Dependent variable: log hourly wage. AI Exposure is standardized (mean 0, SD 1).
+All specifications include controls for age, tenure, gender, and education.
+Young = age $<$ 45, Old = age $\geq$ 45.
+Male sample N = 19,480; Female sample N = 17,799; total N = 37,279.
+Significance levels: $^* p<0.05$, $^{**} p<0.01$.
+\textit{Interpretation:} Female and older workers experience larger wage losses within firms (FY-FE: females -17.6\%, older -15.8\%)
+but also larger wage gains from occupation composition (OY-FE: females +14.9\%, older +13.7\%), implying stronger within-firm selection effects
+for these groups. The sign reversal is 2.4$\times$ larger for females (32.5 pp) and 2.0$\times$ larger for older workers (29.6 pp) vs. overall (19.4 pp).
+}
+\end{tabular}
+\end{table}
