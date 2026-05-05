@@ -79,8 +79,7 @@ def load_panel():
 
 
 def load_exposure():
-    cols = ['company_id', 'isco08_4d', 'year',
-            'hampole_ai_exposure_avg', 'hampole_occupation_exposure']
+    cols = ['company_id', 'isco08_4d', 'year', 'hampole_ai_exposure_avg']
     df = pd.read_csv(exposure_file, usecols=cols)
     logger.info(f"Loaded exposure: {len(df):,} firm-occ-year rows")
 
@@ -94,21 +93,16 @@ def load_exposure():
         raise ValueError(f"Exposure has {n_dup:,} duplicate (firm_id, isco08_4d, year) rows")
     logger.info(f"  ✓ Unique on (firm_id, isco08_4d, year)")
 
-    # Validate occupation exposure is constant within (isco, year)
-    constancy = df.groupby(['isco08_4d', 'year'])['hampole_occupation_exposure'].nunique()
-    n_violate = (constancy > 1).sum()
-    if n_violate > 0:
-        examples = constancy[constancy > 1].head(3)
-        raise ValueError(
-            f"hampole_occupation_exposure varies within (isco, year) in {n_violate:,} cells.\n"
-            f"Examples:\n{examples}"
-        )
-    logger.info(f"  ✓ hampole_occupation_exposure constant within (isco, year)")
+    # Compute occupation-year mean (Exp_bar_{o,t}) across all firms in the database
+    occ_year_mean = (
+        df.groupby(['isco08_4d', 'year'])['hampole_ai_exposure_avg']
+        .agg(['mean', 'std', 'size'])
+        .reset_index()
+        .rename(columns={'mean': 'exp_bar_ot', 'std': 'exp_bar_ot_sd_within_cell', 'size': 'n_firms_oy'})
+    )
+    logger.info(f"  ✓ Computed Exp_bar_{{o,t}}: {len(occ_year_mean):,} (isco, year) cells")
 
-    # |F_{o,t}|
-    f_count = (df.groupby(['isco08_4d', 'year']).size()
-               .reset_index(name='n_firms_oy'))
-    return df, f_count
+    return df, occ_year_mean
 
 
 def merge_and_decompose(panel, exposure, f_count):
