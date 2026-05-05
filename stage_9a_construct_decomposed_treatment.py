@@ -105,9 +105,9 @@ def load_exposure():
     return df, occ_year_mean
 
 
-def merge_and_decompose(panel, exposure, f_count):
+def merge_and_decompose(panel, exposure, occ_year_mean):
     merge_cols = ['firm_id', 'isco08_4d', 'year']
-    keep_from_exp = merge_cols + ['hampole_ai_exposure_avg', 'hampole_occupation_exposure']
+    keep_from_exp = merge_cols + ['hampole_ai_exposure_avg']
 
     merged = panel.merge(
         exposure[keep_from_exp],
@@ -117,17 +117,23 @@ def merge_and_decompose(panel, exposure, f_count):
     n_total = len(merged)
     n_match = (merged['_merge'] == 'both').sum()
     n_panel_with_keys = panel[merge_cols].notna().all(axis=1).sum()
-    logger.info(f"Merge results:")
+    logger.info(f"Firm-level exposure merge:")
     logger.info(f"  - Panel rows: {n_total:,}")
     logger.info(f"  - Panel rows with all merge keys present: {n_panel_with_keys:,}")
-    logger.info(f"  - Matched: {n_match:,} ({100*n_match/n_total:.1f}% of panel, "
+    logger.info(f"  - Matched (firm in DB for that occ-year): {n_match:,} "
+                f"({100*n_match/n_total:.1f}% of panel, "
                 f"{100*n_match/n_panel_with_keys:.1f}% of rows with keys)")
-
     merged = merged.drop(columns=['_merge'])
-    merged = merged.merge(f_count, on=['isco08_4d', 'year'], how='left')
 
-    merged['exp_bar_ot'] = merged['hampole_occupation_exposure']
-    merged['exp_dev'] = merged['hampole_ai_exposure_avg'] - merged['hampole_occupation_exposure']
+    # Merge occ-year mean (defined whenever (isco, year) has any firm in the exposure DB)
+    merged = merged.merge(occ_year_mean, on=['isco08_4d', 'year'], how='left')
+    n_with_oy_mean = merged['exp_bar_ot'].notna().sum()
+    logger.info(f"Occupation-year mean merge:")
+    logger.info(f"  - Panel rows with exp_bar_ot defined: {n_with_oy_mean:,} "
+                f"({100*n_with_oy_mean/n_total:.1f}% of panel)")
+
+    # Decomposition: deviation only defined when firm-level exposure is present
+    merged['exp_dev'] = merged['hampole_ai_exposure_avg'] - merged['exp_bar_ot']
 
     return merged
 
