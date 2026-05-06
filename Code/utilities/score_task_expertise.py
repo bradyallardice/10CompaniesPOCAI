@@ -1,12 +1,16 @@
 import json
 import logging
+import os
 from pathlib import Path
 
 import pandas as pd
+from dotenv import load_dotenv
 from openai import OpenAI
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+load_dotenv(Path(__file__).parent.parent.parent / "config.env", override=False)
 
 BASE_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = BASE_DIR / "Data"
