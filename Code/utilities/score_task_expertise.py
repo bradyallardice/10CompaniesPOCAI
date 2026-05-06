@@ -63,7 +63,7 @@ def score_batch(client, batch):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        temperature=0,
+
     )
     raw = response.choices[0].message.content.strip()
 
