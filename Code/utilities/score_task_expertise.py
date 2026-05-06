@@ -45,7 +45,12 @@ def load_tasks():
 
 def load_checkpoint():
     if CHECKPOINT_FILE.exists():
-        df = pd.read_csv(CHECKPOINT_FILE)
+        try:
+            df = pd.read_csv(CHECKPOINT_FILE)
+        except pd.errors.EmptyDataError:
+            logger.warning("Checkpoint file is empty — starting from scratch")
+            CHECKPOINT_FILE.unlink()
+            return pd.DataFrame(columns=["task_id", "expertise_score"]), set()
         completed = set(df["task_id"].tolist())
         logger.info(f"Checkpoint found: {len(completed)} tasks already scored")
         return df, completed
