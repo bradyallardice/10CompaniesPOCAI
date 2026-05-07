@@ -187,6 +187,14 @@ def build_analysis_frame(panel, firm, shp):
     lr = pd.to_numeric(df['outcome_leftright'], errors='coerce')
     df['leftright'] = lr.where(lr >= 0)
 
+    # Rotating battery political outcomes: valid range is > 0 (1-3 or 1-10 scales)
+    for raw_col, clean_col in [('outcome_nativism',       'nativism'),
+                                ('outcome_welfare',        'welfare'),
+                                ('outcome_redistributive', 'redistributive'),
+                                ('outcome_gender_equality','gender_equality')]:
+        s = pd.to_numeric(df[raw_col], errors='coerce')
+        df[clean_col] = s.where(s > 0)
+
     df['matched']   = df[EXPOSURE] > 0
     df['x28_linked'] = df[EXPOSURE].notna()
 
