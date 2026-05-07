@@ -139,6 +139,8 @@ def load_data():
     shp = shp[keep]
     for c in keep[2:]:
         logger.info(f"  {c}: {shp[c].notna().sum():,} valid")
+    logger.info(f"  vote_svp base rate: {shp['vote_svp'].mean():.3f} | "
+                f"vote_sp_gps base rate: {shp['vote_sp_gps'].mean():.3f}")
 
     logger.info("Loading firm report...")
     firm = pd.read_csv(firm_file)
