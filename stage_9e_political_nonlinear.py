@@ -486,7 +486,9 @@ def module_d(df):
     outcomes_d = [
         ('job_insecurity',  'Job Insecurity (1-4)'),
         ('vote_svp',        'Vote SVP/UDC'),
-        ('vote_sp_gps',     'Vote SP/GPS'),
+        ('vote_sp',         'Vote SP'),
+        ('vote_fdp',        'Vote FDP'),
+        ('vote_glp',        'Vote GLP'),
         ('redistributive',  'Redistribution Support'),
     ]
 
