@@ -95,7 +95,8 @@ def load_data():
             raise FileNotFoundError(f"Required input not found: {f}")
 
     logger.info("Loading panel data...")
-    want = ['idpers', 'firm_id', 'isco08_4d', 'year', EXPOSURE] + CONTROLS + list(OUTCOMES.keys())
+    # outcome_leftright is the raw panel column; 'leftright' is the cleaned derived version
+    want = ['idpers', 'firm_id', 'isco08_4d', 'year', EXPOSURE, 'outcome_leftright'] + CONTROLS + list(OUTCOMES.keys())
     panel = pd.read_csv(panel_file, low_memory=False, usecols=lambda c: c in want)
     panel['firm_id'] = panel['firm_id'].astype('Int64')
     panel['year']    = panel['year'].astype('int64')
