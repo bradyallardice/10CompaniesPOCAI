@@ -171,6 +171,13 @@ def load_data():
     # Life satisfaction: pc44 scale 0-10
     shp['life_satisfaction'] = _pos('pc44')
 
+    # Job satisfaction sub-dimensions: pw92-pw94, pw229, pw230 all 0-10
+    shp['jobsat_income']     = _pos('pw92')
+    shp['jobsat_conditions'] = _pos('pw93')
+    shp['jobsat_atmosphere'] = _pos('pw94')
+    shp['jobsat_tasks']      = _pos('pw229')
+    shp['jobsat_workload']   = _pos('pw230')
+
     keep_cols = ['idpers', 'year', 'firm_size', 'unemp_risk', 'job_satisfaction',
                  'employer_change', 'restructuring', 'work_intensity', 'work_stress',
                  'work_autonomy', 'depression_anxiety', 'life_satisfaction']
