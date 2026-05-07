@@ -75,6 +75,12 @@ OUTCOMES = {
     'job_satisfaction':        'Job Satisfaction Overall (0-10)',
     'employer_change':         'Employer Change (binary, LPM)',
     'restructuring':           'Firm Restructuring (binary, LPM)',
+    # Job satisfaction sub-dimensions (all 0-10)
+    'jobsat_income':           'Job Satisfaction: Income (0-10)',
+    'jobsat_conditions':       'Job Satisfaction: Work Conditions (0-10)',
+    'jobsat_atmosphere':       'Job Satisfaction: Atmosphere (0-10)',
+    'jobsat_tasks':            'Job Satisfaction: Interest in Tasks (0-10)',
+    'jobsat_workload':         'Job Satisfaction: Workload (0-10, to 2021)',
     # Work quality
     'work_intensity':          'Work Intensity/Pace (0-10)',
     'work_stress':             'Work Stress (binary, LPM)',
