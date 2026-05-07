@@ -131,3 +131,63 @@ The FD result is an underpowered but directionally consistent confirmation of th
 | First-differences (d_exp_dev) | β = +0.186, p=0.210 | Consistent, underpowered |
 
 The job insecurity result is robust across all tests. The most credible estimate — matched firms only, firm + person + occ-year FE — gives β = +0.217 (SE = 0.085, p = 0.010), and passes the placebo leads test cleanly.
+
+---
+
+## 6. Outcome Landscape: What AI Exposure Does and Does Not Affect
+
+To assess the specificity of the job insecurity finding, we run the same specification (matched-only, Person + 3d-ISCO×Year FE, one-way cluster on idpers) across 17 outcomes spanning economic, work quality, wellbeing, and political domains. All outcomes are sourced from the SHP; political outcomes from the rotating battery (2014, 2017, 2020, 2023 only) have approximately N=2,100 in the matched sample.
+
+### Economic and labor market outcomes
+
+| Outcome | N | β | SE | p |
+|---|---|---|---|---|
+| **Job insecurity (pw86/pw86a, 1–4)** | 6,139 | **+0.210** | 0.084 | **0.012** |
+| Perceived unemployment risk (pw101, 0–10) | 6,085 | +0.316 | 0.255 | 0.215 |
+| Employer change (pw18-based, binary) | 5,661 | +0.053 | 0.030 | 0.081 |
+| Firm restructuring (pw602, binary) | 5,908 | −0.009 | 0.045 | 0.839 |
+| Separation (forward-looking, binary) | 4,634 | −0.002 | 0.029 | 0.939 |
+| Log income (iwyn) | 5,640 | +0.002 | 0.033 | 0.952 |
+| Hours worked (pw77) | 5,548 | +0.689 | 0.702 | 0.327 |
+
+### Job quality and working conditions
+
+| Outcome | N | β | SE | p |
+|---|---|---|---|---|
+| Job satisfaction overall (pw228, 0–10) | 6,134 | +0.101 | 0.184 | 0.581 |
+| Work intensity/pace (pw603, 0–10) | 6,120 | −0.099 | 0.244 | 0.684 |
+| Work stress (pw604, binary) | 6,085 | −0.031 | 0.053 | 0.560 |
+| Work autonomy (pw91, 1–3) | 5,977 | +0.005 | 0.062 | 0.935 |
+
+### Wellbeing and mental health
+
+| Outcome | N | β | SE | p |
+|---|---|---|---|---|
+| Life satisfaction (pc44, 0–10) | 6,137 | +0.117 | 0.101 | 0.244 |
+| Depression/anxiety frequency (pc17, 0–10) | 6,130 | −0.134 | 0.169 | 0.430 |
+
+### Political attitudes
+
+| Outcome | N | β | SE | p | Note |
+|---|---|---|---|---|---|
+| Left-right self-placement (pp10, 0–10) | 5,523 | −0.031 | 0.121 | 0.800 | Annual |
+| Redistribution support (pp17, 1–3) | 2,147 | +0.177 | 0.113 | 0.116 | Rotating battery |
+| Gender equality (pp15-derived, 1–10) | 2,050 | +0.319 | 0.286 | 0.264 | Rotating battery |
+| Welfare state support (pp13, 1–3) | 2,075 | −0.048 | 0.111 | 0.667 | Rotating battery |
+| Nativism / opp. for foreigners (pp15, 1–3) | 2,137 | +0.013 | 0.124 | 0.918 | Rotating battery |
+
+### Interpretation
+
+**Job insecurity is the only statistically significant outcome.** This specificity is substantively informative, not a failure to find effects:
+
+- **No income or hours effects**: AI adoption at the firm level has not (yet) translated into measurable wage suppression or hours changes for workers in the matched sample. The absence is credible — the matched sample covers 2012–2023, a period of adoption rather than mass displacement.
+
+- **No work intensification or autonomy loss**: Work stress, work intensity, and autonomy are all near-zero. Workers at AI-adopting firms do not report a harder or less autonomous work experience. This rules out a simple "AI as Taylorism" mechanism.
+
+- **No wellbeing spillovers**: Life satisfaction is weakly positive (consistent with matched firms being healthier employers) and depression/anxiety is near-zero. Job insecurity is therefore a forward-looking *anxiety about the future*, not a signal of deteriorating present welfare.
+
+- **Redistribution support trending positive (p=0.116)**: The point estimate of +0.177 on a 1–3 scale is economically meaningful but statistically noisy at N≈2,100. The direction is consistent with an insecurity-to-redistribution demand channel. The rotating battery design (4 waves) is the binding constraint on power; with continuous coverage, this would be the most theoretically important political finding.
+
+- **No effect on nativism**: AI exposure does not feed into anti-immigration sentiment within the panel timeframe. This is a meaningful negative result for the populism literature: economic insecurity from technological change does not straightforwardly translate into scapegoating of foreigners, at least in Switzerland over this period.
+
+- **Left-right shows nothing**: No detectable rightward or leftward shift on the ideological self-placement scale. If AI exposure has political effects, they operate through specific policy preferences (redistribution) rather than broad ideological repositioning.
