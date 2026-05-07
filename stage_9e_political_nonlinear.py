@@ -281,12 +281,25 @@ def module_a(df):
         logger.info(f"  {v}: N={len(sub):,}, switchers={switchers} ({100*switchers/len(wp):.1f}% of persons) "
                     f"— person FE identifies only within-person switches")
 
-    # Annual outcomes (full panel coverage → strong power)
-    # NOTE: vote outcomes have ~8-11% within-person switching; person FE leaves limited variation
+    # Vote diagnostics
+    vote_vars = ['vote_svp', 'vote_sp', 'vote_fdp', 'vote_cvp', 'vote_glp', 'vote_bdp', 'vote_no_party']
+    for v in vote_vars:
+        sub = matched.dropna(subset=[v])
+        wp = sub.groupby('idpers')[v].nunique()
+        switchers = (wp > 1).sum()
+        base = sub[v].mean()
+        logger.info(f"  {v}: N={len(sub):,}, base={base:.3f}, switchers={switchers} ({100*switchers/len(wp):.1f}%)")
+
+    # Annual outcomes — disaggregated by party
+    # NOTE: ~6-11% within-person switching per party; person FE identifies only switchers
     annual = [
-        ('vote_svp',      'Vote SVP/UDC (binary, annual)'),
-        ('vote_sp_gps',   'Vote SP/GPS (binary, annual)'),
-        ('vote_sp',       'Vote SP (binary, annual)'),
+        ('vote_svp',      'Vote SVP/UDC — right-populist (binary)'),
+        ('vote_sp',       'Vote SP — Social Democrats (binary)'),
+        ('vote_fdp',      'Vote FDP — Liberals/center-right (binary)'),
+        ('vote_cvp',      'Vote CVP/PDC — Christian Dem/center (binary)'),
+        ('vote_glp',      'Vote GLP — Green Liberals (binary)'),
+        ('vote_bdp',      'Vote BDP — Conservative Dem (binary)'),
+        ('vote_no_party', 'Vote no party / wouldn\'t vote (disengagement)'),
         ('leftright',     'Left-Right Self-Placement (0-10, annual)'),
         ('social_trust',  'Social Trust (pp45, 0-10, from 2002)'),
     ]
