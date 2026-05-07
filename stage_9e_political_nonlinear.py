@@ -134,7 +134,8 @@ def load_data():
                                     lambda x: 1 if x == 1 else (0 if x == 2 else np.nan))
 
     keep = ['idpers', 'year', 'unemp_risk', 'democracy_sat', 'political_efficacy',
-            'trust_govt', 'eu_opinion', 'social_trust', 'computer_work']
+            'trust_govt', 'eu_opinion', 'social_trust', 'computer_work',
+            'vote_svp', 'vote_sp_gps', 'vote_sp']
     shp = shp[keep]
     for c in keep[2:]:
         logger.info(f"  {c}: {shp[c].notna().sum():,} valid")
