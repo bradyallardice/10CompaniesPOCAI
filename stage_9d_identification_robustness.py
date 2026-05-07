@@ -98,11 +98,38 @@ def load_data():
     firm = firm[['firm_id', 'year', 'log_job_ads']]
     logger.info(f"  Firm report: {len(firm):,} firm-year rows")
 
-    logger.info("Loading SHP firm size (pw85)...")
-    shp = pd.read_csv(shp_file, usecols=['idpers', 'year', 'pw85'], low_memory=False)
+    logger.info("Loading SHP auxiliary variables (pw85, pw101, pw228, pw18, pw602)...")
+    shp_cols = ['idpers', 'year', 'pw85', 'pw101', 'pw228', 'pw18', 'pw602']
+    shp = pd.read_csv(shp_file, usecols=lambda c: c in shp_cols, low_memory=False)
+
+    # Firm size: pw85 categories 1-9; negative = missing
     shp['firm_size'] = shp['pw85'].where(shp['pw85'] > 0)
-    shp = shp[['idpers', 'year', 'firm_size']]
-    logger.info(f"  pw85 valid responses: {shp['firm_size'].notna().sum():,}")
+
+    # Perceived unemployment risk: pw101 scale 0-10; negative = missing
+    shp['unemp_risk'] = pd.to_numeric(shp['pw101'], errors='coerce')
+    shp['unemp_risk'] = shp['unemp_risk'].where(shp['unemp_risk'] >= 0)
+
+    # Overall job satisfaction: pw228 scale 0-10; negative = missing
+    shp['job_satisfaction'] = pd.to_numeric(shp['pw228'], errors='coerce')
+    shp['job_satisfaction'] = shp['job_satisfaction'].where(shp['job_satisfaction'] >= 0)
+
+    # Employer change: pw18 = 2 (employer only) or 3 (both job and employer) → 1; 4 (no change) → 0
+    pw18 = pd.to_numeric(shp['pw18'], errors='coerce')
+    shp['employer_change'] = np.where(pw18.isin([2, 3]), 1,
+                              np.where(pw18.isin([1, 4]), 0, np.nan))
+
+    # Restructuring: pw602 = 1 (yes) → 1; 2 (no) → 0; negative = missing
+    pw602 = pd.to_numeric(shp['pw602'], errors='coerce')
+    shp['restructuring'] = np.where(pw602 == 1, 1,
+                            np.where(pw602 == 2, 0, np.nan))
+
+    shp = shp[['idpers', 'year', 'firm_size', 'unemp_risk', 'job_satisfaction',
+                'employer_change', 'restructuring']]
+    logger.info(f"  pw85 valid: {shp['firm_size'].notna().sum():,} | "
+                f"pw101 valid: {shp['unemp_risk'].notna().sum():,} | "
+                f"pw228 valid: {shp['job_satisfaction'].notna().sum():,} | "
+                f"employer_change valid: {shp['employer_change'].notna().sum():,} | "
+                f"restructuring valid: {shp['restructuring'].notna().sum():,}")
 
     return panel, firm, shp
 
