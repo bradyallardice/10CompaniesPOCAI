@@ -376,6 +376,7 @@ def module_c(df):
     outcomes_c = [
         ('vote_svp',       'Vote SVP/UDC'),
         ('vote_sp_gps',    'Vote SP/GPS'),
+        ('vote_sp',        'Vote SP'),
         ('leftright',      'Left-Right (0-10)'),
         ('redistributive', 'Redistribution Support'),
         ('welfare',        'Social Spending Support'),
