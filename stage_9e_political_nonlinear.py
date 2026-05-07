@@ -540,7 +540,7 @@ def module_e(firm):
         logger.info(f"  {'Treatment':<50} {'N':>6}  {'beta':>9}  {'SE':>7}  {'p':>6}")
         logger.info(f"  {'-'*80}")
         for treat, treat_label in treat_pairs:
-            res, s = fit_firm_ols(df, outcome, [treat], ['log_job_ads'])
+            res, s = fit_firm_ols(df, outcome, [treat], [])
             if res is None:
                 logger.info(f"  {treat_label:<50}  N too small")
                 continue
