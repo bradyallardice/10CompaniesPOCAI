@@ -151,8 +151,9 @@ def load_data():
     shp['firm_size'] = pw85.where(pw85 > 0)    # 1-9 ordinal; negative = missing
 
     keep = ['idpers', 'year', 'unemp_risk', 'democracy_sat', 'political_efficacy',
-            'trust_govt', 'eu_opinion', 'social_trust', 'computer_work',
-            'firm_size', 'vote_svp', 'vote_sp_gps', 'vote_sp']
+            'trust_govt', 'eu_opinion', 'social_trust', 'computer_work', 'firm_size',
+            'vote_svp', 'vote_sp', 'vote_fdp', 'vote_cvp', 'vote_glp', 'vote_bdp',
+            'vote_no_party', 'vote_sp_gps']
     shp = shp[keep]
     for c in keep[2:]:
         logger.info(f"  {c}: {shp[c].notna().sum():,} valid")
