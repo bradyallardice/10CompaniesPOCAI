@@ -109,38 +109,60 @@ def load_data():
     firm = firm[['firm_id', 'year', 'log_job_ads']]
     logger.info(f"  Firm report: {len(firm):,} firm-year rows")
 
-    logger.info("Loading SHP auxiliary variables (pw85, pw101, pw228, pw18, pw602)...")
-    shp_cols = ['idpers', 'year', 'pw85', 'pw101', 'pw228', 'pw18', 'pw602']
+    logger.info("Loading SHP auxiliary variables...")
+    shp_cols = ['idpers', 'year', 'pw85', 'pw101', 'pw228', 'pw18', 'pw602',
+                'pw603', 'pw604', 'pw91', 'pc17', 'pc44']
     shp = pd.read_csv(shp_file, usecols=lambda c: c in shp_cols, low_memory=False)
 
+    def _pos(col):
+        s = pd.to_numeric(shp[col], errors='coerce')
+        return s.where(s >= 0)
+
+    def _pos_nonzero(col):
+        s = pd.to_numeric(shp[col], errors='coerce')
+        return s.where(s > 0)
+
+    def _binary(col, yes_codes, no_codes):
+        s = pd.to_numeric(shp[col], errors='coerce')
+        return np.where(s.isin(yes_codes), 1, np.where(s.isin(no_codes), 0, np.nan))
+
     # Firm size: pw85 categories 1-9; negative = missing
-    shp['firm_size'] = shp['pw85'].where(shp['pw85'] > 0)
+    shp['firm_size'] = _pos_nonzero('pw85')
 
-    # Perceived unemployment risk: pw101 scale 0-10; negative = missing
-    shp['unemp_risk'] = pd.to_numeric(shp['pw101'], errors='coerce')
-    shp['unemp_risk'] = shp['unemp_risk'].where(shp['unemp_risk'] >= 0)
+    # Perceived unemployment risk: pw101 scale 0-10
+    shp['unemp_risk'] = _pos('pw101')
 
-    # Overall job satisfaction: pw228 scale 0-10; negative = missing
-    shp['job_satisfaction'] = pd.to_numeric(shp['pw228'], errors='coerce')
-    shp['job_satisfaction'] = shp['job_satisfaction'].where(shp['job_satisfaction'] >= 0)
+    # Overall job satisfaction: pw228 scale 0-10
+    shp['job_satisfaction'] = _pos('pw228')
 
-    # Employer change: pw18 = 2 (employer only) or 3 (both job and employer) → 1; 4 (no change) → 0
-    pw18 = pd.to_numeric(shp['pw18'], errors='coerce')
-    shp['employer_change'] = np.where(pw18.isin([2, 3]), 1,
-                              np.where(pw18.isin([1, 4]), 0, np.nan))
+    # Employer change: pw18 in {2,3} = employer changed; {1,4} = no employer change
+    shp['employer_change'] = _binary('pw18', yes_codes=[2, 3], no_codes=[1, 4])
 
-    # Restructuring: pw602 = 1 (yes) → 1; 2 (no) → 0; negative = missing
-    pw602 = pd.to_numeric(shp['pw602'], errors='coerce')
-    shp['restructuring'] = np.where(pw602 == 1, 1,
-                            np.where(pw602 == 2, 0, np.nan))
+    # Restructuring: pw602 1=yes, 2=no
+    shp['restructuring'] = _binary('pw602', yes_codes=[1], no_codes=[2])
 
-    shp = shp[['idpers', 'year', 'firm_size', 'unemp_risk', 'job_satisfaction',
-                'employer_change', 'restructuring']]
-    logger.info(f"  pw85 valid: {shp['firm_size'].notna().sum():,} | "
-                f"pw101 valid: {shp['unemp_risk'].notna().sum():,} | "
-                f"pw228 valid: {shp['job_satisfaction'].notna().sum():,} | "
-                f"employer_change valid: {shp['employer_change'].notna().sum():,} | "
-                f"restructuring valid: {shp['restructuring'].notna().sum():,}")
+    # Work intensity/pace: pw603 scale 0-10; negative = missing
+    shp['work_intensity'] = _pos('pw603')
+
+    # Work stress: pw604 binary; 1=yes (stressed), 2=no
+    shp['work_stress'] = _binary('pw604', yes_codes=[1], no_codes=[2])
+
+    # Work autonomy: pw91 ordinal 1-3 (higher = more autonomy); negative = missing
+    shp['work_autonomy'] = _pos_nonzero('pw91')
+
+    # Depression/anxiety frequency: pc17 scale 0-10
+    shp['depression_anxiety'] = _pos('pc17')
+
+    # Life satisfaction: pc44 scale 0-10
+    shp['life_satisfaction'] = _pos('pc44')
+
+    keep_cols = ['idpers', 'year', 'firm_size', 'unemp_risk', 'job_satisfaction',
+                 'employer_change', 'restructuring', 'work_intensity', 'work_stress',
+                 'work_autonomy', 'depression_anxiety', 'life_satisfaction']
+    shp = shp[keep_cols]
+
+    for c in keep_cols[2:]:
+        logger.info(f"  {c}: {shp[c].notna().sum():,} valid")
 
     return panel, firm, shp
 
