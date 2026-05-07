@@ -115,9 +115,21 @@ def load_data():
     # pp19 valid codes: 1=FDP, 2=CVP, 3=SP, 4=SVP, 9=GPS, 50=no party, 51=wouldn't vote, 52=spoiled
     pp19 = pd.to_numeric(shp['pp19'], errors='coerce')
     pp19_valid = pp19.where(pp19 > 0)   # drops negative missing codes (-1, -2, -3)
-    shp['vote_svp']    = (pp19_valid == 4).astype(float).where(pp19_valid.notna())
-    shp['vote_sp_gps'] = pp19_valid.isin([3, 9]).astype(float).where(pp19_valid.notna())
-    shp['vote_sp']     = (pp19_valid == 3).astype(float).where(pp19_valid.notna())
+
+    def _vote(codes):
+        v = pp19_valid.isin(codes) if isinstance(codes, list) else (pp19_valid == codes)
+        return v.astype(float).where(pp19_valid.notna())
+
+    # Main parties — disaggregated
+    shp['vote_svp']       = _vote(4)           # SVP/UDC right-populist
+    shp['vote_sp']        = _vote(3)           # SP Social Democrats
+    shp['vote_fdp']       = _vote(1)           # FDP Liberals (center-right)
+    shp['vote_cvp']       = _vote(2)           # CVP/PDC Christian Democrats (center)
+    shp['vote_glp']       = _vote([11, 20])    # GLP Green Liberals (11=old code, 20=new)
+    shp['vote_bdp']       = _vote(21)          # BDP Conservative Democrats
+    shp['vote_no_party']  = _vote([50, 51])    # No party / wouldn't vote (disengagement)
+    # Legacy grouped (kept for Module C/D compatibility)
+    shp['vote_sp_gps']    = _vote([3, 9])
 
     def _pos(col):
         s = pd.to_numeric(shp[col], errors='coerce')
