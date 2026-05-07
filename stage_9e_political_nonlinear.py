@@ -192,13 +192,25 @@ def build_analysis_frame(panel, shp, firm):
 
     df = df.merge(shp, on=['idpers', 'year'], how='left')
 
-    # Merge log_job_ads (firm-year total posting volume) as firm-level control
+    # Build firm-level log_job_ads with lag at firm×year level (avoids endogeneity)
     firm_ctrl = firm[['company_id', 'year', 'total_unique_job_ads']].copy()
     firm_ctrl['firm_id_int'] = ((firm_ctrl['company_id'].astype('int64') + 13) * 13)
-    firm_ctrl['log_job_ads'] = np.log1p(firm_ctrl['total_unique_job_ads'])
+    firm_ctrl['log_job_ads']  = np.log1p(firm_ctrl['total_unique_job_ads'])
+    firm_ctrl = firm_ctrl.sort_values(['firm_id_int', 'year']).reset_index(drop=True)
+    yr_prev_firm = firm_ctrl.groupby('firm_id_int')['year'].shift(1)
+    consec_firm  = (firm_ctrl['year'] - yr_prev_firm == 1)
+    firm_ctrl['log_job_ads_lag1'] = (firm_ctrl.groupby('firm_id_int')['log_job_ads']
+                                     .shift(1).where(consec_firm))
     df['firm_id_int'] = pd.to_numeric(df['firm_id'], errors='coerce').astype('Int64')
-    df = df.merge(firm_ctrl[['firm_id_int', 'year', 'log_job_ads']],
+    df = df.merge(firm_ctrl[['firm_id_int', 'year', 'log_job_ads_lag1']],
                   on=['firm_id_int', 'year'], how='left')
+
+    # Lag firm_size (pw85) within person×year
+    df = df.sort_values(['idpers', 'year']).reset_index(drop=True)
+    yr_prev_pers = df.groupby('idpers')['year'].shift(1)
+    consec_pers  = (df['year'] - yr_prev_pers == 1)
+    df['firm_size_lag1'] = (df.groupby('idpers')['firm_size']
+                            .shift(1).where(consec_pers))
 
     # Clean political variables already in panel (negative = missing code)
     for raw, clean, use_pos in [
