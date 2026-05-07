@@ -93,6 +93,7 @@ def load_data():
         'outcome_welfare', 'outcome_redistributive', 'outcome_gender_equality',
         'pp10', 'pp13', 'pp15', 'pp17', 'pp22',
         'separation_t1',
+        'female', 'education',   # kept for subgroup splits in Module D, not regression controls
     ] + CONTROLS
     panel = pd.read_csv(panel_file, low_memory=False,
                         usecols=lambda c: c in panel_want)
