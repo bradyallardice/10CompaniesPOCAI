@@ -101,9 +101,8 @@ def build_analysis_frame(panel, firm, shp):
     df['occ_year'] = df['isco3d'] + '_' + df['year'].astype(str)
 
     df = df.merge(shp,  on=['idpers', 'year'],    how='left')
-    df = df.merge(firm, on=['firm_id_int', 'year'], how='left',
-                  left_on=['firm_id_int', 'year'], right_on=['firm_id', 'year'])
-    df = df.drop(columns=['firm_id_y'], errors='ignore')
+    firm_renamed = firm.rename(columns={'firm_id': 'firm_id_int'})
+    df = df.merge(firm_renamed, on=['firm_id_int', 'year'], how='left')
 
     # Sample flags
     df['matched'] = df[EXPOSURE] > 0               # confirmed AI adoption
