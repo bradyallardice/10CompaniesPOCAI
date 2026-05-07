@@ -70,8 +70,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 EXPOSURE = 'hampole_ai_exposure_avg_foy'
-# firm_size (pw85) and log_job_ads vary within-person over time → not absorbed by person FE
-CONTROLS = ['age_centered', 'age_squared', 'female', 'education', 'firm_size', 'log_job_ads']
+# All controls are time-varying and pre-determined relative to current AI exposure.
+# female/education dropped — time-invariant, fully absorbed by person FE.
+# firm_size and log_job_ads lagged (t-1) to avoid conditioning on outcomes caused by treatment.
+CONTROLS = ['age_centered', 'age_squared',
+            'contract_perm',      # permanent contract (pw36==2 vs fixed-term)
+            'part_time',          # part-time (pw39==1 vs full-time)
+            'computer_work',      # uses computer at work (pw607) — tech-intensity proxy
+            'firm_size_lag1',     # lagged employer size (pw85 at t-1)
+            'log_job_ads_lag1']   # lagged firm hiring volume (log job ads at t-1)
 PERSON_FE = 'idpers'
 OCC_YEAR_FE = 'occ_year'
 
