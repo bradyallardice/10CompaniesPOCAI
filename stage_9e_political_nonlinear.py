@@ -84,7 +84,6 @@ def load_data():
         'outcome_job_insecurity', 'outcome_leftright', 'outcome_nativism',
         'outcome_welfare', 'outcome_redistributive', 'outcome_gender_equality',
         'pp10', 'pp13', 'pp15', 'pp17', 'pp22',
-        'vote_sp_gps', 'vote_svp',
         'separation_t1',
     ] + CONTROLS
     panel = pd.read_csv(panel_file, low_memory=False,
@@ -98,6 +97,8 @@ def load_data():
         'idpers', 'year',
         # Fear moderators
         'pw101',
+        # Vote intention (numeric coding: 3=SP, 4=SVP, 9=GPS)
+        'pp19',
         # Political — rotating / annual
         'pp02', 'pp03', 'pp04', 'pp14', 'pp45',
         # Computer use at work (robustness moderator)
@@ -106,6 +107,14 @@ def load_data():
     shp = pd.read_csv(shp_file, low_memory=False,
                       usecols=lambda c: c in shp_want)
     shp['year'] = pd.to_numeric(shp['year'], errors='coerce').astype('Int64')
+
+    # Construct vote variables from numeric pp19 (stage_8a construction was broken)
+    # pp19 valid codes: 1=FDP, 2=CVP, 3=SP, 4=SVP, 9=GPS, 50=no party, 51=wouldn't vote, 52=spoiled
+    pp19 = pd.to_numeric(shp['pp19'], errors='coerce')
+    pp19_valid = pp19.where(pp19 > 0)   # drops negative missing codes (-1, -2, -3)
+    shp['vote_svp']    = (pp19_valid == 4).astype(float).where(pp19_valid.notna())
+    shp['vote_sp_gps'] = pp19_valid.isin([3, 9]).astype(float).where(pp19_valid.notna())
+    shp['vote_sp']     = (pp19_valid == 3).astype(float).where(pp19_valid.notna())
 
     def _pos(col):
         s = pd.to_numeric(shp[col], errors='coerce')
