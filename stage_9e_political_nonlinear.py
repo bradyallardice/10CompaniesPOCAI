@@ -109,10 +109,12 @@ def load_data():
         'pp19',
         # Political — rotating / annual
         'pp02', 'pp03', 'pp04', 'pp14', 'pp45',
-        # Firm-level controls
+        # Firm-level controls (lagged in build_analysis_frame)
         'pw85',   # self-reported employer size (1-9)
-        # Computer use at work (robustness moderator)
-        'pw607',
+        # Individual job controls (time-varying, pre-determined)
+        'pw36',   # contract type: 1=fixed-term, 2=permanent
+        'pw39',   # working time: 1=part-time, 2=full-time
+        'pw607',  # computer use at work: 1=yes, 2=no
     ]
     shp = pd.read_csv(shp_file, low_memory=False,
                       usecols=lambda c: c in shp_want)
