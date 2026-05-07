@@ -320,6 +320,7 @@ def module_b(df):
     outcomes_b = [
         ('job_insecurity',  'Job Insecurity (1-4)'),
         ('vote_svp',        'Vote SVP/UDC (binary)'),
+        ('vote_sp_gps',     'Vote SP/GPS (binary)'),
         ('redistributive',  'Redistribution Support (1-3)'),
     ]
 
