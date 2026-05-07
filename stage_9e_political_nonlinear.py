@@ -485,8 +485,10 @@ def module_e(firm):
     logger.info("\n" + "=" * 70)
     logger.info("MODULE E: FIRM-LEVEL FUTURE HIRING")
     logger.info("  Unit: firm × year | FE: firm + year | SE: cluster company_id")
-    logger.info("  Outcome: log(job_ads at t+1), Δlog(job_ads)")
-    logger.info("  Treatment: pct_ai_ads_cumulative (main), firm_ai_exposure (robustness)")
+    logger.info("  Outcome 1: log(job_ads at t+1) — future hiring level")
+    logger.info("  Outcome 2: Δlog(job_ads) = log(t+1) - log(t) — hiring growth rate")
+    logger.info("  No current log control: firm FE absorbs persistent level differences.")
+    logger.info("  Treatment: pct_ai_ads_cumulative (main), firm_ai_exposure, log_ai_apps")
     logger.info("=" * 70)
 
     df = firm.copy()
