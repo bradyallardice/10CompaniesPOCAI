@@ -571,7 +571,7 @@ def main():
     logger.info("=" * 70)
 
     panel, shp, firm = load_data()
-    df = build_analysis_frame(panel, shp)
+    df = build_analysis_frame(panel, shp, firm)
 
     all_rows    = []
     all_rows   += module_a(df)
