@@ -183,15 +183,17 @@ To assess the specificity of the job insecurity finding, we run the same specifi
 
 ### Interpretation
 
-**Job insecurity is the only statistically significant outcome.** This specificity is substantively informative, not a failure to find effects:
+**Job insecurity is the only statistically significant outcome at conventional thresholds.** This specificity is substantively informative, not a failure to find effects:
 
 - **No income or hours effects**: AI adoption at the firm level has not (yet) translated into measurable wage suppression or hours changes for workers in the matched sample. The absence is credible — the matched sample covers 2012–2023, a period of adoption rather than mass displacement.
 
 - **No work intensification or autonomy loss**: Work stress, work intensity, and autonomy are all near-zero. Workers at AI-adopting firms do not report a harder or less autonomous work experience. This rules out a simple "AI as Taylorism" mechanism.
 
-- **No wellbeing spillovers**: Life satisfaction is weakly positive (consistent with matched firms being healthier employers) and depression/anxiety is near-zero. Job insecurity is therefore a forward-looking *anxiety about the future*, not a signal of deteriorating present welfare.
+- **Job satisfaction sub-dimensions reveal opposing signals**: The overall satisfaction null (β = +0.101, p = 0.581) masks heterogeneity across sub-dimensions. Income and work conditions satisfaction trend slightly negative (β ≈ −0.10 to −0.15), while atmosphere satisfaction is marginally positive and significant (β = +0.281, p = 0.080). The atmosphere result likely reflects firm-level selection — AI-adopting firms tend to be collaborative, high-investment workplaces — rather than a causal effect of AI on social dynamics. The opposing signals in income/conditions vs. atmosphere average out to a near-zero overall satisfaction effect.
 
-- **Redistribution support trending positive (p=0.116)**: The point estimate of +0.177 on a 1–3 scale is economically meaningful but statistically noisy at N≈2,100. The direction is consistent with an insecurity-to-redistribution demand channel. The rotating battery design (4 waves) is the binding constraint on power; with continuous coverage, this would be the most theoretically important political finding.
+- **No wellbeing spillovers**: Life satisfaction is weakly positive (consistent with matched firms being healthier employers) and depression/anxiety is near-zero. Job insecurity is therefore a forward-looking *anxiety about the future*, not a signal of deteriorating present welfare. Workers feel anxious about displacement without experiencing worse lives today.
+
+- **Redistribution support trending positive (p=0.116)**: The point estimate of +0.177 on a 1–3 scale is economically meaningful but statistically noisy at N≈2,100. The direction is consistent with an insecurity-to-redistribution demand channel. The rotating battery design (4 waves in the 2012+ window) is the binding constraint on power; with continuous coverage, this would be the most theoretically important political finding.
 
 - **No effect on nativism**: AI exposure does not feed into anti-immigration sentiment within the panel timeframe. This is a meaningful negative result for the populism literature: economic insecurity from technological change does not straightforwardly translate into scapegoating of foreigners, at least in Switzerland over this period.
 
