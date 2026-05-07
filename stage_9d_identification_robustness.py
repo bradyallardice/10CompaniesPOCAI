@@ -82,8 +82,13 @@ OUTCOMES = {
     # Wellbeing
     'depression_anxiety':      'Depression/Anxiety Frequency (0-10)',
     'life_satisfaction':       'Life Satisfaction (0-10)',
-    # Political
+    # Political — continuous annual coverage
     'leftright':               'Left-Right Self-Placement (0-10)',
+    # Political — rotating battery (2014, 2017, 2020, 2023 only; low power)
+    'nativism':                'Nativism / Opp. for Foreigners (1-3)',
+    'welfare':                 'Welfare State Support (1-3)',
+    'redistributive':          'Redistribution Support (1-3)',
+    'gender_equality':         'Gender Equality (1-10)',
 }
 
 
