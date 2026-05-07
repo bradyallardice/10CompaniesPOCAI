@@ -156,12 +156,20 @@ def load_data():
     return panel, shp, firm
 
 
-def build_analysis_frame(panel, shp):
+def build_analysis_frame(panel, shp, firm):
     df = panel.copy()
     df['isco3d']   = (pd.to_numeric(df['isco08_4d'], errors='coerce') // 10).astype(str)
     df['occ_year'] = df['isco3d'] + '_' + df['year'].astype(str)
 
     df = df.merge(shp, on=['idpers', 'year'], how='left')
+
+    # Merge log_job_ads (firm-year total posting volume) as firm-level control
+    firm_ctrl = firm[['company_id', 'year', 'total_unique_job_ads']].copy()
+    firm_ctrl['firm_id_int'] = ((firm_ctrl['company_id'].astype('int64') + 13) * 13)
+    firm_ctrl['log_job_ads'] = np.log1p(firm_ctrl['total_unique_job_ads'])
+    df['firm_id_int'] = pd.to_numeric(df['firm_id'], errors='coerce').astype('Int64')
+    df = df.merge(firm_ctrl[['firm_id_int', 'year', 'log_job_ads']],
+                  on=['firm_id_int', 'year'], how='left')
 
     # Clean political variables already in panel (negative = missing code)
     for raw, clean, use_pos in [
