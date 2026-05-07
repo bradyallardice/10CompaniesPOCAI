@@ -155,6 +155,11 @@ To assess the specificity of the job insecurity finding, we run the same specifi
 | Outcome | N | β | SE | p |
 |---|---|---|---|---|
 | Job satisfaction overall (pw228, 0–10) | 6,134 | +0.101 | 0.184 | 0.581 |
+| — Income satisfaction (pw92, 0–10) | 6,137 | −0.097 | 0.144 | 0.500 |
+| — Work conditions satisfaction (pw93, 0–10) | 6,137 | −0.149 | 0.138 | 0.281 |
+| — **Atmosphere satisfaction (pw94, 0–10)** | 6,100 | **+0.281** | 0.160 | **0.080** |
+| — Interest in tasks (pw229, 0–10) | 6,137 | +0.151 | 0.223 | 0.496 |
+| — Workload satisfaction (pw230, 0–10, to 2021) | 4,875 | +0.189 | 0.187 | 0.312 |
 | Work intensity/pace (pw603, 0–10) | 6,120 | −0.099 | 0.244 | 0.684 |
 | Work stress (pw604, binary) | 6,085 | −0.031 | 0.053 | 0.560 |
 | Work autonomy (pw91, 1–3) | 5,977 | +0.005 | 0.062 | 0.935 |
