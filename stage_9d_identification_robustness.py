@@ -65,14 +65,25 @@ logger = logging.getLogger(__name__)
 EXPOSURE = 'hampole_ai_exposure_avg_foy'
 CONTROLS = ['age_centered', 'age_squared', 'female', 'education']
 OUTCOMES = {
+    # Economic
     'outcome_job_insecurity':  'Job Insecurity (1-4)',
     'outcome_log_income':      'Log Income',
     'outcome_hours_worked':    'Hours Worked',
     'separation_t1':           'Separation (LPM)',
+    # Labor market perceptions
     'unemp_risk':              'Perceived Unemployment Risk (0-10)',
     'job_satisfaction':        'Job Satisfaction Overall (0-10)',
     'employer_change':         'Employer Change (binary, LPM)',
     'restructuring':           'Firm Restructuring (binary, LPM)',
+    # Work quality
+    'work_intensity':          'Work Intensity/Pace (0-10)',
+    'work_stress':             'Work Stress (binary, LPM)',
+    'work_autonomy':           'Work Autonomy (1-3)',
+    # Wellbeing
+    'depression_anxiety':      'Depression/Anxiety Frequency (0-10)',
+    'life_satisfaction':       'Life Satisfaction (0-10)',
+    # Political
+    'leftright':               'Left-Right Self-Placement (0-10)',
 }
 
 
