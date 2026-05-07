@@ -177,6 +177,10 @@ def build_analysis_frame(panel, firm, shp):
     firm_r = firm.rename(columns={'firm_id': 'firm_id_int'})
     df = df.merge(firm_r, on=['firm_id_int', 'year'], how='left')
 
+    # Clean negative SHP missing codes in panel-sourced political outcomes
+    lr = pd.to_numeric(df['outcome_leftright'], errors='coerce')
+    df['leftright'] = lr.where(lr >= 0)
+
     df['matched']   = df[EXPOSURE] > 0
     df['x28_linked'] = df[EXPOSURE].notna()
 
