@@ -247,10 +247,20 @@ def module_a(df):
 
     matched = df[df['matched']].copy()
 
+    # Log within-person vote variation as diagnostic
+    for v in ['vote_svp', 'vote_sp_gps']:
+        sub = matched.dropna(subset=[v])
+        wp = sub.groupby('idpers')[v].nunique()
+        switchers = (wp > 1).sum()
+        logger.info(f"  {v}: N={len(sub):,}, switchers={switchers} ({100*switchers/len(wp):.1f}% of persons) "
+                    f"— person FE identifies only within-person switches")
+
     # Annual outcomes (full panel coverage → strong power)
+    # NOTE: vote outcomes have ~8-11% within-person switching; person FE leaves limited variation
     annual = [
         ('vote_svp',      'Vote SVP/UDC (binary, annual)'),
         ('vote_sp_gps',   'Vote SP/GPS (binary, annual)'),
+        ('vote_sp',       'Vote SP (binary, annual)'),
         ('leftright',     'Left-Right Self-Placement (0-10, annual)'),
         ('social_trust',  'Social Trust (pp45, 0-10, from 2002)'),
     ]
