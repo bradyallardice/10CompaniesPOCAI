@@ -154,13 +154,20 @@ def load_data():
     shp['trust_govt']         = _pos('pp04')            # 0–10
     shp['eu_opinion']         = _pos_nonzero('pp14')    # 1–3
     shp['social_trust']       = _pos('pp45')            # 0–10
-    shp['computer_work']      = pd.to_numeric(shp['pw607'], errors='coerce').apply(
-                                    lambda x: 1 if x == 1 else (0 if x == 2 else np.nan))
+    shp['computer_work'] = pd.to_numeric(shp['pw607'], errors='coerce').apply(
+                               lambda x: 1 if x == 1 else (0 if x == 2 else np.nan))
     pw85 = pd.to_numeric(shp['pw85'], errors='coerce')
-    shp['firm_size'] = pw85.where(pw85 > 0)    # 1-9 ordinal; negative = missing
+    shp['firm_size'] = pw85.where(pw85 > 0)         # 1-9 ordinal; will be lagged in build_analysis_frame
+
+    pw36 = pd.to_numeric(shp['pw36'], errors='coerce')
+    shp['contract_perm'] = (pw36 == 2).astype(float).where(pw36 > 0)  # 1=permanent, 0=fixed-term
+
+    pw39 = pd.to_numeric(shp['pw39'], errors='coerce')
+    shp['part_time'] = (pw39 == 1).astype(float).where(pw39 > 0)      # 1=part-time, 0=full-time
 
     keep = ['idpers', 'year', 'unemp_risk', 'democracy_sat', 'political_efficacy',
-            'trust_govt', 'eu_opinion', 'social_trust', 'computer_work', 'firm_size',
+            'trust_govt', 'eu_opinion', 'social_trust',
+            'firm_size', 'contract_perm', 'part_time', 'computer_work',
             'vote_svp', 'vote_sp', 'vote_fdp', 'vote_cvp', 'vote_glp', 'vote_bdp',
             'vote_no_party', 'vote_sp_gps']
     shp = shp[keep]
