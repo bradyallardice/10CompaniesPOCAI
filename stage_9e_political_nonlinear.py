@@ -102,6 +102,8 @@ def load_data():
         'pp19',
         # Political — rotating / annual
         'pp02', 'pp03', 'pp04', 'pp14', 'pp45',
+        # Firm-level controls
+        'pw85',   # self-reported employer size (1-9)
         # Computer use at work (robustness moderator)
         'pw607',
     ]
