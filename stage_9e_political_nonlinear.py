@@ -70,7 +70,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 EXPOSURE = 'hampole_ai_exposure_avg_foy'
-CONTROLS = ['age_centered', 'age_squared', 'female', 'education']
+# firm_size (pw85) and log_job_ads vary within-person over time → not absorbed by person FE
+CONTROLS = ['age_centered', 'age_squared', 'female', 'education', 'firm_size', 'log_job_ads']
 PERSON_FE = 'idpers'
 OCC_YEAR_FE = 'occ_year'
 
