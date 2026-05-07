@@ -180,7 +180,9 @@ def load_data():
 
     keep_cols = ['idpers', 'year', 'firm_size', 'unemp_risk', 'job_satisfaction',
                  'employer_change', 'restructuring', 'work_intensity', 'work_stress',
-                 'work_autonomy', 'depression_anxiety', 'life_satisfaction']
+                 'work_autonomy', 'depression_anxiety', 'life_satisfaction',
+                 'jobsat_income', 'jobsat_conditions', 'jobsat_atmosphere',
+                 'jobsat_tasks', 'jobsat_workload']
     shp = shp[keep_cols]
 
     for c in keep_cols[2:]:
