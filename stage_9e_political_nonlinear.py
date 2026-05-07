@@ -235,6 +235,14 @@ def build_analysis_frame(panel, shp, firm):
     edu = df.loc[df['matched'], 'education'].dropna()
     logger.info(f"\n  Education distribution (matched): {edu.value_counts().sort_index().to_dict()}")
 
+    # Log control coverage in matched sample
+    matched = df[df['matched']]
+    for ctrl in CONTROLS:
+        if ctrl in df.columns:
+            n_valid = matched[ctrl].notna().sum()
+            pct = 100 * n_valid / len(matched)
+            logger.info(f"  Control {ctrl}: {n_valid:,}/{len(matched):,} valid ({pct:.1f}%)")
+
     return df
 
 
