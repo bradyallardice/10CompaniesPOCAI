@@ -135,10 +135,12 @@ def load_data():
     shp['social_trust']       = _pos('pp45')            # 0–10
     shp['computer_work']      = pd.to_numeric(shp['pw607'], errors='coerce').apply(
                                     lambda x: 1 if x == 1 else (0 if x == 2 else np.nan))
+    pw85 = pd.to_numeric(shp['pw85'], errors='coerce')
+    shp['firm_size'] = pw85.where(pw85 > 0)    # 1-9 ordinal; negative = missing
 
     keep = ['idpers', 'year', 'unemp_risk', 'democracy_sat', 'political_efficacy',
             'trust_govt', 'eu_opinion', 'social_trust', 'computer_work',
-            'vote_svp', 'vote_sp_gps', 'vote_sp']
+            'firm_size', 'vote_svp', 'vote_sp_gps', 'vote_sp']
     shp = shp[keep]
     for c in keep[2:]:
         logger.info(f"  {c}: {shp[c].notna().sum():,} valid")
