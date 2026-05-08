@@ -223,6 +223,10 @@ def build_analysis_frame(panel, firm, shp):
         s = pd.to_numeric(df[raw_col], errors='coerce')
         df[clean_col] = s.where(s > 0)
 
+    # Industry × year FE — absorbs industry-specific time trends
+    df['ind_year'] = df['noga2m_clean'].astype(str) + '_' + df['year'].astype(str)
+    df.loc[df['noga2m_clean'].isna(), 'ind_year'] = np.nan
+
     df['matched']   = df[EXPOSURE] > 0
     df['x28_linked'] = df[EXPOSURE].notna()
 
