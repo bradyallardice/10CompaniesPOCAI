@@ -273,7 +273,7 @@ def within_demean(data, groups, value_cols):
 
 
 def fit_ols(sub, outcome, rhs_cols):
-    FE = [PERSON_FE, OCC_YEAR_FE]
+    FE = [PERSON_FE, OCC_YEAR_FE, IND_YEAR_FE]
     needed = FE + [outcome] + [c for c in rhs_cols if c in sub.columns]
     s = sub[needed].dropna().copy()
     if len(s) < 50:
