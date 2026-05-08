@@ -211,12 +211,7 @@ def build_analysis_frame(panel, shp, firm):
     df = df.merge(firm_ctrl[['firm_id_int', 'year', 'log_job_ads_lag1']],
                   on=['firm_id_int', 'year'], how='left')
 
-    # Lag firm_size (pw85) within person×year
     df = df.sort_values(['idpers', 'year']).reset_index(drop=True)
-    yr_prev_pers = df.groupby('idpers')['year'].shift(1)
-    consec_pers  = (df['year'] - yr_prev_pers == 1)
-    df['firm_size_lag1'] = (df.groupby('idpers')['firm_size']
-                            .shift(1).where(consec_pers))
 
     # Clean political variables already in panel (negative = missing code)
     for raw, clean, use_pos in [
