@@ -4,6 +4,8 @@
 
 This memo documents results from `stage_9e_political_nonlinear.py`. The baseline specification throughout is the matched-only sample (hampole_ai_exposure_avg_foy > 0) with Person FE + 3-digit ISCO×Year FE, one-way clustering on idpers. Controls are time-varying pre-determined variables: age (centered + squared), contract type (permanent vs. fixed-term), part-time status, computer use at work, lagged firm size (t-1), and lagged log job ads (t-1). Time-invariant controls (female, education) are dropped as absorbed by person FE. This matches the specification in `identification_robustness_job_insecurity.md`.
 
+**Important sample note:** The `exposure > 0` restriction means the sample contains only person-year observations with *positive* measured exposure. Person FE within-demean then identifies off within-person variation in the *level* of exposure over time — years of higher exposure versus years of lower (but still positive) exposure for the same individual. The comparison group is not "workers at matched firms in years with zero AI adoption"; those observations are excluded. The estimates therefore capture the effect of **exposure intensity**, not presence versus absence of exposure.
+
 **Sample sizes:**
 - Annual outcomes (vote, left-right, social trust): N≈4,150–4,530, ~1,200–1,300 persons
 - Rotating battery (redistribution, welfare, nativism, trust, democracy): N≈1,450–1,530, ~890–940 persons
