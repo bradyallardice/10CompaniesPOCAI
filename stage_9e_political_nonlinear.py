@@ -722,6 +722,7 @@ def main():
     all_rows   += module_b(df)
     all_rows   += module_c(df)
     all_rows   += module_d(df)
+    all_rows   += module_f(df)
     firm_rows   = module_e(firm)
 
     if not all_rows:
