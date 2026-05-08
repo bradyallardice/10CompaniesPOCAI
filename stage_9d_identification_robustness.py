@@ -145,6 +145,14 @@ def load_data():
     # Firm size: pw85 categories 1-9; negative = missing
     shp['firm_size'] = _pos_nonzero('pw85')
 
+    # Public sector: pw32 1=private, 2=public; negative = missing
+    pw32 = pd.to_numeric(shp['pw32'], errors='coerce')
+    shp['public_sector'] = (pw32 == 2).astype(float).where(pw32 > 0)
+
+    # Industry code: noga2m 1-17 sectors; negative = missing
+    noga = pd.to_numeric(shp['noga2m'], errors='coerce')
+    shp['noga2m_clean'] = noga.where(noga > 0).astype('Int64')
+
     # Perceived unemployment risk: pw101 scale 0-10
     shp['unemp_risk'] = _pos('pw101')
 
