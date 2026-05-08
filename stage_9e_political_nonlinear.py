@@ -634,6 +634,78 @@ def module_e(firm):
     return rows
 
 
+# ── Module F: Robustness — sample selection vs. control effect ─────────────────
+
+def module_f(df):
+    """
+    Decomposes the gap between the identification robustness memo (redistribution
+    p=0.116, N=2,147) and Module A results (redistribution p=0.017, N=1,510).
+
+    Three specs for redistribution, welfare, and nativism:
+
+      F1 — CONTROLS_NO_FIRM_LAG, full available rotating-battery sample
+           Replicates the identification robustness memo spec as closely as possible.
+           N ≈ 2,100.  If significant here, the memo's p=0.116 was a different run.
+
+      F2 — CONTROLS (full with firm lags), full available rotating-battery sample
+           This is what Module A already reports.  N ≈ 1,510.
+
+      F3 — CONTROLS_NO_FIRM_LAG, restricted to the N=1,510 Module A sample
+           Same observations as F2, but drops firm lag controls.
+           Isolates whether significance in F2 comes from:
+             (a) the firm lags absorbing confounders → β stable, SE smaller
+             (b) sample selection (who has non-missing firm lags) → β changes
+           If β(F2) ≈ β(F3): significance is from controls, not selection.
+           If β(F2) ≠ β(F3): significance is from sample selection.
+    """
+    logger.info("\n" + "=" * 70)
+    logger.info("MODULE F: ROBUSTNESS — SAMPLE SELECTION vs. CONTROL EFFECT")
+    logger.info("  Rotating battery: redistribution, welfare, nativism")
+    logger.info("  F1: no firm lags, full sample  (~N=2,100)")
+    logger.info("  F2: full controls, full sample  (~N=1,510)  [= Module A]")
+    logger.info("  F3: no firm lags, restricted to F2 sample  (~N=1,510)")
+    logger.info("=" * 70)
+
+    matched = df[df['matched']].copy()
+
+    # Flag observations with non-missing firm lag controls (i.e., the Module A sample)
+    has_firm_lags = matched['firm_size_lag1'].notna() & matched['log_job_ads_lag1'].notna()
+    matched['has_firm_lags'] = has_firm_lags
+
+    outcomes_f = [
+        ('redistributive', 'Redistribution Support (pp17, 1-3)'),
+        ('welfare',        'Social Spending Support (pp13, 1-3)'),
+        ('nativism',       'Nativism / Opp. Foreigners (pp15, 1-3)'),
+    ]
+
+    specs = [
+        ('F1_no_firm_lag_full',       matched,                         CONTROLS_NO_FIRM_LAG, 'F1: no firm lags, full sample'),
+        ('F2_full_controls_full',     matched,                         CONTROLS,             'F2: full controls, full sample'),
+        ('F3_no_firm_lag_restricted', matched[matched['has_firm_lags']], CONTROLS_NO_FIRM_LAG, 'F3: no firm lags, restricted to F2 sample'),
+    ]
+
+    rows = []
+    for outcome, out_label in outcomes_f:
+        logger.info(f"\n  Outcome: {out_label}")
+        logger.info(f"  {'Spec':<45} {'N':>7}  {'beta_AI':>9}  {'SE':>7}  {'p':>6}")
+        logger.info(f"  {'-'*75}")
+        for spec_key, sub, ctrl, spec_label in specs:
+            res, s = fit_ols(sub, outcome, [EXPOSURE] + ctrl)
+            log_result(spec_label, res, s)
+            if res is not None:
+                r = make_row(res, s, outcome, spec_key, EXPOSURE, 'F')
+                if r:
+                    r['spec_label'] = spec_label
+                    rows.append(r)
+
+    logger.info("\n  Interpretation guide:")
+    logger.info("  β(F1) ≈ β(F2) ≈ β(F3) → controls and sample both irrelevant; robust result")
+    logger.info("  β(F2) ≈ β(F3) but β(F1) ≠ β(F2) → sample selection drives the difference")
+    logger.info("  β(F2) ≠ β(F3) → firm lag controls change estimate within same sample (omitted variable)")
+
+    return rows
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
