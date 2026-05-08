@@ -187,7 +187,8 @@ def load_data():
     shp['jobsat_tasks']      = _pos('pw229')
     shp['jobsat_workload']   = _pos('pw230')
 
-    keep_cols = ['idpers', 'year', 'firm_size', 'unemp_risk', 'job_satisfaction',
+    keep_cols = ['idpers', 'year', 'firm_size', 'public_sector', 'noga2m_clean',
+                 'unemp_risk', 'job_satisfaction',
                  'employer_change', 'restructuring', 'work_intensity', 'work_stress',
                  'work_autonomy', 'depression_anxiety', 'life_satisfaction',
                  'jobsat_income', 'jobsat_conditions', 'jobsat_atmosphere',
