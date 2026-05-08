@@ -620,3 +620,4 @@ Note: The 5-digit NOGA1M code (finer classification) is constructed internally b
 | Politics | P10, P19 | P02/03/04/13/14/15/17 (annual to 2009, then every 3 yrs), P45 (from 2002), P72/61/63 (3 waves only), P87–P93 (3 waves only) |
 | Well-being | C44 (from 2000), C17 | C70–74 (every 3 yrs), C184 (from 2016), C180–183 (2016 only), C112–114 (2012 only), C205–207 (from 2021) |
 | Training | E14, E15, E18, EDCAT, ISCED | — |
+| Firm/industry | NOGA2M (industry, 17 cats), W32 (private/public), W85 (firm size) | W33 (type of public employer, 1999–2003 only) |
