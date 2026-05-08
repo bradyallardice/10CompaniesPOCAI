@@ -530,6 +530,86 @@ Note: C180–C183 were a one-time 2016 module. Only C184 was retained thereafter
 
 ---
 
+## Firm and Industry Characteristics
+
+### NOGA2M$$ — Industry classification (constructed)
+**Type:** Constructed by SHP staff from open-text employer activity; coded to Swiss NOGA (Nomenclature générale des activités économiques, equivalent to NACE Rev. 1), then recoded to 17 broad sectors. The underlying 5-digit NOGA1M code is not released in user files.
+**Filter:** Employed (W01 or W02 or W03 = 1)
+**Coverage:** All waves (1999–2023); ~137k valid person-year obs in long file
+
+**Scale (17 categories):**
+
+| Code | Sector |
+|---|---|
+| 1 | Agriculture, hunting, forestry |
+| 2 | Fishing and fish farming |
+| 3 | Mining and quarrying |
+| 4 | Manufacturing |
+| 5 | Electricity, gas and water supply |
+| 6 | Construction |
+| 7 | Wholesale/retail; repair of motor vehicles and household goods |
+| 8 | Hotels and restaurants |
+| 9 | Transport, storage and communication |
+| 10 | Financial intermediation / insurance |
+| 11 | Real estate; renting; computer; research |
+| 12 | Public administration / national defence / compulsory social security |
+| 13 | Education |
+| 14 | Health and social work |
+| 15 | Other community, social and personal service activities |
+| 16 | Private households with employed persons |
+| 17 | Extra-territorial organizations and bodies |
+
+Note: The 5-digit NOGA1M code (finer classification) is constructed internally by SHP but not released in user files. Request from SHP directly if sub-sector detail is needed.
+
+---
+
+### P$$W32 — Private vs public employer
+**Question:** "Are you employed by a private company or a state organisation?"
+**Filter:** Employees only (P$$W29 = 5); excludes self-employed
+**Scale:** 1 = private company, 2 = government organisation
+**Coverage:** All waves (1999–2023); ~111k valid obs in long file
+
+---
+
+### P$$W33 — Type of public employer (level of government)
+**Question:** Follow-up to W32 for those employed by government
+**Filter:** P$$W32 = 2 (government)
+**Scale:**
+- 1 = international organisation
+- 2 = Confederation / Swiss Railways / Post office
+- 3 = Canton
+- 4 = Commune
+
+**Coverage:** 1999–2003 only (dropped after Wave 5)
+
+---
+
+### P$$W85 — Firm size (number of employees, company level)
+**Question:** "How many persons are employed in your company (association/institution)?"
+**Filter:** Employees only (P$$W29 = 5)
+**Scale:**
+- 1 = 1 to 4
+- 2 = 5 to 9
+- 3 = 10 to 19
+- 4 = 20 to 24
+- 5 = 25 to 49
+- 6 = 50 to 99
+- 7 = 100 to 499
+- 8 = 500 to 999
+- 9 = over 1,000
+
+**Coverage:** All waves (1999–2023); ~110k valid obs in long file
+
+---
+
+### P$$W31 — Firm size (self-employed: number of employees, excluding self)
+**Question:** "How many persons do you employ on a regular basis, not counting yourself?"
+**Filter:** Self-employed only (P$$W29 = 2 or 3)
+**Scale:** 1 = 0, 2 = 1–4, 3 = 5–9, 4 = 10–24, 5 = 25–49, 6 = 50–99, 7 = 100 and over
+**Coverage:** All waves (1999–2023); ~21k valid obs
+
+---
+
 ## Summary: Coverage by Category
 
 | Category | Mostly full coverage | Rotating / sparse |
