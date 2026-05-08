@@ -77,15 +77,17 @@ CONTROLS = ['age_centered', 'age_squared',
             'contract_perm',      # permanent contract (pw36==2 vs fixed-term)
             'part_time',          # part-time (pw39==1 vs full-time)
             'computer_work',      # uses computer at work (pw607) — tech-intensity proxy
-            'firm_size',          # current-year employer size (pw85); stable, no lag needed
+            'firm_size',          # current-year employer size (pw85)
+            'public_sector',      # public employer (pw32==2 vs private)
             'log_job_ads_lag1']   # lagged firm hiring volume (log job ads at t-1)
 
 # Controls without lagged firm variables — used in Module F robustness comparison.
-# Dropping log_job_ads_lag1 recovers ~obs with missing consecutive-year firm data.
 CONTROLS_NO_FIRM_LAG = ['age_centered', 'age_squared',
-                        'contract_perm', 'part_time', 'computer_work', 'firm_size']
-PERSON_FE = 'idpers'
+                        'contract_perm', 'part_time', 'computer_work',
+                        'firm_size', 'public_sector']
+PERSON_FE  = 'idpers'
 OCC_YEAR_FE = 'occ_year'
+IND_YEAR_FE = 'ind_year'   # industry (NOGA2M 17-sector) × year — third FE
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
