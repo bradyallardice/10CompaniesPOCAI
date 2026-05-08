@@ -236,6 +236,10 @@ def build_analysis_frame(panel, shp, firm):
         s = pd.to_numeric(df[raw], errors='coerce') if raw in df.columns else pd.Series(dtype=float)
         df[clean] = s.where(s >= 0) if use_pos else s.where(s > 0)
 
+    # Industry × year FE — absorbs industry-specific time trends
+    df['ind_year'] = df['noga2m_clean'].astype(str) + '_' + df['year'].astype(str)
+    df.loc[df['noga2m_clean'].isna(), 'ind_year'] = np.nan
+
     df['matched'] = df[EXPOSURE] > 0
 
     logger.info("\nSample breakdown:")
