@@ -663,8 +663,8 @@ def module_f(df):
 
     matched = df[df['matched']].copy()
 
-    # Flag observations with non-missing firm lag controls (i.e., the Module A sample)
-    has_firm_lags = matched['firm_size_lag1'].notna() & matched['log_job_ads_lag1'].notna()
+    # Flag observations with non-missing log_job_ads_lag1 (the only remaining lagged control)
+    has_firm_lags = matched['log_job_ads_lag1'].notna()
     matched['has_firm_lags'] = has_firm_lags
 
     outcomes_f = [
