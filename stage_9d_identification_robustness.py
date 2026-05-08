@@ -125,7 +125,7 @@ def load_data():
     logger.info(f"  Firm report: {len(firm):,} firm-year rows")
 
     logger.info("Loading SHP auxiliary variables...")
-    shp_cols = ['idpers', 'year', 'pw85', 'pw101', 'pw228', 'pw18', 'pw602',
+    shp_cols = ['idpers', 'year', 'pw85', 'pw32', 'noga2m', 'pw101', 'pw228', 'pw18', 'pw602',
                 'pw603', 'pw604', 'pw91', 'pc17', 'pc44',
                 'pw92', 'pw93', 'pw94', 'pw229', 'pw230']
     shp = pd.read_csv(shp_file, usecols=lambda c: c in shp_cols, low_memory=False)
