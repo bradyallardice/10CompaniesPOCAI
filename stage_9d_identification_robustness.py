@@ -63,7 +63,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 EXPOSURE = 'hampole_ai_exposure_avg_foy'
-CONTROLS = ['age_centered', 'age_squared', 'female', 'education']
+CONTROLS = ['age_centered', 'age_squared', 'female', 'education',
+            'firm_size', 'public_sector']
 OUTCOMES = {
     # Economic
     'outcome_job_insecurity':  'Job Insecurity (1-4)',
