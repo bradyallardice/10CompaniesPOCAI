@@ -255,7 +255,7 @@ def within_demean(data, groups, value_cols):
 
 
 def fit_ols(sub, outcome, rhs_cols):
-    FE = ['idpers', 'occ_year']
+    FE = ['idpers', 'occ_year', 'ind_year']
     needed = FE + [outcome] + [c for c in rhs_cols if c in sub.columns]
     s = sub[needed].dropna().copy()
     if len(s) < 50:
