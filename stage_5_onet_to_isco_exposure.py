@@ -2254,11 +2254,15 @@ class TaskFirmExposurePipeline:
             weighted_merged['weighted_total_tasks'] = weighted_merged['total_tasks_occupation'] * weighted_merged['weight']
             weighted_merged['weighted_importance'] = weighted_merged['total_importance_weight'] * weighted_merged['weight']
 
+            # Carry expertise columns through with employment-weighted aggregation
+            for c in expertise_cols_present:
+                weighted_merged[f'weighted_{c}'] = weighted_merged[c] * weighted_merged['weight']
+
             # Aggregate to ISCO-firm-year level by summing weighted values
             # Because weights sum to 1.0, summing weighted values = weighted average
             logger.info(f"[CROSSWALK DEBUG] BEFORE ISCO aggregation: {len(weighted_merged):,} rows")
 
-            isco_firm_exposure = weighted_merged.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg({
+            isco_agg_dict = {
                 'weighted_hampole_ai': 'sum',
                 'weighted_binary_ai': 'sum',
                 'weighted_hampole_occ': 'sum',
@@ -2268,12 +2272,16 @@ class TaskFirmExposurePipeline:
                 'log_ai_intensity': 'mean',  # Unweighted metadata
                 'n_ai_apps_firm_year': 'mean',
                 'onet_code': 'sum'  # Sum of O*NET codes contributing through all SOC-6d paths
-            })
+            }
+            for c in expertise_cols_present:
+                isco_agg_dict[f'weighted_{c}'] = 'sum'
+
+            isco_firm_exposure = weighted_merged.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg(isco_agg_dict)
 
             logger.info(f"[CROSSWALK DEBUG] AFTER ISCO aggregation: {len(isco_firm_exposure):,} rows (reduced from {len(weighted_merged):,})")
 
             # Rename weighted columns back to original names
-            isco_firm_exposure.rename(columns={
+            rename_back = {
                 'weighted_hampole_ai': 'hampole_ai_exposure_avg',
                 'weighted_binary_ai': 'binary_ai_exposure_avg',
                 'weighted_hampole_occ': 'hampole_occupation_exposure',
@@ -2281,7 +2289,10 @@ class TaskFirmExposurePipeline:
                 'weighted_total_tasks': 'total_tasks_occupation',
                 'weighted_importance': 'total_importance_weight',
                 'onet_code': 'n_onet_codes_contributing'
-            }, inplace=True)
+            }
+            for c in expertise_cols_present:
+                rename_back[f'weighted_{c}'] = c
+            isco_firm_exposure.rename(columns=rename_back, inplace=True)
 
             logger.info(f"  Stage 2 complete: {len(isco_firm_exposure):,} ISCO-firm-year combinations")
 
