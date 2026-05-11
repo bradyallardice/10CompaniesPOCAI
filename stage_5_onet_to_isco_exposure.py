@@ -3688,6 +3688,12 @@ def main():
                        help="Use employment-weighted aggregation for O*NET→ISCO crosswalk (via 6-digit SOC). "
                             "If False, uses simple mean aggregation (default).")
 
+    parser.add_argument("--expertise-file", type=str, default=None,
+                       help="Path to task expertise scores CSV (e.g. Data/task_expertise_scores.csv). "
+                            "If provided, adds baseline_expertise, remaining_expertise, and expertise_change "
+                            "columns to the output (importance-weighted avg expertise for all tasks, "
+                            "non-AI-exposed tasks, and the difference respectively).")
+
     args = parser.parse_args()
     
     if args.create_sample_report:
