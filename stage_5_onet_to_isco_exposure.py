@@ -2621,7 +2621,8 @@ class TaskFirmExposurePipeline:
                          save_onet_outputs: bool = False,
                          task_type: str = 'core',
                          model: str = 'BGE',
-                         onet_version: int = 20) -> pd.DataFrame:
+                         onet_version: int = 20,
+                         expertise_file: str = None) -> pd.DataFrame:
         """
         Run the complete 4-step Task → Occupation × Firm AI Exposure pipeline.
         
