@@ -2745,6 +2745,14 @@ class TaskFirmExposurePipeline:
         # Load supporting data
         task_statements = self.load_task_statements(task_statements_file, core_only=True)
         task_ratings = self.load_task_ratings(task_ratings_file)
+
+        # Load optional expertise scores
+        expertise_scores = None
+        if expertise_file is not None:
+            expertise_scores = self.load_expertise_scores(expertise_file)
+        else:
+            logger.info("No expertise file provided — expertise columns will not be computed")
+
         job_app_mapping = self.load_job_app_mapping(task_type, model)
         original_jobs = self.load_original_full_dataset(company_file)  # Load full original dataset
 
