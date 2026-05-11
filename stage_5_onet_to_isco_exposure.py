@@ -3148,7 +3148,7 @@ class TaskFirmExposurePipeline:
 
                     # ADD SPEC SUFFIXES TO ISCO EXPOSURE COLUMNS (for merged file)
                     isco_exposure_cols = [c for c in isco_spec_result.columns
-                                          if any(x in c for x in ['exposure', 'intensity', 'n_ai_apps', 'total_tasks', 'total_importance', 'n_onet_codes'])]
+                                          if any(x in c for x in ['exposure', 'intensity', 'n_ai_apps', 'total_tasks', 'total_importance', 'n_onet_codes', 'expertise'])]
                     isco_suffix = f"_{bge_col}_{ce_col}"
                     isco_rename_dict = {col: f"{col}{isco_suffix}" for col in isco_exposure_cols}
                     isco_spec_result_for_merge = isco_spec_result.rename(columns=isco_rename_dict)
