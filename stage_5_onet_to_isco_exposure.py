@@ -2211,7 +2211,11 @@ class TaskFirmExposurePipeline:
             # Group by SOC-6d + firm + year and average all exposure scores
             logger.info(f"[CROSSWALK DEBUG] BEFORE SOC-6d aggregation: {len(merged):,} rows")
 
-            soc_6d_grouped = merged.groupby(['soc_6d', 'company_name', 'year'], as_index=False).agg({
+            # Detect optional expertise columns (only present if --expertise-file was passed to Stage 5)
+            expertise_cols_present = [c for c in ['baseline_expertise', 'remaining_expertise', 'expertise_change']
+                                      if c in merged.columns]
+
+            agg_dict = {
                 'hampole_ai_exposure_avg': 'mean',
                 'binary_ai_exposure_avg': 'mean',
                 'hampole_occupation_exposure': 'mean',
@@ -2221,7 +2225,11 @@ class TaskFirmExposurePipeline:
                 'total_tasks_occupation': 'mean',
                 'total_importance_weight': 'mean',
                 'onet_code': 'nunique'  # Count contributing O*NET codes
-            })
+            }
+            for c in expertise_cols_present:
+                agg_dict[c] = 'mean'
+
+            soc_6d_grouped = merged.groupby(['soc_6d', 'company_name', 'year'], as_index=False).agg(agg_dict)
 
             logger.info(f"  Stage 1 complete: {len(soc_6d_grouped):,} unique 6-digit SOC-firm-year combinations")
             logger.info(f"[CROSSWALK DEBUG] AFTER SOC-6d aggregation: {len(soc_6d_grouped):,} rows (reduced from {len(merged):,})")
