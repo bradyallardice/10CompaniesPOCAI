@@ -1161,7 +1161,12 @@ class TaskFirmExposurePipeline:
             'log_ai_intensity',
             'n_ai_apps_firm_year',
             'hampole_ai_exposure_avg',
-            'binary_ai_exposure_avg'
+            'binary_ai_exposure_avg',
+            # Expertise columns are spec-dependent because remaining_expertise
+            # depends on which tasks are AI-exposed under the current spec
+            'baseline_expertise',
+            'remaining_expertise',
+            'expertise_change',
         ]
 
         # Build rename mapping
