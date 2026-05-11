@@ -346,6 +346,18 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args, firm_report_out
                 else:
                     row['firm_exposure'] = 0.0
 
+                # Expertise aggregates (per-spec) — only populated if Stage 5 was run with --expertise-file
+                baseline_col = f'baseline_expertise_{spec_str}'
+                remaining_col = f'remaining_expertise_{spec_str}'
+                change_col = f'expertise_change_{spec_str}'
+                if change_col in group_data.columns:
+                    row['firm_avg_baseline_expertise'] = round(group_data[baseline_col].mean(), 4) if baseline_col in group_data.columns else None
+                    row['firm_avg_remaining_expertise'] = round(group_data[remaining_col].mean(), 4) if remaining_col in group_data.columns else None
+                    row['firm_avg_expertise_change'] = round(group_data[change_col].mean(), 4)
+                    # Count of occupations gaining vs losing expertise within this firm-year
+                    row['n_occs_gaining_expertise'] = int((group_data[change_col] > 0).sum())
+                    row['n_occs_losing_expertise'] = int((group_data[change_col] < 0).sum())
+
                 stage6_rows.append(row)
 
         stage6_agg = pd.DataFrame(stage6_rows)
