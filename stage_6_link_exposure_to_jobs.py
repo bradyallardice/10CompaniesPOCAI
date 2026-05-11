@@ -1123,6 +1123,23 @@ def link_jobs_to_exposures(df_jobs_mapped, df_exposures):
                 non_zero = (df_linked[hampole_col] > 0).sum()
                 log(f"  {pct}_{ce}: {non_zero:,} non-zero Hampole exposures")
 
+    # Log expertise columns for transparency (populated only if Stage 5 was run with --expertise-file)
+    expertise_change_cols = [c for c in df_linked.columns if c.startswith('expertise_change')]
+    if expertise_change_cols:
+        log(f"\n🧠 Expertise specifications in linked data:")
+        for col in sorted(expertise_change_cols):
+            valid = df_linked[col].notna().sum()
+            if valid == 0:
+                log(f"  {col}: no valid values")
+                continue
+            n_gain = (df_linked[col] > 0).sum()
+            n_loss = (df_linked[col] < 0).sum()
+            n_zero = (df_linked[col] == 0).sum()
+            mean_change = df_linked[col].mean()
+            log(f"  {col}: gain={n_gain:,}, loss={n_loss:,}, flat={n_zero:,}, mean={mean_change:.3f}")
+    else:
+        log("\nℹ️  No expertise columns found in Stage 5 input — to enable, rerun Stage 5 with --expertise-file")
+
     # Generate unmatched jobs diagnostic
     df_unmatched_jobs = df_jobs_mapped[
         ~df_jobs_mapped.set_index(join_keys).index.isin(
