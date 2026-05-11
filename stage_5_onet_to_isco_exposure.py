@@ -3032,7 +3032,8 @@ class TaskFirmExposurePipeline:
 
                     # Steps 3-4: Same for both processing modes (already aggregated data)
                     occupation_firm_exposure = self.step3_calculate_occupation_firm_exposure(
-                        task_firm_exposure, task_statements, task_ratings
+                        task_firm_exposure, task_statements, task_ratings,
+                        expertise_scores=expertise_scores
                     )
 
                     # DEBUG LOGGING - After Step 3
