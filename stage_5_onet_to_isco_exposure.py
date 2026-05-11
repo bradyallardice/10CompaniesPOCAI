@@ -553,7 +553,45 @@ class TaskFirmExposurePipeline:
         importance_df.rename(columns={'Data Value': 'importance_weight'}, inplace=True)
         
         return importance_df
-    
+
+    def load_expertise_scores(self, expertise_file: str) -> pd.DataFrame:
+        """
+        Load task expertise scores from the LLM-graded expertise file.
+
+        Args:
+            expertise_file: Path to task_expertise_scores.csv
+
+        Returns:
+            DataFrame with columns ['Task ID', 'expertise_score']
+        """
+        if not os.path.exists(expertise_file):
+            raise FileNotFoundError(f"Expertise file not found: {expertise_file}")
+
+        expertise_df = pd.read_csv(expertise_file)
+
+        required_cols = {'Task ID', 'expertise_score'}
+        missing = required_cols - set(expertise_df.columns)
+        if missing:
+            raise ValueError(
+                f"Expertise file missing required columns: {missing}\n"
+                f"Available columns: {list(expertise_df.columns)}"
+            )
+
+        if expertise_df['expertise_score'].isna().any():
+            raise ValueError(
+                f"NaN values found in expertise_score column ({expertise_df['expertise_score'].isna().sum()} rows). "
+                f"Expertise file must have no missing scores."
+            )
+
+        expertise_scores = expertise_df[['Task ID', 'expertise_score']].copy()
+        expertise_scores.rename(columns={'Task ID': 'onet_task_id'}, inplace=True)
+
+        logger.info(f"Loaded {len(expertise_scores):,} task expertise scores from {expertise_file}")
+        logger.info(f"  Expertise score range: {expertise_scores['expertise_score'].min():.1f} - {expertise_scores['expertise_score'].max():.1f}")
+        logger.info(f"  Unique tasks with expertise scores: {expertise_scores['onet_task_id'].nunique():,}")
+
+        return expertise_scores
+
     def load_esco_onet_crosswalk(self, esco_onet_file: str) -> pd.DataFrame:
         """
         Load ESCO to O*NET-SOC crosswalk.
