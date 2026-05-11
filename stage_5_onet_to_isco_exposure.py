@@ -2300,8 +2300,11 @@ class TaskFirmExposurePipeline:
             # UNWEIGHTED MODE: Direct aggregation (8d → 4d)
             logger.info("Using unweighted aggregation (8-digit → 4-digit direct)...")
 
-            # Simple mean aggregation across all O*NET codes mapping to same ISCO
-            isco_firm_exposure = merged.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg({
+            # Detect optional expertise columns (only present if --expertise-file was passed to Stage 5)
+            expertise_cols_present = [c for c in ['baseline_expertise', 'remaining_expertise', 'expertise_change']
+                                      if c in merged.columns]
+
+            unweighted_agg_dict = {
                 'hampole_ai_exposure_avg': 'mean',
                 'binary_ai_exposure_avg': 'mean',
                 'hampole_occupation_exposure': 'mean',
@@ -2311,7 +2314,12 @@ class TaskFirmExposurePipeline:
                 'total_tasks_occupation': 'mean',
                 'total_importance_weight': 'mean',
                 'onet_code': 'nunique'
-            })
+            }
+            for c in expertise_cols_present:
+                unweighted_agg_dict[c] = 'mean'
+
+            # Simple mean aggregation across all O*NET codes mapping to same ISCO
+            isco_firm_exposure = merged.groupby(['isco08_4d', 'company_name', 'year'], as_index=False).agg(unweighted_agg_dict)
 
             # Rename O*NET code count column
             isco_firm_exposure.rename(columns={'onet_code': 'n_onet_codes_contributing'}, inplace=True)
