@@ -3769,7 +3769,8 @@ def main():
             save_onet_outputs=args.save_onet_outputs,
             task_type=args.task_type,
             model=args.model,
-            onet_version=args.onet_version
+            onet_version=args.onet_version,
+            expertise_file=args.expertise_file
         )
         
         print(f"\n✅ Pipeline completed successfully!")
