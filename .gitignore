@@ -61,4 +61,5 @@ Data/
 !Data/ai_keywords_multilingual_v3.csv
 !Data/240711_occupation_to_ch_isco_19.csv
 !Data/ESCO_to_ONET-SOC.xlsx
+!Data/task_expertise_scores.csv
 !Data/.gitkeep
