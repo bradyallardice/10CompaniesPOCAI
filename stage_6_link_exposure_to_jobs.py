@@ -451,7 +451,11 @@ def generate_firm_summary_report(df_linked, df_jobs_cache, args, firm_report_out
             'total_unique_job_ads', 'total_unique_ai_jobs',
             'pct_ai_ads_yearly', 'pct_ai_ads_cumulative',
             'total_ai_apps_all', 'total_ai_apps_linked',
-            'total_onet_tasks', 'ai_exposed_tasks', 'firm_exposure'
+            'total_onet_tasks', 'ai_exposed_tasks', 'firm_exposure',
+            # Expertise aggregates (populated only if Stage 5 was run with --expertise-file)
+            'firm_avg_baseline_expertise', 'firm_avg_remaining_expertise',
+            'firm_avg_expertise_change',
+            'n_occs_gaining_expertise', 'n_occs_losing_expertise',
         ]
 
         # Only keep columns that exist in the dataframe
