@@ -1828,15 +1828,22 @@ class TaskFirmExposurePipeline:
     
     def step3_calculate_occupation_firm_exposure(self, task_firm_exposure: pd.DataFrame,
                                                task_statements: pd.DataFrame,
-                                               task_ratings: pd.DataFrame) -> pd.DataFrame:
+                                               task_ratings: pd.DataFrame,
+                                               expertise_scores: pd.DataFrame = None) -> pd.DataFrame:
         """
         Step 3: Aggregate task-level exposure to occupation × firm × year level using O*NET task weights.
-        
+
         Args:
             task_firm_exposure: Task-firm-year exposure from Step 2
             task_statements: O*NET task statements (for task → occupation mapping)
             task_ratings: O*NET task importance ratings (for weights)
-            
+            expertise_scores: Optional DataFrame with columns ['onet_task_id', 'expertise_score'].
+                If provided, adds three expertise columns to the output:
+                  - baseline_expertise: importance-weighted avg expertise across ALL tasks
+                  - remaining_expertise: importance-weighted avg expertise for NON-AI-exposed tasks
+                  - expertise_change: remaining_expertise - baseline_expertise
+                    (positive = AI displaced lower-expertise tasks, raising avg remaining expertise)
+
         Returns:
             DataFrame with occupation-firm-year exposure scores (both variants)
         """
