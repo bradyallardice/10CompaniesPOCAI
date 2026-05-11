@@ -1881,7 +1881,24 @@ class TaskFirmExposurePipeline:
         task_weights_core = task_weights[task_weights['onet_task_id'].isin(core_task_ids)].copy()
         logger.info(f"Filtered task weights from {len(task_weights):,} to {len(task_weights_core):,} Core tasks only")
         task_weights = task_weights_core
-        
+
+        # If expertise scores provided, merge them into task_weights now so the group function
+        # has access to expertise_score alongside importance_weight for each task.
+        use_expertise = expertise_scores is not None
+        if use_expertise:
+            task_weights = task_weights.merge(
+                expertise_scores[['onet_task_id', 'expertise_score']],
+                on='onet_task_id',
+                how='left'
+            )
+            n_with_expertise = task_weights['expertise_score'].notna().sum()
+            n_without_expertise = task_weights['expertise_score'].isna().sum()
+            logger.info(f"Expertise scores merged into task weights: {n_with_expertise:,} matched, {n_without_expertise:,} unmatched")
+            if n_without_expertise > 0:
+                logger.warning(
+                    f"  {n_without_expertise} tasks have no expertise score and will be excluded from expertise calculations"
+                )
+
         # Join task exposure with occupation and weight information
         task_exposure_weighted = task_firm_exposure.merge(
             task_onet_mapping, on='onet_task_id', how='left'
@@ -1902,12 +1919,12 @@ class TaskFirmExposurePipeline:
         task_exposure_weighted = task_exposure_weighted.merge(
             task_weights, on=['onet_code', 'onet_task_id'], how='left'
         )
-        
+
         # Fill missing weights with 3.0
         task_exposure_weighted['importance_weight'] = task_exposure_weighted['importance_weight'].fillna(3.0)
-        
+
         logger.info(f"Mapped {len(task_exposure_weighted):,} task-firm-year-occupation relationships")
-        
+
         # Calculate weighted occupation-firm-year exposure scores
         def calc_weighted_occupation_exposure(group):
             # Get the occupation code for this group
@@ -1929,13 +1946,18 @@ class TaskFirmExposurePipeline:
                 total_weight = weights.sum()
                 hampole_weighted = (group['hampole_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
                 binary_weighted = (group['binary_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
-                return pd.Series({
+                result = {
                     'hampole_occupation_exposure': hampole_weighted,
                     'binary_occupation_exposure': binary_weighted,
                     'total_tasks_occupation': len(group),
                     'total_importance_weight': total_weight,
                     'n_ai_apps_firm_year': group['n_ai_apps_firm_year'].iloc[0]
-                })
+                }
+                if use_expertise:
+                    result['baseline_expertise'] = float('nan')
+                    result['remaining_expertise'] = float('nan')
+                    result['expertise_change'] = float('nan')
+                return pd.Series(result)
 
             # Create full task exposure table for this occupation
             # Start with all tasks (exposure = 0 by default)
@@ -1967,13 +1989,54 @@ class TaskFirmExposurePipeline:
             hampole_weighted = (all_occ_tasks['hampole_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
             binary_weighted = (all_occ_tasks['binary_task_exposure'] * weights).sum() / total_weight if total_weight > 0 else 0
 
-            return pd.Series({
+            result = {
                 'hampole_occupation_exposure': hampole_weighted,
                 'binary_occupation_exposure': binary_weighted,
                 'total_tasks_occupation': len(all_occ_tasks),  # Count ALL tasks, not just exposed
                 'total_importance_weight': total_weight,  # Sum ALL importance weights
                 'n_ai_apps_firm_year': group['n_ai_apps_firm_year'].iloc[0]
-            })
+            }
+
+            if use_expertise:
+                # Restrict to tasks that have an expertise score
+                tasks_with_score = all_occ_tasks[all_occ_tasks['expertise_score'].notna()].copy()
+
+                if len(tasks_with_score) == 0:
+                    result['baseline_expertise'] = float('nan')
+                    result['remaining_expertise'] = float('nan')
+                    result['expertise_change'] = float('nan')
+                else:
+                    exp_weights = tasks_with_score['importance_weight']
+                    exp_total_weight = exp_weights.sum()
+
+                    # baseline: importance-weighted avg expertise across ALL tasks with scores
+                    baseline = (
+                        (tasks_with_score['expertise_score'] * exp_weights).sum() / exp_total_weight
+                        if exp_total_weight > 0 else float('nan')
+                    )
+
+                    # remaining: importance-weighted avg expertise for NON-AI-exposed tasks only
+                    # (binary_task_exposure == 0 means the task is not AI-exposed for this firm-year)
+                    non_exposed = tasks_with_score[tasks_with_score['binary_task_exposure'] == 0]
+                    if len(non_exposed) == 0:
+                        remaining = float('nan')
+                    else:
+                        rem_weights = non_exposed['importance_weight']
+                        rem_total = rem_weights.sum()
+                        remaining = (
+                            (non_exposed['expertise_score'] * rem_weights).sum() / rem_total
+                            if rem_total > 0 else float('nan')
+                        )
+
+                    # expertise_change: positive means remaining tasks are higher expertise than baseline
+                    # (AI displaced lower-expertise tasks, raising the average of what remains)
+                    expertise_change = remaining - baseline if (not pd.isna(remaining) and not pd.isna(baseline)) else float('nan')
+
+                    result['baseline_expertise'] = baseline
+                    result['remaining_expertise'] = remaining
+                    result['expertise_change'] = expertise_change
+
+            return pd.Series(result)
 
         occupation_firm_exposure = task_exposure_weighted.groupby(['onet_code', 'company_name', 'year']).apply(
             calc_weighted_occupation_exposure
@@ -1985,7 +2048,12 @@ class TaskFirmExposurePipeline:
         logger.info(f"  Unique years: {sorted(occupation_firm_exposure['year'].unique())}")
         logger.info(f"  Hampole exposure range: {occupation_firm_exposure['hampole_occupation_exposure'].min():.3f} - {occupation_firm_exposure['hampole_occupation_exposure'].max():.3f}")
         logger.info(f"  Binary exposure range: {occupation_firm_exposure['binary_occupation_exposure'].min():.3f} - {occupation_firm_exposure['binary_occupation_exposure'].max():.3f}")
-        
+        if use_expertise:
+            n_valid = occupation_firm_exposure['baseline_expertise'].notna().sum()
+            logger.info(f"  Expertise scores computed for {n_valid:,} / {len(occupation_firm_exposure):,} occupation-firm-year combinations")
+            logger.info(f"  Baseline expertise range: {occupation_firm_exposure['baseline_expertise'].min():.2f} - {occupation_firm_exposure['baseline_expertise'].max():.2f}")
+            logger.info(f"  Expertise change range: {occupation_firm_exposure['expertise_change'].min():.2f} - {occupation_firm_exposure['expertise_change'].max():.2f}")
+
         return occupation_firm_exposure
     
     def step4_apply_ai_intensity_adjustment(self, occupation_firm_exposure: pd.DataFrame) -> pd.DataFrame:
