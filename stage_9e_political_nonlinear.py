@@ -749,6 +749,125 @@ def module_f(df):
     return rows
 
 
+# ── Module G: Expertise change as treatment ────────────────────────────────────
+
+def module_g(df):
+    """
+    Mirror Module A's spec (full political outcomes table) with
+    expertise_change_foy as the treatment in place of hampole_ai_exposure_avg_foy.
+
+    Same FE (Person + 3d-ISCO×Year via within_demean), same SE
+    (one-way cluster on idpers), same controls, same matched sample
+    (hampole_ai_exposure_avg_foy > 0) — only the treatment variable swaps.
+
+    The matched-sample restriction is kept for comparability with Module A:
+    both sets of coefficients are identified on the same person-years. Within
+    that sample, expertise_change captures the direction of AI displacement
+    (positive = AI took low-expertise tasks, raising avg expertise of what
+    remains; negative = AI took high-expertise tasks).
+    """
+    if EXPERTISE not in df.columns:
+        logger.info("\n" + "=" * 70)
+        logger.info("MODULE G: SKIPPED — expertise_change_foy not in analysis frame")
+        logger.info("  (rerun Stage 6 SHP with the expertise-enabled Stage 5 file)")
+        logger.info("=" * 70)
+        return []
+
+    logger.info("\n" + "=" * 70)
+    logger.info("MODULE G: POLITICAL OUTCOMES — EXPERTISE CHANGE AS TREATMENT")
+    logger.info("Spec: matched-only | Person + 3d-ISCO×Year FE | cluster idpers")
+    logger.info(f"Treatment: {EXPERTISE} (replaces {EXPOSURE})")
+    logger.info("=" * 70)
+
+    matched = df[df['matched']].copy()
+
+    # Diagnostic: how many matched rows have expertise defined?
+    n_exp_valid = matched[EXPERTISE].notna().sum()
+    logger.info(f"\n  Matched sample: {len(matched):,} person-years; "
+                f"{n_exp_valid:,} have {EXPERTISE} non-null "
+                f"({100*n_exp_valid/len(matched):.1f}%)")
+
+    # Distribution of expertise_change within matched
+    v = matched[EXPERTISE].dropna()
+    if len(v) > 0:
+        logger.info(f"  expertise_change distribution (matched):")
+        logger.info(f"    mean={v.mean():+.4f}  sd={v.std():.4f}  "
+                    f"min={v.min():+.3f}  p25={v.quantile(.25):+.3f}  "
+                    f"p50={v.quantile(.5):+.3f}  p75={v.quantile(.75):+.3f}  "
+                    f"max={v.max():+.3f}")
+        n_gain = int((v > 0).sum()); n_loss = int((v < 0).sum()); n_flat = int((v == 0).sum())
+        logger.info(f"    n_gain={n_gain:,}  n_loss={n_loss:,}  n_flat={n_flat:,}")
+
+    # Same outcome lists as Module A
+    annual = [
+        ('vote_svp',      'Vote SVP/UDC — right-populist (binary)'),
+        ('vote_sp',       'Vote SP — Social Democrats (binary)'),
+        ('vote_fdp',      'Vote FDP — Liberals/center-right (binary)'),
+        ('vote_cvp',      'Vote CVP/PDC — Christian Dem/center (binary)'),
+        ('vote_glp',      'Vote GLP — Green Liberals (binary)'),
+        ('vote_bdp',      'Vote BDP — Conservative Dem (binary)'),
+        ('vote_no_party', 'Vote no party / wouldn\'t vote (disengagement)'),
+        ('leftright',     'Left-Right Self-Placement (0-10, annual)'),
+        ('social_trust',  'Social Trust (pp45, 0-10, from 2002)'),
+    ]
+    rotating = [
+        ('welfare',            'Social Spending Support (pp13, 1-3)'),
+        ('redistributive',     'Redistribution Support (pp17, 1-3)'),
+        ('nativism',           'Nativism / Opp. for Foreigners (pp15, 1-3)'),
+        ('gender_equality',    'Gender Equality (pp22, 0-10)'),
+        ('trust_govt',         'Trust in Federal Government (pp04, 0-10)'),
+        ('democracy_sat',      'Satisfaction with Democracy (pp02, 0-10)'),
+        ('political_efficacy', 'Political Efficacy (pp03, 0-10)'),
+        ('eu_opinion',         'EU Opinion (pp14, 1-3)'),
+    ]
+
+    rows = []
+    logger.info("\n  ANNUAL (strong power):")
+    logger.info(f"  {'Outcome':<50} {'N':>7}  {'β_expchg':>9}  {'SE':>7}  {'p':>6}")
+    logger.info(f"  {'-'*80}")
+    for outcome, label in annual:
+        res, s = fit_ols(matched, outcome, [EXPERTISE] + CONTROLS)
+        log_result(label, res, s, term=EXPERTISE)
+        if res is not None:
+            r = make_row(res, s, outcome, 'baseline_expertise', EXPERTISE, 'G')
+            if r:
+                rows.append(r)
+
+    logger.info("\n  ROTATING BATTERY (lower power):")
+    logger.info(f"  {'Outcome':<50} {'N':>7}  {'β_expchg':>9}  {'SE':>7}  {'p':>6}")
+    logger.info(f"  {'-'*80}")
+    for outcome, label in rotating:
+        res, s = fit_ols(matched, outcome, [EXPERTISE] + CONTROLS)
+        log_result(label, res, s, term=EXPERTISE)
+        if res is not None:
+            r = make_row(res, s, outcome, 'baseline_expertise', EXPERTISE, 'G')
+            if r:
+                rows.append(r)
+
+    # Also run a joint spec for the headline outcomes: include both AI exposure
+    # and expertise_change on the RHS. This tests whether expertise_change has
+    # explanatory power *beyond* the level of AI exposure.
+    logger.info("\n  JOINT SPEC (AI exposure + expertise_change, headline outcomes only):")
+    logger.info(f"  {'Outcome':<50} {'N':>7}  {'β_expchg|AI':>11}  {'SE':>7}  {'p':>6}")
+    logger.info(f"  {'-'*80}")
+    headline = [('vote_svp', 'Vote SVP/UDC (joint w/ AI exposure)'),
+                ('leftright', 'Left-Right (joint w/ AI exposure)'),
+                ('redistributive', 'Redistribution (joint w/ AI exposure)'),
+                ('job_insecurity', 'Job Insecurity (joint w/ AI exposure)')]
+    for outcome, label in headline:
+        if outcome not in matched.columns:
+            continue
+        res, s = fit_ols(matched, outcome, [EXPOSURE, EXPERTISE] + CONTROLS)
+        log_result(label, res, s, term=EXPERTISE)
+        if res is not None:
+            for term in [EXPOSURE, EXPERTISE]:
+                r = make_row(res, s, outcome, 'joint_ai_and_expertise', term, 'G')
+                if r:
+                    rows.append(r)
+
+    return rows
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
