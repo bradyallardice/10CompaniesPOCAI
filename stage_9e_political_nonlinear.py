@@ -54,6 +54,10 @@ data_dir     = project_root / "Data"
 panel_file   = data_dir / "shp_panel_prepared.csv"
 firm_file    = data_dir / "firm_ai_summary_report.csv"
 shp_file     = data_dir / "shp_exposure" / "shp_exposure_isco4d.csv"
+# Expertise-enabled SHP exposure file (produced by Stage 6 SHP with Stage 5
+# --expertise-file). Used by Module G to run Module A's spec with
+# expertise_change_foy in place of hampole_ai_exposure_avg_foy.
+shp_expertise_file = data_dir / "shp_exposure_expertise" / "shp_exposure_isco4d.csv"
 out_person   = data_dir / "stage9e_results_long.csv"
 out_firm     = data_dir / "stage9e_firm_hiring.csv"
 log_file     = data_dir / "stage9e_estimation_log.txt"
