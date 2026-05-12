@@ -645,6 +645,17 @@ def module_e(firm):
         ('firm_ai_exposure',      'Task-based exposure (firm_ai_exposure)'),
         ('log_ai_apps',           'Log total AI apps'),
     ]
+    # Add expertise treatment if firm report has the column (Stage 6 firm report
+    # writes firm_avg_expertise_change when Stage 5 was run with --expertise-file).
+    # Autor's hiring prediction: firm-level expertise_change < 0 (AI took the
+    # expert work, leaving lower-skill tasks) → more hiring at t+1.
+    if 'firm_avg_expertise_change' in df.columns:
+        treat_pairs.append(('firm_avg_expertise_change',
+                           'Firm avg expertise change (Autor expertise test)'))
+        n_exp = df['firm_avg_expertise_change'].notna().sum()
+        logger.info(f"  + Expertise treatment available: {n_exp:,} firm-year rows")
+    else:
+        logger.info("  (firm_avg_expertise_change not in firm report — Autor expertise test skipped)")
 
     rows = []
     for outcome, out_label in [
