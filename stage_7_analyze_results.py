@@ -151,7 +151,7 @@ class ExposureAnalyzer:
 
     def _setup_output_dirs(self):
         """Create all output subdirectories if they don't exist."""
-        subdirs = ['firms', 'occupations', 'firm_occupation', 'tasks', 'summary', 'sectors']
+        subdirs = ['firms', 'occupations', 'firm_occupation', 'tasks', 'summary', 'sectors', 'expertise']
         for subdir in subdirs:
             path = os.path.join(self.output_dir, subdir)
             Path(path).mkdir(parents=True, exist_ok=True)
