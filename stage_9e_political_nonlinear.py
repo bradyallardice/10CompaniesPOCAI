@@ -228,12 +228,19 @@ def load_data():
     return panel, shp, firm, expertise
 
 
-def build_analysis_frame(panel, shp, firm):
+def build_analysis_frame(panel, shp, firm, expertise=None):
     df = panel.copy()
     df['isco3d']   = (pd.to_numeric(df['isco08_4d'], errors='coerce') // 10).astype(str)
     df['occ_year'] = df['isco3d'] + '_' + df['year'].astype(str)
 
     df = df.merge(shp, on=['idpers', 'year'], how='left')
+
+    # Merge expertise_change_foy on (idpers, year) if available
+    if expertise is not None:
+        df = df.merge(expertise, on=['idpers', 'year'], how='left')
+        n_exp = df[EXPERTISE].notna().sum()
+        logger.info(f"  Merged expertise: {n_exp:,} rows have {EXPERTISE} non-null "
+                    f"({100*n_exp/len(df):.1f}% of panel)")
 
     # Build firm-level log_job_ads with lag at firm×year level (avoids endogeneity)
     firm_ctrl = firm[['company_id', 'year', 'total_unique_job_ads']].copy()
