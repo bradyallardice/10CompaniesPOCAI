@@ -76,6 +76,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 EXPOSURE = 'hampole_ai_exposure_avg_foy'
+# Module G treatment: importance-weighted Δ in avg task expertise after AI
+# displaces some tasks (positive = AI displaced lower-expertise tasks, raising
+# avg expertise of what remains; negative = AI took the high-expertise work).
+EXPERTISE = 'expertise_change_foy'
 # All controls are time-varying and pre-determined relative to current AI exposure.
 # female/education dropped — time-invariant, fully absorbed by person FE.
 # firm_size and log_job_ads lagged (t-1) to avoid conditioning on outcomes caused by treatment.
