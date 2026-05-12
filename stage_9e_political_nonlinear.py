@@ -65,6 +65,8 @@ log_file     = data_dir / "stage9e_estimation_log.txt"
 for f in [panel_file, firm_file, shp_file]:
     if not f.exists():
         raise FileNotFoundError(f"Required input not found: {f}")
+# Expertise file is optional — Module G is skipped if not present.
+HAS_EXPERTISE_FILE = shp_expertise_file.exists()
 
 logging.basicConfig(
     level=logging.INFO,
