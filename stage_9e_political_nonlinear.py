@@ -108,6 +108,8 @@ def load_data():
         'idpers', 'firm_id', 'isco08_4d', 'year', EXPOSURE,
         'outcome_job_insecurity', 'outcome_leftright', 'outcome_nativism',
         'outcome_welfare', 'outcome_redistributive', 'outcome_gender_equality',
+        # Economic outcomes (used by Module G economic block)
+        'outcome_log_income', 'outcome_hours_worked',
         'pp10', 'pp13', 'pp15', 'pp17', 'pp22',
         'separation_t1',
         'female', 'education',   # kept for subgroup splits in Module D, not regression controls
