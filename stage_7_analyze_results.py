@@ -2392,6 +2392,224 @@ class ExposureAnalyzer:
                         "Dataset summary statistics")
 
 
+    # ------------------------------------------------------------------
+    # Section 7: Expertise Change Analysis
+    # ------------------------------------------------------------------
+    # All methods below operate on the spec-suffixed expertise columns
+    # produced by Stage 5 (--expertise-file). _extract_jobs_percentile_columns
+    # strips the suffix so we can reference them as baseline_expertise,
+    # remaining_expertise, expertise_change for the selected percentile/ce
+    # combination.
+
+    def _has_expertise_data(self) -> bool:
+        """Return True if expertise columns are present in the Stage 6 jobs data."""
+        if self.stage6_jobs is None:
+            self.logger.warning("Stage 6 jobs data not loaded; skipping expertise analysis")
+            return False
+        for col in ('baseline_expertise', 'remaining_expertise', 'expertise_change'):
+            if col not in self.stage6_jobs.columns:
+                self.logger.warning(
+                    f"Expertise column '{col}' not in Stage 6 jobs data; "
+                    f"skipping expertise analysis. Rerun Stage 5 with --expertise-file."
+                )
+                return False
+        return True
+
+    def expertise_summary_stats(self):
+        """Summary statistics of expertise_change at the job-record level."""
+        self.logger.info("→ Computing expertise summary statistics...")
+        if not self._has_expertise_data():
+            return
+
+        df = self.stage6_jobs[['expertise_change']].dropna()
+        n = len(df)
+        n_gain = int((df['expertise_change'] > 0).sum())
+        n_loss = int((df['expertise_change'] < 0).sum())
+        n_flat = int((df['expertise_change'] == 0).sum())
+        n_nan = int(self.stage6_jobs['expertise_change'].isna().sum())
+
+        stats = pd.DataFrame([{
+            'n_records_with_expertise': n,
+            'n_gaining': n_gain,
+            'n_losing': n_loss,
+            'n_flat': n_flat,
+            'n_nan': n_nan,
+            'pct_gaining': round(100 * n_gain / n, 2) if n > 0 else 0.0,
+            'pct_losing': round(100 * n_loss / n, 2) if n > 0 else 0.0,
+            'mean_change': df['expertise_change'].mean(),
+            'median_change': df['expertise_change'].median(),
+            'std_change': df['expertise_change'].std(),
+            'min_change': df['expertise_change'].min(),
+            'max_change': df['expertise_change'].max(),
+            'p10': df['expertise_change'].quantile(0.10),
+            'p25': df['expertise_change'].quantile(0.25),
+            'p75': df['expertise_change'].quantile(0.75),
+            'p90': df['expertise_change'].quantile(0.90),
+        }])
+        self._save_table(stats, 'expertise', 'expertise_summary_stats.csv',
+                        "Expertise change summary statistics")
+
+    def rank_firms_by_expertise_change(self):
+        """Rank firms by mean expertise_change across their occupations and years."""
+        self.logger.info("→ Ranking firms by expertise change...")
+        if not self._has_expertise_data():
+            return
+
+        df = self.stage6_jobs[['company_id', 'company_name', 'year',
+                                'baseline_expertise', 'remaining_expertise',
+                                'expertise_change']].dropna(subset=['expertise_change'])
+
+        # Cumulative (across all years)
+        firm_cum = df.groupby(['company_id', 'company_name']).agg(
+            mean_baseline_expertise=('baseline_expertise', 'mean'),
+            mean_remaining_expertise=('remaining_expertise', 'mean'),
+            mean_expertise_change=('expertise_change', 'mean'),
+            n_records=('expertise_change', 'count'),
+            n_gaining=('expertise_change', lambda x: int((x > 0).sum())),
+            n_losing=('expertise_change', lambda x: int((x < 0).sum())),
+        ).reset_index()
+
+        top_gain = firm_cum.nlargest(self.top_n, 'mean_expertise_change')
+        top_loss = firm_cum.nsmallest(self.top_n, 'mean_expertise_change')
+
+        self._save_table(top_gain, 'expertise', 'top_firms_gaining_expertise_cumulative.csv',
+                        f"Top {self.top_n} firms gaining expertise (cumulative across years)")
+        self._save_table(top_loss, 'expertise', 'top_firms_losing_expertise_cumulative.csv',
+                        f"Top {self.top_n} firms losing expertise (cumulative across years)")
+
+        # Yearly (top N per year, gainers and losers separately)
+        yearly = df.groupby(['company_id', 'company_name', 'year']).agg(
+            mean_expertise_change=('expertise_change', 'mean'),
+            mean_baseline_expertise=('baseline_expertise', 'mean'),
+            mean_remaining_expertise=('remaining_expertise', 'mean'),
+            n_records=('expertise_change', 'count'),
+        ).reset_index()
+
+        top_gain_yearly = (
+            yearly.sort_values(['year', 'mean_expertise_change'], ascending=[True, False])
+                  .groupby('year', group_keys=False).head(self.top_n)
+                  .reset_index(drop=True)
+        )
+        top_loss_yearly = (
+            yearly.sort_values(['year', 'mean_expertise_change'], ascending=[True, True])
+                  .groupby('year', group_keys=False).head(self.top_n)
+                  .reset_index(drop=True)
+        )
+        self._save_table(top_gain_yearly, 'expertise', 'top_firms_gaining_expertise_yearly.csv',
+                        f"Top {self.top_n} firms gaining expertise per year")
+        self._save_table(top_loss_yearly, 'expertise', 'top_firms_losing_expertise_yearly.csv',
+                        f"Top {self.top_n} firms losing expertise per year")
+
+    def rank_occupations_by_expertise_change(self):
+        """Rank ISCO occupations by mean expertise_change across firms and years."""
+        self.logger.info("→ Ranking occupations by expertise change...")
+        if not self._has_expertise_data():
+            return
+
+        df = self.stage6_jobs[['isco08_4d', 'isco08_title',
+                                'baseline_expertise', 'remaining_expertise',
+                                'expertise_change']].dropna(subset=['expertise_change'])
+
+        occ_agg = df.groupby(['isco08_4d', 'isco08_title']).agg(
+            mean_baseline_expertise=('baseline_expertise', 'mean'),
+            mean_remaining_expertise=('remaining_expertise', 'mean'),
+            mean_expertise_change=('expertise_change', 'mean'),
+            n_firm_year_records=('expertise_change', 'count'),
+            n_gaining=('expertise_change', lambda x: int((x > 0).sum())),
+            n_losing=('expertise_change', lambda x: int((x < 0).sum())),
+        ).reset_index()
+
+        top_gain = occ_agg.nlargest(self.top_n, 'mean_expertise_change')
+        top_loss = occ_agg.nsmallest(self.top_n, 'mean_expertise_change')
+
+        self._save_table(top_gain, 'expertise', 'top_occupations_gaining_expertise.csv',
+                        f"Top {self.top_n} ISCO occupations gaining expertise (avg across firms/years)")
+        self._save_table(top_loss, 'expertise', 'top_occupations_losing_expertise.csv',
+                        f"Top {self.top_n} ISCO occupations losing expertise (avg across firms/years)")
+
+    def rank_firm_occupation_pairs_by_expertise(self):
+        """Rank (firm × occupation) pairs by mean expertise_change across years."""
+        self.logger.info("→ Ranking firm × occupation pairs by expertise change...")
+        if not self._has_expertise_data():
+            return
+
+        df = self.stage6_jobs[['company_id', 'company_name', 'isco08_4d', 'isco08_title',
+                                'baseline_expertise', 'remaining_expertise',
+                                'expertise_change']].dropna(subset=['expertise_change'])
+
+        pair_agg = df.groupby(['company_id', 'company_name', 'isco08_4d', 'isco08_title']).agg(
+            mean_baseline_expertise=('baseline_expertise', 'mean'),
+            mean_remaining_expertise=('remaining_expertise', 'mean'),
+            mean_expertise_change=('expertise_change', 'mean'),
+            n_years=('expertise_change', 'count'),
+        ).reset_index()
+
+        top_gain = pair_agg.nlargest(self.top_n, 'mean_expertise_change')
+        top_loss = pair_agg.nsmallest(self.top_n, 'mean_expertise_change')
+
+        self._save_table(top_gain, 'expertise', 'top_firm_occupation_pairs_gaining_expertise.csv',
+                        f"Top {self.top_n} firm × occupation pairs gaining expertise")
+        self._save_table(top_loss, 'expertise', 'top_firm_occupation_pairs_losing_expertise.csv',
+                        f"Top {self.top_n} firm × occupation pairs losing expertise")
+
+    def expertise_time_trends(self):
+        """Yearly mean expertise_change overall and within selected categories."""
+        self.logger.info("→ Computing expertise time trends...")
+        if not self._has_expertise_data():
+            return
+
+        df = self.stage6_jobs[['year', 'expertise_change']].dropna()
+
+        yearly = df.groupby('year').agg(
+            mean_expertise_change=('expertise_change', 'mean'),
+            median_expertise_change=('expertise_change', 'median'),
+            n_records=('expertise_change', 'count'),
+            n_gaining=('expertise_change', lambda x: int((x > 0).sum())),
+            n_losing=('expertise_change', lambda x: int((x < 0).sum())),
+        ).reset_index().sort_values('year')
+
+        yearly['pct_gaining'] = (100 * yearly['n_gaining'] / yearly['n_records']).round(2)
+        yearly['pct_losing'] = (100 * yearly['n_losing'] / yearly['n_records']).round(2)
+
+        self._save_table(yearly, 'expertise', 'expertise_change_yearly_trend.csv',
+                        "Yearly trend in expertise change (overall)")
+
+        # Plot: yearly mean change with reference line at zero
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(yearly['year'], yearly['mean_expertise_change'], marker='o', label='Mean')
+        ax.plot(yearly['year'], yearly['median_expertise_change'], marker='s', label='Median', alpha=0.7)
+        ax.axhline(0, color='gray', linestyle='--', linewidth=1, alpha=0.6)
+        ax.set_xlabel('Year')
+        ax.set_ylabel('Expertise change (remaining − baseline)')
+        ax.set_title('Yearly trend in expertise change')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        self._save_plot(fig, 'expertise', 'expertise_change_yearly_trend.png')
+
+    def expertise_distribution_plot(self):
+        """Histogram of expertise_change values across all records."""
+        self.logger.info("→ Plotting expertise change distribution...")
+        if not self._has_expertise_data():
+            return
+
+        vals = self.stage6_jobs['expertise_change'].dropna()
+        if len(vals) == 0:
+            self.logger.warning("No expertise_change values to plot")
+            return
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.hist(vals, bins=80, edgecolor='black', alpha=0.7)
+        ax.axvline(0, color='red', linestyle='--', linewidth=1.2, label='No change')
+        ax.axvline(vals.mean(), color='black', linestyle='-', linewidth=1.2,
+                   label=f'Mean = {vals.mean():.3f}')
+        ax.set_xlabel('Expertise change (remaining − baseline)')
+        ax.set_ylabel('Count of (occupation × firm × year) records')
+        ax.set_title('Distribution of expertise change across job records')
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis='y')
+        self._save_plot(fig, 'expertise', 'expertise_change_distribution.png')
+
+
 def main():
     """Main entry point for CLI."""
     parser = argparse.ArgumentParser(
