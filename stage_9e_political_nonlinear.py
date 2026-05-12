@@ -58,6 +58,12 @@ shp_file     = data_dir / "shp_exposure" / "shp_exposure_isco4d.csv"
 # --expertise-file). Used by Module G to run Module A's spec with
 # expertise_change_foy in place of hampole_ai_exposure_avg_foy.
 shp_expertise_file = data_dir / "shp_exposure_expertise" / "shp_exposure_isco4d.csv"
+# Expertise-enabled firm summary report (long format, per spec). Module E
+# tests Autor's hiring prediction by merging firm_avg_expertise_change onto
+# the standard firm report at the (company_id, year) level.
+firm_expertise_file = (data_dir / "Testing" / "stage_6_expertise"
+                       / "full_sample" / "firm_ai_summary_report_core_isco.csv")
+EXPERTISE_SPEC = 'pct_05_ce_0.0'  # spec to extract from the long-format firm report
 out_person   = data_dir / "stage9e_results_long.csv"
 out_firm     = data_dir / "stage9e_firm_hiring.csv"
 log_file     = data_dir / "stage9e_estimation_log.txt"
