@@ -209,7 +209,23 @@ def load_data():
     logger.info(f"  Firm report: {len(firm):,} firm-year rows, "
                 f"{firm['company_id'].nunique():,} companies")
 
-    return panel, shp, firm
+    # Optional: load expertise_change_foy from the expertise-enabled SHP file.
+    # Keyed on (idpers, year) so it can be merged into the main panel.
+    expertise = None
+    if HAS_EXPERTISE_FILE:
+        logger.info(f"Loading expertise file: {shp_expertise_file}")
+        exp_want = ['idpers', 'year', EXPERTISE]
+        expertise = pd.read_csv(shp_expertise_file, low_memory=False,
+                                usecols=lambda c: c in exp_want)
+        expertise['year'] = pd.to_numeric(expertise['year'], errors='coerce').astype('Int64')
+        n_valid = expertise[EXPERTISE].notna().sum()
+        logger.info(f"  Expertise: {len(expertise):,} rows, "
+                    f"{n_valid:,} with {EXPERTISE} non-null "
+                    f"({100*n_valid/len(expertise):.1f}%)")
+    else:
+        logger.info(f"Expertise file not found at {shp_expertise_file} — Module G will be skipped")
+
+    return panel, shp, firm, expertise
 
 
 def build_analysis_frame(panel, shp, firm):
