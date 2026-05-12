@@ -876,8 +876,8 @@ def main():
     logger.info("          HETEROGENEITY, AND FIRM HIRING")
     logger.info("=" * 70)
 
-    panel, shp, firm = load_data()
-    df = build_analysis_frame(panel, shp, firm)
+    panel, shp, firm, expertise = load_data()
+    df = build_analysis_frame(panel, shp, firm, expertise)
 
     all_rows    = []
     all_rows   += module_a(df)
@@ -885,6 +885,7 @@ def main():
     all_rows   += module_c(df)
     all_rows   += module_d(df)
     all_rows   += module_f(df)
+    all_rows   += module_g(df)
     firm_rows   = module_e(firm)
 
     if not all_rows:
