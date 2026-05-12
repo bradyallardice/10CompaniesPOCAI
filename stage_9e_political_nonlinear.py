@@ -217,6 +217,29 @@ def load_data():
     logger.info(f"  Firm report: {len(firm):,} firm-year rows, "
                 f"{firm['company_id'].nunique():,} companies")
 
+    # Merge firm-level expertise aggregates (from the expertise-enabled firm
+    # summary report at the chosen spec) onto the standard firm report.
+    if firm_expertise_file.exists():
+        logger.info(f"Loading firm-level expertise report: {firm_expertise_file}")
+        firm_exp = pd.read_csv(firm_expertise_file)
+        firm_exp = firm_exp[firm_exp['specification'] == EXPERTISE_SPEC].copy()
+        keep = ['company_id', 'year',
+                'firm_avg_baseline_expertise', 'firm_avg_remaining_expertise',
+                'firm_avg_expertise_change',
+                'n_occs_gaining_expertise', 'n_occs_losing_expertise']
+        firm_exp = firm_exp[[c for c in keep if c in firm_exp.columns]]
+        firm_exp['year'] = firm_exp['year'].astype('int64')
+        n_before = len(firm)
+        firm = firm.merge(firm_exp, on=['company_id', 'year'], how='left')
+        n_with_exp = firm['firm_avg_expertise_change'].notna().sum()
+        logger.info(f"  Merged firm expertise (spec={EXPERTISE_SPEC}): "
+                    f"{len(firm_exp):,} firm-year rows merged, "
+                    f"{n_with_exp:,}/{n_before:,} have firm_avg_expertise_change non-null "
+                    f"({100*n_with_exp/n_before:.1f}%)")
+    else:
+        logger.info(f"Firm expertise report not found at {firm_expertise_file} "
+                    f"— Module E Autor test will be skipped")
+
     # Optional: load expertise_change_foy from the expertise-enabled SHP file.
     # Keyed on (idpers, year) so it can be merged into the main panel.
     expertise = None
