@@ -439,7 +439,10 @@ class ExposureAnalyzer:
             'total_importance_weight',
             'n_ai_apps_firm_year',
             'log_ai_intensity',
-            'n_onet_codes_contributing'
+            'n_onet_codes_contributing',
+            'baseline_expertise',
+            'remaining_expertise',
+            'expertise_change',
         ]
 
         # Keep non-data columns
