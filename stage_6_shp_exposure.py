@@ -51,21 +51,31 @@ SHP_MISSING_CODES = {-3, -7, -8}
 # SHP employer change codes (pw18): 2 = new employer, 3 = new employer (different coding)
 SHP_EMPLOYER_CHANGED_CODES = {2, 3}
 
-# Core 4 exposure metrics — these get suffixed per exposure level
+# Core exposure metrics — these get suffixed per exposure level
+# Zero-fill is semantically correct for these (no AI exposure → 0 displacement)
 EXPOSURE_CORE_COLUMNS = [
     'hampole_ai_exposure_avg',
     'binary_ai_exposure_avg',
     'hampole_occupation_exposure',
     'binary_occupation_exposure',
+    # Expertise change: net change in importance-weighted avg expertise of
+    # non-AI-exposed tasks vs all tasks. Populated only if Stage 5 was run
+    # with --expertise-file. Zero = no AI exposure for this firm/occ/year.
+    'expertise_change',
 ]
 
 # Auxiliary exposure columns — only kept from Level 1 (foy), unsuffixed
+# These are NOT zero-filled (zero is not a meaningful value for them)
 EXPOSURE_AUX_COLUMNS = [
     'total_tasks_occupation',
     'total_importance_weight',
     'log_ai_intensity',
     'n_ai_apps_firm_year',
     'n_onet_codes_contributing',
+    # Expertise levels: baseline & remaining (occupation-task properties).
+    # Populated only if Stage 5 was run with --expertise-file.
+    'baseline_expertise',
+    'remaining_expertise',
 ]
 
 # All exposure columns (backward compat)
