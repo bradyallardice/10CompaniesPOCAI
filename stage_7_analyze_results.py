@@ -618,6 +618,17 @@ class ExposureAnalyzer:
             self.percentile_comparison_analysis()
             self.generate_summary_statistics()
 
+        if sections is None or 7 in sections:
+            self.logger.info("\n" + "=" * 80)
+            self.logger.info("SECTION 7: EXPERTISE CHANGE ANALYSIS")
+            self.logger.info("=" * 80)
+            self.expertise_summary_stats()
+            self.rank_firms_by_expertise_change()
+            self.rank_occupations_by_expertise_change()
+            self.rank_firm_occupation_pairs_by_expertise()
+            self.expertise_time_trends()
+            self.expertise_distribution_plot()
+
         self.logger.info("\n" + "=" * 80)
         self.logger.info(f"ALL ANALYSES COMPLETE")
         self.logger.info(f"Outputs saved to: {self.output_dir}")
