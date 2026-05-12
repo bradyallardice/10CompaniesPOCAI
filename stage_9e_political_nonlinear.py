@@ -64,8 +64,13 @@ shp_expertise_file = data_dir / "shp_exposure_expertise" / "shp_exposure_isco4d.
 firm_expertise_file = (data_dir / "Testing" / "stage_6_expertise"
                        / "full_sample" / "firm_ai_summary_report_core_isco.csv")
 EXPERTISE_SPEC = 'pct_05_ce_0.0'  # spec to extract from the long-format firm report
+# Stage 6 linked file (occ × firm × year × title). Module H aggregates this to
+# (isco08_4d, year) to test Autor's hiring prediction at the occupation level.
+stage6_linked_file = (data_dir / "Testing" / "stage_6_expertise"
+                      / "full_sample" / "stage6_jobs_linked_core_isco.csv")
 out_person   = data_dir / "stage9e_results_long.csv"
 out_firm     = data_dir / "stage9e_firm_hiring.csv"
+out_occ      = data_dir / "stage9e_occ_hiring.csv"
 log_file     = data_dir / "stage9e_estimation_log.txt"
 
 for f in [panel_file, firm_file, shp_file]:
