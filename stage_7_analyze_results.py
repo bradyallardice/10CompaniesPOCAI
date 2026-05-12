@@ -2472,7 +2472,7 @@ def main():
         '--sections',
         type=int,
         nargs='+',
-        choices=[2, 3, 4, 5, 6],
+        choices=[2, 3, 4, 5, 6, 7],
         help='Specific sections to run (default: all)'
     )
 
