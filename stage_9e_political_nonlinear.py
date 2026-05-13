@@ -1071,7 +1071,7 @@ def module_h():
         ('delta_log_n_jobs', 'Δlog n_jobs in occupation'),
     ]:
         logger.info(f"\n  Outcome: {out_label}")
-        logger.info(f"  {'Treatment':<55} {'N':>6}  {'β':>+9}  {'SE':>7}  {'p':>6}")
+        logger.info(f"  {'Treatment':<55} {'N':>6}  {'beta':>9}  {'SE':>7}  {'p':>6}")
         logger.info(f"  {'-'*85}")
         for treat, treat_label in treatments:
             res, s = fit_occ_ols(occ_year, outcome, [treat])
