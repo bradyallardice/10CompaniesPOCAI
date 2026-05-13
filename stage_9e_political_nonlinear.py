@@ -1139,6 +1139,7 @@ def main():
     all_rows   += module_f(df)
     all_rows   += module_g(df)
     firm_rows   = module_e(firm)
+    occ_rows    = module_h()
 
     if not all_rows:
         raise RuntimeError("Modules A–D produced no output; check logs.")
@@ -1150,6 +1151,10 @@ def main():
     if firm_rows:
         pd.DataFrame(firm_rows).to_csv(out_firm, index=False)
         logger.info(f"✓ Saved firm hiring results: {out_firm} ({len(firm_rows)} rows)")
+
+    if occ_rows:
+        pd.DataFrame(occ_rows).to_csv(out_occ, index=False)
+        logger.info(f"✓ Saved occupation hiring results: {out_occ} ({len(occ_rows)} rows)")
 
     logger.info("\n" + "=" * 70)
     logger.info("STAGE 9E COMPLETE")
