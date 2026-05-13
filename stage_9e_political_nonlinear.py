@@ -721,6 +721,55 @@ def module_e(firm):
                 'n_firms':   s['company_id'].nunique(),
             })
 
+        # Sample-restricted apples-to-apples comparison: run AI treatments
+        # on the same firms that have firm_avg_expertise_change defined, and
+        # joint specs that put both signals on the RHS.
+        if 'firm_avg_expertise_change' in df.columns:
+            sub = df[df['firm_avg_expertise_change'].notna()].copy()
+            logger.info(f"\n  Outcome: {out_label} — RESTRICTED TO EXPERTISE SAMPLE (n_firms={sub['company_id'].nunique()})")
+            logger.info(f"  {'Treatment':<50} {'N':>6}  {'beta':>9}  {'SE':>7}  {'p':>6}")
+            logger.info(f"  {'-'*80}")
+            ai_terms = ['pct_ai_ads_cumulative', 'firm_ai_exposure', 'log_ai_apps']
+            for treat in ai_terms:
+                res, s = fit_firm_ols(sub, outcome, [treat], [])
+                if res is None:
+                    continue
+                b  = res.params.get(treat, np.nan)
+                se = res.bse.get(treat, np.nan)
+                p  = res.pvalues.get(treat, np.nan)
+                sig = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else '   '))
+                logger.info(f"  {treat+' (restricted)':<50} {len(s):>6,}  {b:>+9.4f}  {se:>7.4f}  {p:>6.3f} {sig}")
+                rows.append({
+                    'module': 'E', 'outcome': outcome,
+                    'spec': f'{out_label} (restricted_to_expertise_sample)',
+                    'term': treat,
+                    'estimate': b, 'std_error': se, 'p_value': p,
+                    'n_obs': len(s), 'n_firms': s['company_id'].nunique(),
+                })
+
+            # Joint specs: each AI treatment together with firm_avg_expertise_change
+            logger.info(f"\n  Outcome: {out_label} — JOINT (AI treatment + expertise_change)")
+            logger.info(f"  {'Spec':<50} {'N':>6}  {'beta':>9}  {'SE':>7}  {'p':>6}")
+            logger.info(f"  {'-'*80}")
+            for ai_term in ai_terms:
+                res, s = fit_firm_ols(sub, outcome, [ai_term, 'firm_avg_expertise_change'], [])
+                if res is None:
+                    continue
+                for term in [ai_term, 'firm_avg_expertise_change']:
+                    b  = res.params.get(term, np.nan)
+                    se = res.bse.get(term, np.nan)
+                    p  = res.pvalues.get(term, np.nan)
+                    sig = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else '   '))
+                    label = f'joint({ai_term}): {term}'
+                    logger.info(f"  {label:<50} {len(s):>6,}  {b:>+9.4f}  {se:>7.4f}  {p:>6.3f} {sig}")
+                    rows.append({
+                        'module': 'E', 'outcome': outcome,
+                        'spec': f'{out_label} (joint_{ai_term}_and_expertise)',
+                        'term': term,
+                        'estimate': b, 'std_error': se, 'p_value': p,
+                        'n_obs': len(s), 'n_firms': s['company_id'].nunique(),
+                    })
+
     return rows
 
 
