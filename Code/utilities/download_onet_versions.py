@@ -122,34 +122,48 @@ def file_url(version: str, filename: str) -> str:
 
 
 def download_file(url: str, dest: Path, *, force: bool = False,
-                  timeout: int = 120) -> str:
-    """Download a single file. Returns 'cached', 'downloaded', or 'missing'."""
+                  timeout: int = 300, max_attempts: int = 4) -> str:
+    """Download a single file with retry-on-error.
+
+    Returns 'cached', 'downloaded', or 'missing'. Retries on connection
+    errors with exponential backoff; treats 404 as a permanent miss.
+    """
     if dest.exists() and not force:
         size_kb = dest.stat().st_size / 1024
         logger.info(f"    cached: {dest.name} ({size_kb:.1f} KB)")
         return "cached"
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with requests.get(url, timeout=timeout, stream=True) as r:
-            if r.status_code == 404:
-                logger.info(f"    404:    {dest.name}")
-                return "missing"
-            r.raise_for_status()
-            with open(dest, "wb") as f:
-                for chunk in r.iter_content(chunk_size=32 * 1024):
-                    if chunk:
-                        f.write(chunk)
-    except requests.RequestException as e:
-        logger.error(f"    ERROR:  {dest.name} — {e}")
-        # Clean up a partial write.
-        if dest.exists():
-            dest.unlink()
-        return "missing"
 
-    size_kb = dest.stat().st_size / 1024
-    logger.info(f"    got:    {dest.name} ({size_kb:.1f} KB)")
-    return "downloaded"
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with requests.get(url, timeout=timeout, stream=True) as r:
+                if r.status_code == 404:
+                    logger.info(f"    404:    {dest.name}")
+                    return "missing"
+                r.raise_for_status()
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=64 * 1024):
+                        if chunk:
+                            f.write(chunk)
+            size_kb = dest.stat().st_size / 1024
+            attempt_note = f" (attempt {attempt})" if attempt > 1 else ""
+            logger.info(f"    got:    {dest.name} ({size_kb:.1f} KB){attempt_note}")
+            return "downloaded"
+        except requests.RequestException as e:
+            last_error = e
+            if dest.exists():
+                dest.unlink()  # remove partial write
+            if attempt < max_attempts:
+                backoff = 2 ** attempt  # 2, 4, 8 seconds
+                logger.warning(
+                    f"    retry:  {dest.name} — {e} (sleep {backoff}s, attempt {attempt}/{max_attempts})"
+                )
+                time.sleep(backoff)
+
+    logger.error(f"    ERROR:  {dest.name} — gave up after {max_attempts} attempts: {last_error}")
+    return "missing"
 
 
 def download_version(version: str, output_dir: Path, *, force: bool,
