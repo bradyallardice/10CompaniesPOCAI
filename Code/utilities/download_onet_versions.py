@@ -92,19 +92,31 @@ def discover_versions(timeout: int = 30) -> list[str]:
     try:
         r = requests.get(RELEASE_PAGE_URL, timeout=timeout)
         r.raise_for_status()
+        discovered = set(
+            f"{maj}.{minor}"
+            for maj, minor in re.findall(r"db_(\d+)_(\d+)_excel", r.text)
+        )
+        logger.info(f"  Discovered {len(discovered)} versions from release page")
     except requests.RequestException as e:
-        logger.warning(f"Could not fetch release page ({e}); using fallback list")
-        return fallback
+        logger.warning(f"Could not fetch release page ({e}); using fallback list only")
+        discovered = set()
 
-    # Match db_{V}_excel.zip-style links — pull out the version part.
-    found = set(re.findall(r"db_(\d+)_(\d+)_excel", r.text))
-    versions = [f"{maj}.{minor}" for maj, minor in found]
-    if not versions:
-        logger.warning("No versions parsed from release page; using fallback list")
-        return fallback
+    # Union discovered + fallback. Older versions sometimes link via different
+    # URL formats on the page; we attempt every known version and let 404s
+    # tell us which ones aren't actually available in Excel format.
+    all_versions = discovered | set(fallback)
+    extra_from_fallback = all_versions - discovered
+    if extra_from_fallback:
+        logger.info(
+            f"  Adding {len(extra_from_fallback)} more from fallback list (likely "
+            f"older versions with different link patterns): "
+            f"{sorted(extra_from_fallback, key=lambda v: tuple(int(x) for x in v.split('.')))}"
+        )
 
     # Sort descending: by major then minor (numeric).
-    versions.sort(key=lambda v: tuple(int(x) for x in v.split(".")), reverse=True)
+    versions = sorted(
+        all_versions, key=lambda v: tuple(int(x) for x in v.split(".")), reverse=True
+    )
     return versions
 
 
