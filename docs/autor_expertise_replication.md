@@ -110,25 +110,33 @@ Three observations:
 
 ### Occupation level (Module H)
 
+Aggregating the Stage 6 linked file to (isco08_4d × year) — 4,246 occupation-years across 344 ISCO occupations and 14 years.
+
+**Marginal specs:**
+
 | Outcome | Treatment | β | SE | p | n |
 |---|---|---|---|---|---|
 | log(n_jobs in occ at t+1) | Mean `expertise_change` (across firms) | **−0.148** | 0.058 | **0.011 \*\*** | 4,246 |
-| log(n_jobs in occ at t+1) | Mean AI exposure | +0.508 | 0.162 | 0.002 \*\*\* | 4,250 |
+| log(n_jobs in occ at t+1) | Mean AI exposure | **+0.508** | 0.162 | **0.002 \*\*\*** | 4,250 |
 | Δlog(n_jobs) | Mean `expertise_change` | +0.029 | 0.036 | 0.42 | 4,246 |
+| Δlog(n_jobs) | Mean AI exposure | −0.076 | 0.102 | 0.46 | 4,250 |
 
-Joint spec (both treatments on RHS, level outcome):
+**Joint spec (both treatments on RHS, level outcome):**
 
 | Term | β | SE | p |
 |---|---|---|---|
 | Mean expertise change | **−0.131** | 0.060 | **0.030 \*\*** |
-| Mean AI exposure | +0.461 | 0.161 | **0.004 \*\*\*** |
+| Mean AI exposure | **+0.461** | 0.161 | **0.004 \*\*\*** |
 
-Both coefficients survive jointly. They capture different signals:
+Unlike the firm level, **both coefficients survive jointly at the occupation level**. They capture different and orthogonal signals:
 
-- AI exposure level → how *much* AI activity in the occupation;
-- Expertise change → *direction* of task displacement.
+- **AI exposure level** (positive coefficient) → occupations with more AI activity grow as a class. Intuitive — these are the occupations being affected at all, and they tend to be expanding sectors.
+- **Expertise change** (negative coefficient) → conditional on AI activity level, the occupations where AI specifically displaces *high-expertise* tasks grow even faster. This is the Autor substitution channel.
 
-Occupations with more AI activity grow (intuitive — these are the occupations being affected at all). Conditional on that, occupations where AI displaces higher-expertise tasks grow even faster — the substitution prediction.
+The within-firm and within-occupation tests therefore tell a consistent story but with different decompositions:
+
+- At the **firm level**, expertise_change absorbs the AI-exposure signal — firms with more AI exposure tend to be firms with negative expertise_change, so once you control for direction, the level is silent.
+- At the **occupation level**, the two run alongside each other — an occupation can grow because AI is active in it *and* additionally because AI is displacing its expert work.
 
 ### Worker level (Module G economic block)
 
