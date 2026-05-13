@@ -966,6 +966,160 @@ def module_g(df):
     return rows
 
 
+# ── Module H: Occupation × year hiring (Autor expertise test) ──────────────────
+
+def module_h():
+    """
+    Autor's hiring prediction at the occupation × year level.
+
+    Build a (isco08_4d × year) panel by aggregating the Stage 6 linked file:
+      - n_jobs    = count of unique (firm, title) pairs in occ × year
+      - mean expertise_change (across firms)
+      - mean hampole_ai_exposure_avg (across firms)
+      - n_firms   = count of distinct firms appearing in occ × year
+
+    Spec:
+      log(n_jobs_{o,t+1}) ~ mean_expertise_change_{o,t} + occ FE + year FE
+      Δlog(n_jobs)_{o,t}  ~ mean_expertise_change_{o,t} + occ FE + year FE
+      SE clustered on isco08_4d
+
+    Reads stage6_jobs_linked_core_isco.csv (occ × firm × year × title rows
+    restricted to the AI-exposed firm universe).
+    """
+    if not stage6_linked_file.exists():
+        logger.info("\n" + "=" * 70)
+        logger.info("MODULE H: SKIPPED — stage6 linked file not found")
+        logger.info(f"  Expected: {stage6_linked_file}")
+        logger.info("=" * 70)
+        return []
+
+    logger.info("\n" + "=" * 70)
+    logger.info("MODULE H: OCCUPATION-LEVEL FUTURE HIRING (Autor expertise test)")
+    logger.info("  Unit: isco08_4d × year | FE: occupation + year | SE: cluster isco08_4d")
+    logger.info(f"  Treatment: mean expertise_change across firms in occ-year (spec={EXPERTISE_SPEC})")
+    logger.info("=" * 70)
+
+    expchg_col = f'expertise_change_{EXPERTISE_SPEC}'
+    ai_col     = f'hampole_ai_exposure_avg_{EXPERTISE_SPEC}'
+
+    logger.info(f"Loading Stage 6 linked file: {stage6_linked_file}")
+    want = ['company_id', 'year', 'title', 'isco08_4d', 'isco08_title',
+            expchg_col, ai_col]
+    linked = pd.read_csv(stage6_linked_file, low_memory=False,
+                         usecols=lambda c: c in want)
+    logger.info(f"  Loaded: {len(linked):,} occ×firm×year×title rows")
+
+    linked['year']      = pd.to_numeric(linked['year'], errors='coerce').astype('Int64')
+    linked['isco08_4d'] = pd.to_numeric(linked['isco08_4d'], errors='coerce').astype('Int64')
+
+    # Aggregate to occupation × year
+    occ_year = linked.groupby(['isco08_4d', 'year'], as_index=False).agg(
+        n_jobs=('title', 'nunique'),               # unique titles in occ-year (across firms)
+        n_firm_title_pairs=('title', 'count'),     # firm-title combinations
+        n_firms=('company_id', 'nunique'),
+        mean_expertise_change=(expchg_col, 'mean'),
+        mean_ai_exposure=(ai_col, 'mean'),
+    )
+    occ_year['year'] = occ_year['year'].astype('int64')
+    occ_year['isco08_4d_str'] = occ_year['isco08_4d'].astype(str)
+    logger.info(f"  Aggregated: {len(occ_year):,} occupation-year rows, "
+                f"{occ_year['isco08_4d'].nunique():,} occupations, "
+                f"{occ_year['year'].nunique():,} years")
+
+    # Lead and difference outcomes (require consecutive year within occupation)
+    occ_year = occ_year.sort_values(['isco08_4d', 'year']).reset_index(drop=True)
+    occ_year['log_n_jobs']     = np.log1p(occ_year['n_jobs'])
+    occ_year['year_next']      = occ_year.groupby('isco08_4d')['year'].shift(-1)
+    consecutive                = (occ_year['year_next'] - occ_year['year'] == 1)
+    occ_year['log_n_jobs_lead1'] = (occ_year.groupby('isco08_4d')['log_n_jobs']
+                                    .shift(-1).where(consecutive))
+    occ_year['delta_log_n_jobs'] = occ_year['log_n_jobs_lead1'] - occ_year['log_n_jobs']
+
+    occ_year['year_str'] = occ_year['year'].astype(str)
+
+    logger.info(f"  With lead outcome: {occ_year['log_n_jobs_lead1'].notna().sum():,}")
+    logger.info(f"  mean_expertise_change distribution (across occ-years):")
+    v = occ_year['mean_expertise_change'].dropna()
+    logger.info(f"    mean={v.mean():+.4f}  sd={v.std():.4f}  "
+                f"min={v.min():+.3f}  p25={v.quantile(.25):+.3f}  "
+                f"p50={v.quantile(.5):+.3f}  p75={v.quantile(.75):+.3f}  "
+                f"max={v.max():+.3f}")
+
+    def fit_occ_ols(sub, outcome, treat_cols):
+        fe = ['isco08_4d_str', 'year_str']
+        needed = fe + [outcome] + treat_cols
+        s = sub[needed].dropna().copy()
+        if len(s) < 30:
+            return None, s
+        dm = s.copy()
+        for g in fe:
+            for v in [outcome] + treat_cols:
+                dm[v] = dm[v] - dm.groupby(g)[v].transform('mean')
+        X = sm.add_constant(dm[treat_cols])
+        res = sm.OLS(dm[outcome], X).fit(
+            cov_type='cluster', cov_kwds={'groups': s['isco08_4d_str']})
+        return res, s
+
+    treatments = [
+        ('mean_expertise_change', 'Mean expertise change (Autor occ-level test)'),
+        ('mean_ai_exposure',      'Mean AI exposure (AI-only baseline)'),
+    ]
+
+    rows = []
+    for outcome, out_label in [
+        ('log_n_jobs_lead1', 'Log n_jobs in occupation at t+1'),
+        ('delta_log_n_jobs', 'Δlog n_jobs in occupation'),
+    ]:
+        logger.info(f"\n  Outcome: {out_label}")
+        logger.info(f"  {'Treatment':<55} {'N':>6}  {'β':>+9}  {'SE':>7}  {'p':>6}")
+        logger.info(f"  {'-'*85}")
+        for treat, treat_label in treatments:
+            res, s = fit_occ_ols(occ_year, outcome, [treat])
+            if res is None:
+                logger.info(f"  {treat_label:<55}  N too small")
+                continue
+            b  = res.params.get(treat, np.nan)
+            se = res.bse.get(treat, np.nan)
+            p  = res.pvalues.get(treat, np.nan)
+            sig = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else '   '))
+            logger.info(f"  {treat_label:<55} {len(s):>6,}  {b:>+9.4f}  {se:>7.4f}  {p:>6.3f} {sig}")
+            rows.append({
+                'module':    'H',
+                'outcome':   outcome,
+                'spec':      out_label,
+                'term':      treat,
+                'estimate':  b,
+                'std_error': se,
+                'p_value':   p,
+                'n_obs':     len(s),
+                'n_occupations': s['isco08_4d_str'].nunique(),
+            })
+
+        # Joint spec: both treatments together
+        res, s = fit_occ_ols(occ_year, outcome, ['mean_expertise_change', 'mean_ai_exposure'])
+        if res is not None:
+            logger.info(f"  JOINT (both treatments):")
+            for treat in ['mean_expertise_change', 'mean_ai_exposure']:
+                b  = res.params.get(treat, np.nan)
+                se = res.bse.get(treat, np.nan)
+                p  = res.pvalues.get(treat, np.nan)
+                sig = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else '   '))
+                logger.info(f"    {treat:<53} {len(s):>6,}  {b:>+9.4f}  {se:>7.4f}  {p:>6.3f} {sig}")
+                rows.append({
+                    'module':    'H',
+                    'outcome':   outcome,
+                    'spec':      f'{out_label}_joint',
+                    'term':      treat,
+                    'estimate':  b,
+                    'std_error': se,
+                    'p_value':   p,
+                    'n_obs':     len(s),
+                    'n_occupations': s['isco08_4d_str'].nunique(),
+                })
+
+    return rows
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
