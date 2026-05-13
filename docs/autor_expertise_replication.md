@@ -73,6 +73,41 @@ The headline level test is a strong confirmation of Autor at the firm level. A 1
 
 The Δlog has the opposite sign (positive). Substantively, the Autor prediction is about **hiring volume**, not growth rate, and the level test is the canonical mapping to the theory. The Δlog reversal is consistent with firms in the "losing expertise" category having persistently elevated hiring (high level) while firms in the "gaining expertise" category accelerate from a lower base.
 
+#### Comparison to AI-exposure-only specifications (firm level)
+
+The full firm panel runs three AI-exposure baselines: `pct_ai_ads_cumulative` (share of all ads that mention AI cumulatively), `firm_ai_exposure` (task-based ratio), and `log_ai_apps` (log of total AI applications). On the full 72,720 firm-year panel:
+
+| Treatment | β | SE | p | n_firms |
+|---|---|---|---|---|
+| pct_ai_ads_cumulative | +0.0007 | 0.0007 | 0.32 | 7,197 |
+| firm_ai_exposure | **+0.0585** | 0.0158 | **<0.001 \*\*\*** | 7,197 |
+| log_ai_apps | **+0.101** | 0.032 | **0.002 \*\*\*** | 7,197 |
+
+This is not a fair comparison to the expertise test (n=4,721, 797 firms). To put them on the same footing, the AI-only treatments were rerun on the expertise sample, and joint specs added:
+
+**Apples-to-apples (same 4,721 firm-years, 892 firms with both AI-exposure and expertise data):**
+
+| Spec | Term | β | SE | p |
+|---|---|---|---|---|
+| AI adoption alone | pct_ai_ads_cumulative | **−0.0149** | 0.0044 | **0.001 \*\*\*** |
+| AI exposure alone | firm_ai_exposure | **+0.0461** | 0.0097 | **<0.001 \*\*\*** |
+| Log AI apps alone | log_ai_apps | +0.0091 | 0.0164 | 0.58 |
+| **Expertise alone** | **firm_avg_expertise_change** | **−0.763** | 0.139 | **<0.001 \*\*\*** |
+| Joint (AI adoption + expertise) | pct_ai_ads_cumulative | −0.0153 | 0.0044 | 0.001 \*\*\* |
+| | firm_avg_expertise_change | **−0.779** | 0.135 | **<0.001 \*\*\*** |
+| Joint (AI exposure + expertise) | firm_ai_exposure | +0.0291 | 0.0178 | 0.10 |
+| | firm_avg_expertise_change | **−0.757** | 0.139 | **<0.001 \*\*\*** |
+| Joint (log AI apps + expertise) | log_ai_apps | +0.0031 | 0.0160 | 0.85 |
+| | firm_avg_expertise_change | **−0.763** | 0.139 | **<0.001 \*\*\*** |
+
+Three observations:
+
+1. **`pct_ai_ads_cumulative` flips sign when restricted to the expertise sample** (+0.0007 in the full panel → **−0.015** in the matched 4,721). In the broader population AI adoption percentage is essentially uncorrelated with hiring; *within the AI-active universe*, deeper AI adoption is associated with *less* hiring. The expertise sample is a different population.
+2. **`firm_ai_exposure` survives the sample restriction** (+0.058 → +0.046, still highly significant) but **collapses to insignificance once expertise is added** to the RHS (β=+0.029, p=0.10). Task-based AI exposure carries no independent signal once direction-of-displacement is in the model.
+3. **`firm_avg_expertise_change` is rock-solid**: β stays at ≈ −0.76 across every joint specification — whether you control for AI adoption percentage, task-based exposure, or log AI apps. It is the dominant predictor of firm-level future hiring.
+
+**Substantive interpretation:** the *direction* of AI task displacement (expertise_change) carries far more information about future hiring than the *level* of AI exposure. Two firms with identical AI-exposure intensity can have opposite hiring patterns depending on whether AI is taking their experts' work or their grunt work.
+
 ### Occupation level (Module H)
 
 | Outcome | Treatment | β | SE | p | n |
