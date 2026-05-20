@@ -258,7 +258,7 @@ def figure1_module_a(results):
     ax.set_xlabel("Coefficient on AI exposure (β)   ·   95% CI")
     ax.set_ylim(-0.7, n - 0.3)
 
-    # Family bands — alternating shading + horizontal label inside band on the right
+    # Family bands — colored shading per family + horizontal label inside band
     family_y = {}
     for fam in FAMILY_ORDER:
         idx = rows.index[rows["family"] == fam].tolist()
@@ -273,12 +273,12 @@ def figure1_module_a(results):
     xlim[1] = xlim[1] + 0.18 * span
     ax.set_xlim(xlim)
 
-    for i, (fam, (lo, hi)) in enumerate(family_y.items()):
-        if i % 2 == 0:
-            ax.axhspan(lo, hi, color=COL_BG, alpha=0.6, zorder=0)
+    for fam, (lo, hi) in family_y.items():
+        ax.axhspan(lo, hi, color=FAMILY_COLORS.get(fam, COL_BG),
+                   alpha=0.45, zorder=0)
         ax.text(xlim[1], (lo + hi) / 2, " " + fam,
                 va="center", ha="right",
-                fontsize=8.5, color="#666666", fontweight="bold",
+                fontsize=9, color="#333333", fontweight="bold",
                 style="italic")
     ax.grid(axis="x", alpha=0.4)
     ax.grid(axis="y", alpha=0.0)
@@ -287,9 +287,9 @@ def figure1_module_a(results):
         "Effects of AI exposure on political outcomes",
         loc="left", pad=10,
     )
-    fig.text(0.5, -0.02,
-             "Person + ISCO-3d×Year + Industry×Year FE · cluster(idpers) · "
-             "matched sample (exposure > 0) · *** p<.01, ** p<.05, * p<.10",
+    fig.text(0.5, -0.04,
+             f"{PERSON_SPEC}\n{SIG_LEGEND}  "
+             "Bar color: blue = positive, red = negative; saturation by p-value.",
              ha="center", fontsize=8.5, color="#555555")
     plt.tight_layout()
     save_fig(fig, "fig1_module_a_coefplot")
