@@ -227,13 +227,15 @@ def figure1_module_a(results):
         (results["module"] == "A")
         & (results["term"] == "hampole_ai_exposure_avg_foy")
     ].copy()
-    # Add job insecurity from Module D full subgroup (not in Module A)
-    ji = results[
-        (results["module"] == "D")
-        & (results["outcome"] == "job_insecurity")
-        & (results["spec"] == "subgroup_full")
-    ]
-    rows = pd.concat([rows, ji], ignore_index=True)
+    # Fallback: if job_insecurity isn't in Module A (older runs of stage_9e),
+    # pull it from Module D subgroup_full so the headline outcome is shown.
+    if "job_insecurity" not in rows["outcome"].values:
+        ji = results[
+            (results["module"] == "D")
+            & (results["outcome"] == "job_insecurity")
+            & (results["spec"] == "subgroup_full")
+        ]
+        rows = pd.concat([rows, ji], ignore_index=True)
 
     rows["family"] = rows["outcome"].map(OUTCOME_FAMILY).fillna("Other")
     rows["label"] = rows["outcome"].map(OUTCOME_LABELS).fillna(rows["outcome"])
