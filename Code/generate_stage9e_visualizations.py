@@ -411,15 +411,17 @@ def figure3_svp_nonlinearity(results):
     yhat_lo = yhat - 1.96 * se_yhat
     yhat_hi = yhat + 1.96 * se_yhat
 
-    fig = plt.figure(figsize=(8.8, 5.4))
+    accent = PANEL_ACCENTS["vote_svp"]  # purple
+
+    fig = plt.figure(figsize=(8.8, 5.8))
     gs = GridSpec(2, 1, height_ratios=[4.2, 1.0], hspace=0.06)
     ax = fig.add_subplot(gs[0])
     axh = fig.add_subplot(gs[1], sharex=ax)
 
-    ax.fill_between(xs, yhat_lo, yhat_hi, color=COL_ACCENT, alpha=0.18,
+    ax.fill_between(xs, yhat_lo, yhat_hi, color=accent, alpha=0.20,
                     label="95% CI (delta method)")
-    ax.plot(xs, yhat, color=COL_ACCENT, linewidth=2.2,
-            label="Predicted Δ Vote SVP (vs. sample mean)")
+    ax.plot(xs, yhat, color=accent, linewidth=2.6,
+            label="Predicted Δ Pr(Vote SVP) (vs. sample mean)")
     ax.axhline(0, color="#333333", linewidth=0.8, linestyle="--", alpha=0.7)
 
     # Tercile cut points
@@ -429,17 +431,19 @@ def figure3_svp_nonlinearity(results):
         ax.text(cx, ax.get_ylim()[1], f" {lbl}", color=COL_GREY,
                 fontsize=8, va="top", ha="left")
 
-    # Overlay tercile β at midpoints
+    # Overlay tercile β at midpoints (color = sign of estimate)
     for tname, x_pos in [("exp_t2", (t1 + t2) / 2),
                          ("exp_t3", (t2 + x_max) / 2)]:
         if tname in terc_beta:
             r = terc_beta[tname]
+            tc = sig_color(r["p_value"], r["estimate"])
             ax.errorbar(x_pos, r["estimate"],
                         yerr=[[r["estimate"] - r["ci_lower"]],
                               [r["ci_upper"] - r["estimate"]]],
-                        fmt="s", color=COL_NEG, markersize=6,
-                        markeredgecolor="white", markeredgewidth=0.7,
-                        capsize=3, label="Tercile β (vs T1)"
+                        fmt="s", color=tc, markersize=7,
+                        markeredgecolor="white", markeredgewidth=0.8,
+                        capsize=3, linewidth=1.8,
+                        label="Tercile β (vs T1)"
                         if tname == "exp_t2" else None)
 
     ax.set_ylabel("Change in Pr(Vote SVP)")
@@ -447,24 +451,25 @@ def figure3_svp_nonlinearity(results):
         f"Non-linear effect of AI exposure on SVP voting   "
         f"·   β_lin={beta_lin:+.3f} (p={p_lin:.3f}),  "
         f"β_exp²={beta_sq:+.3f} (p={p_sq:.3f})",
-        loc="left", pad=8,
+        loc="left", pad=8, color=accent,
     )
     ax.legend(loc="upper right")
     plt.setp(ax.get_xticklabels(), visible=False)
 
-    # Density / rug below
+    # Density below — accent color
     axh.hist(exp_vals[exp_vals <= x_max], bins=60,
-             color=COL_GREY, alpha=0.55, edgecolor="white", linewidth=0.4)
+             color=accent, alpha=0.40, edgecolor="white", linewidth=0.4)
     axh.set_xlabel("Hampole AI exposure (matched sample)")
     axh.set_ylabel("Density", fontsize=8.5)
     axh.set_yticks([])
     axh.grid(False)
     axh.spines["left"].set_visible(False)
 
-    fig.text(0.5, -0.02,
-             "Quadratic fit from Module B vote_svp spec; curve centered at "
-             "the matched-sample mean. Tercile point estimates plotted at "
-             "the midpoint of each tercile range.",
+    fig.text(0.5, -0.06,
+             f"Module B quadratic spec for vote_svp; outcome = 1 if respondent "
+             f"reports SVP vote intention.\n{PERSON_SPEC}\n"
+             f"Curve centered at matched-sample mean; tercile point estimates "
+             f"at midpoint of each range. {SIG_LEGEND}",
              ha="center", fontsize=8.5, color="#555555")
     plt.tight_layout()
     save_fig(fig, "fig3_svp_nonlinearity")
