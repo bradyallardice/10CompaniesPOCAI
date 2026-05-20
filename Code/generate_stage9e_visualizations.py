@@ -316,19 +316,20 @@ def figure2_heterogeneity(results):
     d["sg_label"] = d["spec"].map(SUBGROUP_LABELS)
     d = d.sort_values("sg_rank")
 
-    fig, axes = plt.subplots(1, 4, figsize=(13.5, 4.2), sharey=True)
+    fig, axes = plt.subplots(1, 4, figsize=(13.5, 4.6), sharey=True)
 
     for ax, oc in zip(axes, outcomes):
         sub = d[d["outcome"] == oc].copy()
+        accent = PANEL_ACCENTS.get(oc, "#444444")
         ys = np.arange(len(sub))[::-1]
         for y, (_, r) in zip(ys, sub.iterrows()):
             c = sig_color(r["p_value"], r["estimate"])
             a = sig_alpha(r["p_value"])
             ax.hlines(y, r["ci_lower"], r["ci_upper"],
-                      color=c, alpha=a, linewidth=2.0)
+                      color=c, alpha=a, linewidth=2.2)
             ax.plot(r["estimate"], y, "o", color=c, alpha=a,
-                    markersize=5.5, markeredgecolor="white",
-                    markeredgewidth=0.6)
+                    markersize=6, markeredgecolor="white",
+                    markeredgewidth=0.7)
             stars = sig_stars(r["p_value"])
             if stars:
                 ax.text(r["ci_upper"], y, " " + stars, va="center",
@@ -336,17 +337,21 @@ def figure2_heterogeneity(results):
         ax.axvline(0, color="#333333", linewidth=0.8, linestyle="--", alpha=0.7)
         ax.set_yticks(ys)
         ax.set_yticklabels(sub["sg_label"].tolist())
-        ax.set_title(titles[oc], loc="left")
+        ax.set_title(titles[oc], loc="left", color=accent, pad=12)
         ax.set_xlabel("β (95% CI)")
         ax.grid(axis="x", alpha=0.4)
         ax.grid(axis="y", alpha=0.0)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
+        # Colored accent bar above each panel
+        ax.axhline(len(sub) - 0.2, color=accent, linewidth=3.5,
+                   solid_capstyle="butt", clip_on=False)
 
     fig.suptitle("Heterogeneous effects of AI exposure across subgroups",
                  x=0.01, ha="left", fontsize=13, fontweight="bold", y=1.02)
-    fig.text(0.5, -0.03,
-             "Each panel: Module D subgroup estimates with 95% CIs. "
-             "Same controls as headline spec. *** p<.01, ** p<.05, * p<.10",
+    fig.text(0.5, -0.06,
+             f"{PERSON_SPEC}\n"
+             f"Subgroup splits: sex (female), education (high = tertiary), "
+             f"period (post-2018 = LLM era). {SIG_LEGEND}",
              ha="center", fontsize=8.5, color="#555555")
     plt.tight_layout()
     save_fig(fig, "fig2_module_d_heterogeneity")
