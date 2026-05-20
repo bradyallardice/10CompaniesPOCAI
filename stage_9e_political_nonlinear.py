@@ -978,19 +978,8 @@ def module_g(df):
     logger.info(f"  {'Outcome':<50} {'N':>7}  {'β_expchg':>9}  {'SE':>7}  {'p':>6}")
     logger.info(f"  {'-'*80}")
 
-    # Clean economic outcome variables — same negative-code handling as political ones.
-    # job_insecurity is the only one already cleaned (in build_analysis_frame).
-    matched = matched.copy()
-    if 'outcome_log_income' in matched.columns:
-        s = pd.to_numeric(matched['outcome_log_income'], errors='coerce')
-        matched['log_income'] = s.where(s.notna())  # log income should already be missing for non-positive
-    if 'outcome_hours_worked' in matched.columns:
-        s = pd.to_numeric(matched['outcome_hours_worked'], errors='coerce')
-        matched['hours_worked'] = s.where(s > 0)
-    if 'separation_t1' in matched.columns:
-        s = pd.to_numeric(matched['separation_t1'], errors='coerce')
-        matched['separation'] = s.where(s.isin([0, 1]))
-
+    # Economic outcomes are now cleaned upstream in build_analysis_frame and
+    # available on the analysis frame directly.
     economic = [
         ('job_insecurity', 'Job Insecurity (1–4, higher = more insecure)'),
         ('log_income',     'Log income (continuous)'),
