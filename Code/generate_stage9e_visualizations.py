@@ -478,6 +478,11 @@ def figure4_firm_hiring(firm):
         ax.set_title(spec_label, loc="left")
         ax.grid(axis="x", alpha=0.4)
         ax.grid(axis="y", alpha=0.0)
+        # Pad right side so β labels don't touch the edge
+        xlim = list(ax.get_xlim())
+        span = xlim[1] - xlim[0]
+        xlim[1] = xlim[1] + 0.22 * span
+        ax.set_xlim(xlim)
 
     fig.suptitle("AI adoption and future firm hiring",
                  x=0.01, ha="left", fontsize=13, fontweight="bold", y=1.03)
