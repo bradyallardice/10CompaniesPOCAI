@@ -589,6 +589,11 @@ def figure5_summary(results, firm):
         ax.set_xlabel(xlab)
         ax.grid(axis="x", alpha=0.4)
         ax.grid(axis="y", alpha=0.0)
+        # Pad right side so β value labels don't touch the panel edge
+        xlim = list(ax.get_xlim())
+        span = xlim[1] - xlim[0]
+        xlim[1] = xlim[1] + 0.22 * span
+        ax.set_xlim(xlim)
 
     fig.suptitle("AI exposure: headline findings",
                  x=0.01, ha="left", fontsize=14, fontweight="bold", y=1.01)
