@@ -468,6 +468,27 @@ def module_a(df):
             r = make_row(res, s, outcome, 'baseline', EXPOSURE, 'A')
             if r: rows.append(r)
 
+    # Economic outcomes — same headline AI-exposure treatment, same FE/cluster/controls
+    economic = [
+        ('unemp_risk',     'Risk of losing job in next 12 months (pw101, 0-10)'),
+        ('job_insecurity', 'Job insecurity (1-4, higher = more insecure)'),
+        ('log_income',     'Log income (continuous)'),
+        ('hours_worked',   'Weekly hours worked'),
+        ('separation',     'Separation at t+1 (binary, forward-looking)'),
+    ]
+    logger.info("\n  ECONOMIC OUTCOMES (AI exposure as treatment):")
+    logger.info(f"  {'Outcome':<50} {'N':>7}  {'beta_AI':>9}  {'SE':>7}  {'p':>6}")
+    logger.info(f"  {'-'*80}")
+    for outcome, label in economic:
+        if outcome not in matched.columns:
+            logger.info(f"  {label:<50}  outcome column not loaded")
+            continue
+        res, s = fit_ols(matched, outcome, [EXPOSURE] + CONTROLS)
+        log_result(label, res, s)
+        if res is not None:
+            r = make_row(res, s, outcome, 'baseline', EXPOSURE, 'A')
+            if r: rows.append(r)
+
     return rows
 
 
