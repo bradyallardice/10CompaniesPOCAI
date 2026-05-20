@@ -294,7 +294,7 @@ def figure1_module_a(results):
     ax.grid(axis="y", alpha=0.0)
 
     ax.set_title(
-        "Effects of AI exposure on political outcomes",
+        "Effects of AI exposure on political and economic outcomes",
         loc="left", pad=10,
     )
     fig.text(0.5, -0.04,
