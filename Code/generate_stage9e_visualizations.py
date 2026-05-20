@@ -177,6 +177,21 @@ SUBGROUP_ORDER = ["subgroup_full", "subgroup_male", "subgroup_female",
                   "subgroup_edu_high", "subgroup_edu_low",
                   "subgroup_pre2018", "subgroup_post2018"]
 
+# ── Spec descriptions for figure footers ───────────────────────────────────────
+PERSON_SPEC = (
+    "Spec: Person + ISCO-3d×Year + Industry×Year (NOGA2M 17-sector) FE; "
+    "SE clustered on idpers; matched sample (exposure > 0).\n"
+    "Controls: age, age², permanent contract (pw36), part-time (pw39), "
+    "computer use at work (pw607), firm size (pw85), public sector (pw32), "
+    "lag log(job ads)."
+)
+FIRM_SPEC = (
+    "Spec: Firm + Year FE; SE clustered on company_id; "
+    "all firm-years 2010–2024. No additional controls — fixed effects absorb "
+    "time-invariant firm characteristics and common annual shocks."
+)
+SIG_LEGEND = "Significance: *** p<.01, ** p<.05, * p<.10."
+
 
 # ── Data loading ───────────────────────────────────────────────────────────────
 def load_results():
