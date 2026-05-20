@@ -583,52 +583,50 @@ def figure5_summary(results, firm):
          ji,
          {"subgroup_pre2018": "Pre-2018", "subgroup_post2018": "Post-2018",
           "subgroup_full": "Full sample"},
-         "β on AI exposure"),
+         "β on AI exposure",
+         PANEL_ACCENTS["job_insecurity"]),
         ("Vote SP: gender reversal",
          sp,
          {"subgroup_male": "Men", "subgroup_female": "Women",
           "subgroup_full": "Full sample"},
-         "β on AI exposure"),
+         "β on AI exposure",
+         PANEL_ACCENTS["vote_sp"]),
         ("Redistribution: high-education driven",
          rd,
          {"subgroup_edu_high": "High edu", "subgroup_edu_low": "Low edu",
           "subgroup_full": "Full sample"},
-         "β on AI exposure"),
+         "β on AI exposure",
+         PANEL_ACCENTS["redistributive"]),
         ("Firm hiring level (t+1)",
          f,
          {"pct_ai_ads_cumulative": "% AI ads",
           "firm_ai_exposure": "Firm AI exposure",
           "log_ai_apps": "log(AI apps)"},
-         "β on treatment"),
+         "β on treatment",
+         "#1B9E77"),   # matches Fig 4 levels accent
     ]
 
-    fig, axes = plt.subplots(2, 2, figsize=(11.5, 7.4))
+    fig, axes = plt.subplots(2, 2, figsize=(11.8, 7.8))
     axes = axes.flatten()
 
-    for ax, (title, df, labels, xlab) in zip(axes, panels):
+    for ax, (title, df, labels, xlab, accent) in zip(axes, panels):
         df = df.copy()
-        df["ci_lo"] = df["ci_lower"] if "ci_lower" in df.columns else (
-            df["estimate"] - 1.96 * df["std_error"])
-        df["ci_hi"] = df["ci_upper"] if "ci_upper" in df.columns else (
-            df["estimate"] + 1.96 * df["std_error"])
-        # firm df has ci_lower / ci_upper from load_firm()
-        if "ci_lower" not in df.columns:
-            df["ci_lo"] = df["estimate"] - 1.96 * df["std_error"]
-            df["ci_hi"] = df["estimate"] + 1.96 * df["std_error"]
-        else:
+        if "ci_lower" in df.columns:
             df["ci_lo"] = df["ci_lower"]
             df["ci_hi"] = df["ci_upper"]
+        else:
+            df["ci_lo"] = df["estimate"] - 1.96 * df["std_error"]
+            df["ci_hi"] = df["estimate"] + 1.96 * df["std_error"]
 
         order_keys = list(labels.keys())
         ys = np.arange(len(order_keys))[::-1]
         for y, key in zip(ys, order_keys):
             r = df.loc[key]
             c = sig_color(r["p_value"], r["estimate"])
-            a = sig_alpha(r["p_value"])
             ax.hlines(y, r["ci_lo"], r["ci_hi"],
-                      color=c, alpha=a, linewidth=2.4)
-            ax.plot(r["estimate"], y, "o", color=c, alpha=a,
-                    markersize=7, markeredgecolor="white", markeredgewidth=0.7)
+                      color=c, linewidth=2.6)
+            ax.plot(r["estimate"], y, "o", color=c,
+                    markersize=8, markeredgecolor="white", markeredgewidth=0.8)
             stars = sig_stars(r["p_value"])
             ax.text(r["ci_hi"], y,
                     f"  β={r['estimate']:+.3f}{(' ' + stars) if stars else ''}",
@@ -636,10 +634,13 @@ def figure5_summary(results, firm):
         ax.axvline(0, color="#333333", linewidth=0.8, linestyle="--", alpha=0.7)
         ax.set_yticks(ys)
         ax.set_yticklabels([labels[k] for k in order_keys])
-        ax.set_title(title, loc="left")
+        ax.set_title(title, loc="left", color=accent, pad=12)
         ax.set_xlabel(xlab)
         ax.grid(axis="x", alpha=0.4)
         ax.grid(axis="y", alpha=0.0)
+        # Colored accent bar above panel
+        ax.axhline(len(order_keys) - 0.2, color=accent, linewidth=3.5,
+                   solid_capstyle="butt", clip_on=False)
         # Pad right side so β value labels don't touch the panel edge
         xlim = list(ax.get_xlim())
         span = xlim[1] - xlim[0]
@@ -648,10 +649,9 @@ def figure5_summary(results, firm):
 
     fig.suptitle("AI exposure: headline findings",
                  x=0.01, ha="left", fontsize=14, fontweight="bold", y=1.01)
-    fig.text(0.5, -0.02,
-             "Panels (a)–(c): person-level FE with Industry×Year and ISCO-3d×Year "
-             "(matched sample, cluster idpers). Panel (d): firm-level with Firm + "
-             "Year FE (cluster company_id). *** p<.01, ** p<.05, * p<.10",
+    fig.text(0.5, -0.06,
+             f"Panels (a)–(c): {PERSON_SPEC}\n"
+             f"Panel (d): {FIRM_SPEC} {SIG_LEGEND}",
              ha="center", fontsize=8.5, color="#555555")
     plt.tight_layout()
     save_fig(fig, "fig5_summary_composite")
