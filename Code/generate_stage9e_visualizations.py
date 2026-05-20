@@ -496,20 +496,25 @@ def figure4_firm_hiring(firm):
     f["spec_label"] = f["spec"].map(keep_specs)
     f["treat_label"] = f["term"].map(treat_labels)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.2, 3.7), sharey=True)
+    panel_accents = {
+        "Log job ads (t+1)  ·  level":  "#1B9E77",   # green — levels
+        "Δlog job ads  ·  growth":      "#D95F02",   # orange — growth
+    }
+
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.0), sharey=True)
 
     for ax, spec_label in zip(axes, keep_specs.values()):
         sub = f[f["spec_label"] == spec_label].copy()
         sub["t_rank"] = sub["term"].map({t: i for i, t in enumerate(treat_order)})
         sub = sub.sort_values("t_rank")
+        accent = panel_accents[spec_label]
         ys = np.arange(len(sub))[::-1]
         for y, (_, r) in zip(ys, sub.iterrows()):
             c = sig_color(r["p_value"], r["estimate"])
-            a = sig_alpha(r["p_value"])
             ax.hlines(y, r["ci_lower"], r["ci_upper"],
-                      color=c, alpha=a, linewidth=2.4)
-            ax.plot(r["estimate"], y, "o", color=c, alpha=a,
-                    markersize=7, markeredgecolor="white", markeredgewidth=0.7)
+                      color=c, linewidth=2.6)
+            ax.plot(r["estimate"], y, "o", color=c,
+                    markersize=8, markeredgecolor="white", markeredgewidth=0.8)
             stars = sig_stars(r["p_value"])
             label_text = f"  β={r['estimate']:+.3f}{(' ' + stars) if stars else ''}"
             ax.text(r["ci_upper"], y, label_text, va="center",
@@ -517,10 +522,13 @@ def figure4_firm_hiring(firm):
         ax.axvline(0, color="#333333", linewidth=0.8, linestyle="--", alpha=0.7)
         ax.set_yticks(ys)
         ax.set_yticklabels(sub["treat_label"].tolist())
-        ax.set_xlabel("β  (Firm + Year FE, cluster company_id)")
-        ax.set_title(spec_label, loc="left")
+        ax.set_xlabel("β")
+        ax.set_title(spec_label, loc="left", color=accent, pad=12)
         ax.grid(axis="x", alpha=0.4)
         ax.grid(axis="y", alpha=0.0)
+        # Colored accent bar above panel
+        ax.axhline(len(sub) - 0.2, color=accent, linewidth=3.5,
+                   solid_capstyle="butt", clip_on=False)
         # Pad right side so β labels don't touch the edge
         xlim = list(ax.get_xlim())
         span = xlim[1] - xlim[0]
@@ -529,10 +537,10 @@ def figure4_firm_hiring(firm):
 
     fig.suptitle("AI adoption and future firm hiring",
                  x=0.01, ha="left", fontsize=13, fontweight="bold", y=1.03)
-    fig.text(0.5, -0.04,
-             "N=72,720 firm-years; 7,197 firms. "
-             "AI-exposed firms hire more in levels but not in growth. "
-             "*** p<.01, ** p<.05, * p<.10",
+    fig.text(0.5, -0.07,
+             f"N=72,720 firm-years; 7,197 firms. "
+             f"AI-exposed firms hire more in levels but not in growth.\n"
+             f"{FIRM_SPEC} {SIG_LEGEND}",
              ha="center", fontsize=8.5, color="#555555")
     plt.tight_layout()
     save_fig(fig, "fig4_module_e_firm_hiring")
