@@ -204,7 +204,7 @@ def figure1_module_a(results):
     rows = rows.reset_index(drop=True)
 
     n = len(rows)
-    fig, ax = plt.subplots(figsize=(9.2, 0.42 * n + 1.4))
+    fig, ax = plt.subplots(figsize=(9.6, 0.42 * n + 1.6))
 
     ys = np.arange(n)[::-1]
     for y, (_, r) in zip(ys, rows.iterrows()):
@@ -225,7 +225,7 @@ def figure1_module_a(results):
     ax.set_xlabel("Coefficient on AI exposure (β)   ·   95% CI")
     ax.set_ylim(-0.7, n - 0.3)
 
-    # Family bands
+    # Family bands — alternating shading + horizontal label inside band on the right
     family_y = {}
     for fam in FAMILY_ORDER:
         idx = rows.index[rows["family"] == fam].tolist()
@@ -233,14 +233,20 @@ def figure1_module_a(results):
             continue
         ys_fam = [ys[i] for i in idx]
         family_y[fam] = (min(ys_fam) - 0.45, max(ys_fam) + 0.45)
-    xlim = ax.get_xlim()
+
+    # Add right-side padding so band labels and stars don't crowd the edge
+    xlim = list(ax.get_xlim())
+    span = xlim[1] - xlim[0]
+    xlim[1] = xlim[1] + 0.18 * span
+    ax.set_xlim(xlim)
+
     for i, (fam, (lo, hi)) in enumerate(family_y.items()):
         if i % 2 == 0:
             ax.axhspan(lo, hi, color=COL_BG, alpha=0.6, zorder=0)
-        ax.text(xlim[0] - 0.03 * (xlim[1] - xlim[0]),
-                (lo + hi) / 2, fam, rotation=90, va="center", ha="right",
-                fontsize=9, color="#444444", fontweight="bold")
-    ax.set_xlim(xlim)
+        ax.text(xlim[1], (lo + hi) / 2, " " + fam,
+                va="center", ha="right",
+                fontsize=8.5, color="#666666", fontweight="bold",
+                style="italic")
     ax.grid(axis="x", alpha=0.4)
     ax.grid(axis="y", alpha=0.0)
 
