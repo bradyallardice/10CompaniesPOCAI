@@ -60,32 +60,50 @@ plt.rcParams.update({
     "savefig.facecolor": "white",
 })
 
-# Modern muted palette (colorblind-friendly, single-accent style)
-COL_POS = "#1F6FB4"     # blue — positive coefficient
-COL_NEG = "#C73E3A"     # red — negative coefficient
-COL_NULL = "#7F7F7F"    # grey — non-significant
-COL_ACCENT = "#1F6FB4"
+# Modern academic palette — sign-based with three saturation levels
+# (p<.05 strong, p<.10 mid, ns soft tint instead of grey)
+COL_POS_STRONG = "#1F6FB4"   # deep blue
+COL_POS_MID    = "#5A9BD4"
+COL_POS_SOFT   = "#A8C7E5"
+COL_NEG_STRONG = "#C73E3A"   # deep red
+COL_NEG_MID    = "#D6776F"
+COL_NEG_SOFT   = "#E8B5B0"
+COL_NULL       = "#B0B0B0"   # only when sign is undefined
+
 COL_GREY = "#999999"
 COL_BG = "#F5F5F5"
+
+# Family / panel accent colors (used for band tints and title underlines)
+FAMILY_COLORS = {
+    "Vote choice":         "#FFE9B3",  # warm yellow
+    "Ideology":            "#CFE8D1",  # green
+    "Policy attitudes":    "#E0CBE8",  # lavender
+    "Institutional trust": "#BFE2E5",  # teal
+    "Economic perceptions": "#FFD9B8", # peach
+}
+PANEL_ACCENTS = {
+    "job_insecurity":  "#E67E22",  # orange
+    "vote_svp":        "#7D3C98",  # purple (politically neutral hue, not party-color)
+    "vote_sp":         "#2C7BB6",  # blue
+    "redistributive":  "#1B9E77",  # green
+}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def sig_color(p, beta):
     if pd.isna(p) or pd.isna(beta):
         return COL_NULL
+    pos = beta > 0
     if p < 0.05:
-        return COL_POS if beta > 0 else COL_NEG
-    return COL_NULL
+        return COL_POS_STRONG if pos else COL_NEG_STRONG
+    if p < 0.10:
+        return COL_POS_MID if pos else COL_NEG_MID
+    return COL_POS_SOFT if pos else COL_NEG_SOFT
 
 
 def sig_alpha(p):
-    if pd.isna(p):
-        return 0.35
-    if p < 0.05:
-        return 1.0
-    if p < 0.10:
-        return 0.65
-    return 0.35
+    # With tinted null colors we no longer need to fade out — keep all bars solid
+    return 1.0
 
 
 def sig_stars(p):
