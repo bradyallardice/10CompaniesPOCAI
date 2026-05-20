@@ -145,7 +145,11 @@ OUTCOME_LABELS = {
     "democracy_sat": "Democracy satisfaction (0–10)",
     "political_efficacy": "Political efficacy (0–10)",
     "eu_opinion": "EU opinion (1–3)",
-    "job_insecurity": "Job insecurity",
+    "job_insecurity": "Job insecurity (1–4)",
+    "unemp_risk": "Risk of losing job in next 12 mo (0–10)",
+    "log_income": "Log income",
+    "hours_worked": "Weekly hours worked",
+    "separation": "Separation at t+1 (binary)",
 }
 
 OUTCOME_FAMILY = {
@@ -158,11 +162,15 @@ OUTCOME_FAMILY = {
     "eu_opinion": "Policy attitudes",
     "trust_govt": "Institutional trust", "democracy_sat": "Institutional trust",
     "political_efficacy": "Institutional trust",
-    "job_insecurity": "Economic perceptions",
+    "job_insecurity": "Economic outcomes",
+    "unemp_risk": "Economic outcomes",
+    "log_income": "Economic outcomes",
+    "hours_worked": "Economic outcomes",
+    "separation": "Economic outcomes",
 }
 
 FAMILY_ORDER = ["Vote choice", "Ideology", "Policy attitudes",
-                "Institutional trust", "Economic perceptions"]
+                "Institutional trust", "Economic outcomes"]
 
 SUBGROUP_LABELS = {
     "subgroup_full": "Full sample",
