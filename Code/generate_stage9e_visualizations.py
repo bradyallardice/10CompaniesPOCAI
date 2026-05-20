@@ -79,7 +79,7 @@ FAMILY_COLORS = {
     "Ideology":            "#CFE8D1",  # green
     "Policy attitudes":    "#E0CBE8",  # lavender
     "Institutional trust": "#BFE2E5",  # teal
-    "Economic perceptions": "#FFD9B8", # peach
+    "Economic outcomes":   "#FFD9B8",  # peach
 }
 PANEL_ACCENTS = {
     "job_insecurity":  "#E67E22",  # orange
