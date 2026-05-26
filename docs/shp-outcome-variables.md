@@ -1,8 +1,8 @@
 # SHP Outcome Variables: Coverage and Notes
 
-Source: `swissubase_932_10_0/documents/Documentation/SHP_Variables_by_Waves.xlsx`, sheet: INDIVIDUAL ANNUAL FILES
+Source: `swissubase_932_11_0/documents/Documentation/SHP_Variables_by_Waves.xlsx`, sheet: INDIVIDUAL ANNUAL FILES
 
-Wave 1 = 1999, Wave 25 = 2023. Variable suffix `$$` is the 2-digit year (99, 00, 01, ... 23), e.g. `P99W77`, `P23W77`.
+Wave 1 = 1999, Wave 26 = 2024. Variable suffix `$$` is the 2-digit year (99, 00, 01, ... 24), e.g. `P99W77`, `P24W77`.
 
 ---
 
