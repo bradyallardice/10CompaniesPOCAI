@@ -223,7 +223,7 @@ def load_shp_long(shp_long_file: str) -> pd.DataFrame:
         raise FileNotFoundError(f"SHP long file not found: {shp_long_file}")
 
     logger.info(f"Loading SHP long file: {shp_long_file}")
-    logger.info("  This may take a moment (964 variables)...")
+    logger.info("  This may take a moment (~961 variables)...")
 
     # convert_categoricals=False avoids ValueError from non-unique STATA value labels
     # (e.g., column pp02 has duplicate category labels)
