@@ -380,7 +380,13 @@ def prepare_shp_data(shp: pd.DataFrame, year_min: int = 2012, year_max: int = 20
     shp = shp.rename(columns={'firm_id': 'firm_id_2021', 'firm_id_filled': 'firm_id'})
 
     # Extract ISCO codes (negative values → NaN, matching R: shp$is4maj[shp$is4maj<0] <- NA)
-    shp['isco08_4d'] = shp['is4maj'].where(shp['is4maj'] >= 0, other=np.nan)
+    # is4maj absent in SHP v11 longfile — set isco08_4d to NaN so 4d-merged outputs stay
+    # schema-compatible but contain no matches; analysis effectively falls back to 3d.
+    if 'is4maj' in shp.columns:
+        shp['isco08_4d'] = shp['is4maj'].where(shp['is4maj'] >= 0, other=np.nan)
+    else:
+        logger.warning("  is4maj not in SHP longfile (v11+) — 4-digit ISCO matching disabled, using 3-digit as max granularity")
+        shp['isco08_4d'] = np.nan
     shp['isco_3d'] = shp['is3maj'].where(shp['is3maj'] >= 0, other=np.nan)
     shp['isco_2d'] = shp['is2maj'].where(shp['is2maj'] >= 0, other=np.nan)
     shp['isco_1d'] = shp['is1maj'].where(shp['is1maj'] >= 0, other=np.nan)
