@@ -389,8 +389,8 @@ Unlike typical occupation-level AI exposure measures, this approach captures **w
 Link Stage 5 AI exposure measures to individual respondents in the Swiss Household Panel (SHP), producing an analysis-ready person×year panel with AI exposure at multiple ISCO aggregation levels.
 
 ### Inputs
-- SHP long file: `shplong_p_user.dta` (STATA, 964 variables, ~345K person-year observations)
-- Anonymized firm IDs: `shp_firmid_anon.csv` (columns: idpers, year, firm_id — ~70K rows)
+- SHP long file: `shplong_p_user.dta` (STATA, ~359K person-year observations, Waves 1–26 / 1999–2024; located in `swissubase_932_11_0`)
+- Anonymized firm IDs: `shp_firmid_anon.csv` (columns: idpers, year, firm_id — ~100K rows, 2011–2025)
 - Stage 5 ISCO exposure: `isco_firm_year_exposure_core_tasks_pct_05_ce_0.0_BGE.csv`
 - Company↔firm_id mapping: `Data/company_id_to_firm_id.csv` (auto-generated)
 - Optional: Employment weights CSV for weighted ISCO aggregation
