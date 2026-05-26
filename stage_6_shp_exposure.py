@@ -1349,7 +1349,7 @@ def run_pipeline(args):
         for level_name in active_levels:
             exp_data = all_levels[level_name][isco_mode]
             result = merge_exposure_level(result, exp_data, level_name, isco_mode)
-            result = fill_zeros_for_level(result, level_name, observable_firm_ids)
+            result = fill_zeros_for_level(result, level_name, observable_firm_ids, isco_mode=isco_mode)
 
         # For Level 1 (foy), also carry through auxiliary columns unsuffixed
         # These come from the 4d foy merge and contain metadata (task counts etc.)
