@@ -145,8 +145,11 @@ EXPOSURE_LEVELS = {
     },
 }
 
-# SHP columns needed for processing (beyond the 964 survey variables)
-SHP_KEY_COLUMNS = ['idpers', 'year', 'is4maj', 'is3maj', 'is2maj', 'is1maj',
+# SHP columns needed for processing (beyond the 964 survey variables).
+# is4maj was present in SHP v10 longfile (swissubase_932_10_0) but dropped in v11
+# (swissubase_932_11_0, released Feb 2026). 4-digit ISCO matching is now best-effort:
+# if is4maj is absent we proceed with is3maj as the finest granularity.
+SHP_KEY_COLUMNS = ['idpers', 'year', 'is3maj', 'is2maj', 'is1maj',
                    'pw01', 'pw02', 'pw03', 'pw18']
 
 
