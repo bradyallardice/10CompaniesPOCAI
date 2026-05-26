@@ -183,8 +183,8 @@ This is not a measurement error we can fix — it requires an updated firm linka
 
 ## Data Sources
 
-- SHP long file: `shplong_p_user.dta` (Waves 1–25, 1999–2023)
-- Firm ID linkage: `shp_firmid_anon.csv` (~70K person-year rows)
+- SHP long file: `shplong_p_user.dta` (Waves 1–26, 1999–2024; from `swissubase_932_11_0`)
+- Firm ID linkage: `shp_firmid_anon.csv` (~100K person-year rows, 2011–2025)
 - X28 company list: `Data/company_mapping.csv` (7,197 companies — full job ad database)
 - Stage 5 exposure: `isco_firm_year_exposure_core_tasks_pct_05_ce_0.0.csv` (896 AI-adopting companies)
 - Firm ID transformation: `firm_id = (company_id + 13) × 13`
