@@ -930,19 +930,35 @@ def merge_exposure_level(shp: pd.DataFrame, exposure: pd.DataFrame,
     return result
 
 
+def _isco_gate_column(result: pd.DataFrame, isco_mode: str) -> str:
+    """Return the ISCO column name to gate zero-fill on for this output mode.
+
+    For each isco_mode we use the matching column ('4d' → isco08_4d, etc.) so a row
+    is only zero-filled at a given granularity if the respondent actually reported
+    an ISCO code at that granularity.
+
+    Special case: SHP v11+ does not ship is4maj, so isco08_4d is all NaN. When we run
+    in '4d' mode against such a panel, no rows are zero-filled at the 4d level (correct).
+    The 3d/2d/fallback outputs retain their fills.
+    """
+    return {'4d': 'isco08_4d', '3d': 'isco_3d', '2d': 'isco_2d'}.get(isco_mode, 'isco_3d')
+
+
 def fill_zeros_for_level(result: pd.DataFrame, level_name: str,
-                          observable_firm_ids: set) -> pd.DataFrame:
+                          observable_firm_ids: set,
+                          isco_mode: str = '4d') -> pd.DataFrame:
     """
     Zero-fill for one exposure level based on its type.
 
     - Firm-based levels: zero-fill if firm is in X28 database
-    - Occ-only levels: zero-fill if person has an ISCO code (all occupations observable)
+    - Occ-only levels: zero-fill if person has an ISCO code at the requested granularity
     - Firm-only levels: zero-fill if firm is in X28 database (regardless of ISCO)
 
     Args:
         result: Merged SHP DataFrame
         level_name: Key into EXPOSURE_LEVELS
         observable_firm_ids: Set of firm_ids from X28 database
+        isco_mode: ISCO granularity ('4d'/'3d'/'2d') used to pick the gating column
     """
     level_config = EXPOSURE_LEVELS[level_name]
     suffix = level_config['suffix']
@@ -954,18 +970,19 @@ def fill_zeros_for_level(result: pd.DataFrame, level_name: str,
 
     primary_col = core_cols_suffixed[0]
     no_exposure = result[primary_col].isna()
+    isco_gate = result[_isco_gate_column(result, isco_mode)].notna()
 
     if level_config['has_firm'] and level_config['has_isco']:
-        # Firm × Occ levels: need firm in X28 AND has ISCO
+        # Firm × Occ levels: need firm in X28 AND has ISCO at the relevant granularity
         fill_mask = (result['firm_in_exposure_data'] &
-                     result['isco08_4d'].notna() &
+                     isco_gate &
                      no_exposure)
     elif level_config['has_firm'] and not level_config['has_isco']:
         # Firm-only levels: need firm in X28 (no ISCO requirement)
         fill_mask = result['firm_in_exposure_data'] & no_exposure
     elif not level_config['has_firm'] and level_config['has_isco']:
-        # Occ-only levels: all occupations are observable, so anyone with ISCO gets 0
-        fill_mask = result['isco08_4d'].notna() & no_exposure
+        # Occ-only levels: all occupations observable, so anyone with ISCO gets 0
+        fill_mask = isco_gate & no_exposure
     else:
         # Pure time-level (shouldn't happen)
         fill_mask = pd.Series(False, index=result.index)
