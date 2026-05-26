@@ -1366,16 +1366,20 @@ def run_pipeline(args):
     # Mode D: Hierarchical fallback (uses existing foy merge for backward compat)
     logger.info("\n--- Output mode: fallback ---")
     result_fallback = merge_shp_exposure_fallback(shp, exposure_foy_4d, exposure_foy_3d, exposure_foy_2d)
-    # For fallback, also merge all non-foy levels at 4d (since fallback handles its own ISCO cascading)
+    # For fallback, also merge all non-foy levels at 4d (since fallback handles its own ISCO cascading).
+    # Zero-fill gates on 3d ISCO (deepest reliable granularity across SHP v10 and v11+).
+    fallback_isco_mode = '3d'
     for level_name in active_levels:
         if level_name == 'foy':
             continue  # Already handled by fallback merge (unsuffixed)
         exp_data = all_levels[level_name]['4d']
         result_fallback = merge_exposure_level(result_fallback, exp_data, level_name, '4d')
-        result_fallback = fill_zeros_for_level(result_fallback, level_name, observable_firm_ids)
+        result_fallback = fill_zeros_for_level(result_fallback, level_name, observable_firm_ids,
+                                                isco_mode=fallback_isco_mode)
     # Zero-fill the unsuffixed foy columns from fallback merge
     exp_cols_foy = [c for c in EXPOSURE_VALUE_COLUMNS if c in result_fallback.columns]
-    result_fallback = fill_zeros_for_matched_firms(result_fallback, exp_cols_foy, observable_firm_ids)
+    result_fallback = fill_zeros_for_matched_firms(result_fallback, exp_cols_foy, observable_firm_ids,
+                                                    isco_mode=fallback_isco_mode)
     # Rename unsuffixed foy core columns to _foy so stage_7 can find them consistently
     foy_suffix = EXPOSURE_LEVELS['foy']['suffix']  # '_foy'
     foy_rename = {c: f'{c}{foy_suffix}' for c in EXPOSURE_CORE_COLUMNS if c in result_fallback.columns}
