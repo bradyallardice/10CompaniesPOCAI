@@ -14,9 +14,9 @@ Produces 4 output files at different ISCO aggregation levels:
 
 Usage:
     python3 stage_6_shp_exposure.py \\
-        --shp-long-file /path/to/shplong_p_user.dta \\
-        --shp-firmid-file /path/to/shp_firmid_anon.csv \\
-        --exposure-file /path/to/isco_firm_year_exposure_core_tasks_pct_05_ce_0.0_BGE.csv \\
+        --shp-long-file ~/Dropbox/kurer_allardice_technology/data/original/shp/swissubase_932_11_0/data/Data_STATA/SHP-Data-Longfile-STATA/shplong_p_user.dta \\
+        --shp-firmid-file ~/Dropbox/kurer_allardice_technology/data/created/shp_firmid_anon.csv \\
+        --exposure-file Data/isco_firm_year_exposure_core_tasks_pct_05_ce_0.0_BGE.csv \\
         --output-dir Data/shp_exposure/ \\
         --generate-mapping-file
 """
