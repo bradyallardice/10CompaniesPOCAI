@@ -180,6 +180,8 @@ Once the new `shp_firmid_anon.csv` lands in `data/created/`:
 2. Verify coverage gains vs. the Mar 9 baseline (expected: ~5–10k additional person-years with `firm_id`)
 3. Re-run downstream stages (Stage 8/9 econometric specs) on the extended panel
 
+**Status as of 2026-05-26**: Thomas re-ran the R script — `shp_firmid_anon.csv` now has 99,989 rows covering 2011–2025 (vs. 73,474 rows / 2011–2021 before), with 47,634 rows carrying a firm_id (vs. 35,887 before). Plus, the v11 SHP release dropped from FORS — `swissubase_932_11_0/` replaces the previous v10 folder and extends the SHP person panel through Wave 26 (2024). 2025 (Wave 27) won't be in the panel until SHP fields it (~mid-2027 beta).
+
 ### Open follow-up: residual W13–W23 unmatched
 
 After this run, 12,957 W13–W23 firms remain unmatched. The user's hypothesis (most are <20-employee firms not worth asking X28 for) needs the same `pw85` filter as Step 2 above to verify. Deferred to a later round — current focus is on the new W24–W27 era.
