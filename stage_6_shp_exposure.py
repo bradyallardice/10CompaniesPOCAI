@@ -1019,7 +1019,8 @@ def _log_merge_coverage(result: pd.DataFrame, exp_cols: List[str], label: str):
 # =============================================================================
 
 def fill_zeros_for_matched_firms(result: pd.DataFrame, exp_cols: List[str],
-                                 observable_firm_ids: set) -> pd.DataFrame:
+                                 observable_firm_ids: set,
+                                 isco_mode: str = '4d') -> pd.DataFrame:
     """
     Fill exposure with 0 for respondent-year observations where the firm IS in
     the X28 job ad database but has no AI exposure for this occupation/year.
@@ -1036,6 +1037,8 @@ def fill_zeros_for_matched_firms(result: pd.DataFrame, exp_cols: List[str],
         result: Merged SHP × exposure DataFrame
         exp_cols: List of exposure value column names
         observable_firm_ids: Set of firm_ids from the full X28 job ad database
+        isco_mode: ISCO granularity used to gate "has ISCO" check ('4d'/'3d'/'2d').
+                   When SHP v11+ panels lack is4maj, callers should pass '3d'.
     """
     logger.info("Filling zeros for matched firms without AI exposure...")
 
@@ -1053,7 +1056,7 @@ def fill_zeros_for_matched_firms(result: pd.DataFrame, exp_cols: List[str],
     logger.info(f"    Firm NOT in X28 (unknown): {n_not_in_exposure:,}")
 
     # --- Identify rows to fill ---
-    has_isco = result['isco08_4d'].notna()
+    has_isco = result[_isco_gate_column(result, isco_mode)].notna()
     no_exposure = result[primary_col].isna()
 
     # True zeros: firm is in exposure data, has ISCO, but no match for this occ/year
