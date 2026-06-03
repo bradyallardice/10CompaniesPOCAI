@@ -358,8 +358,23 @@ def main():
                    help=f"Input CSV (default: {DEFAULT_IN.relative_to(PROJECT_ROOT)})")
     p.add_argument("--out", dest="out_path", type=Path, default=DEFAULT_OUT,
                    help=f"Output CSV (default: {DEFAULT_OUT.relative_to(PROJECT_ROOT)})")
+    p.add_argument("--x28-ref", dest="x28_ref", type=Path, default=DEFAULT_X28_REF,
+                   help=f"Existing X28 firm list to cross-check against "
+                        f"(default: {DEFAULT_X28_REF.relative_to(PROJECT_ROOT)})")
+    p.add_argument("--collisions-out", dest="collisions_path", type=Path,
+                   default=DEFAULT_COLLISIONS,
+                   help=f"Where to write collisions found in the cross-check "
+                        f"(default: {DEFAULT_COLLISIONS.relative_to(PROJECT_ROOT)})")
+    p.add_argument("--skip-x28-check", action="store_true",
+                   help="Skip the cross-check against the existing X28 firm list.")
     args = p.parse_args()
-    dedupe(args.in_path.resolve(), args.out_path.resolve())
+    dedupe(
+        args.in_path.resolve(),
+        args.out_path.resolve(),
+        x28_ref_path=args.x28_ref.resolve(),
+        collisions_path=args.collisions_path.resolve(),
+        skip_x28_check=args.skip_x28_check,
+    )
 
 
 if __name__ == "__main__":
