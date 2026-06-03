@@ -44,6 +44,145 @@ DEFAULT_IN = (
     / "x28_update_candidates_for_thomas_checked_only_larger_firms.csv"
 )
 DEFAULT_OUT = PROJECT_ROOT / "Data" / "x28_update_candidates_deduplicated.csv"
+DEFAULT_X28_REF = PROJECT_ROOT / "Data" / "company_mapping.csv"
+DEFAULT_COLLISIONS = (
+    PROJECT_ROOT / "Data" / "x28_update_candidates_existing_collisions.csv"
+)
+
+# Tokens stripped during aggressive normalization for cross-checking against
+# the existing X28 firm list. These are legal-form suffixes, country/region
+# qualifiers, and common holding/group qualifiers that we want to treat as
+# equivalent. Intentionally aggressive — false positives here are surfaced
+# for review, not auto-removed.
+_NORMALIZE_DROP = re.compile(
+    r"\b("
+    r"ag|sa|sarl|sa\.r\.l|gmbh|llc|inc|ltd|spa|s\.p\.a|s\.a|kg|ohg|eg|ev|"
+    r"gesellschaft|stiftung|fondation|verein|association|cooperative|"
+    r"kooperative|partnership|holding|group|co|services|"
+    r"schweiz|suisse|svizzera|swiss|switzerland"
+    r")\b"
+)
+
+
+def _strip_accents(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+def _norm(s):
+    """Aggressive normalization for collision detection. Strips accents,
+    lowercases, removes legal-form and country tokens, removes punctuation."""
+    if not isinstance(s, str):
+        return ""
+    s = _strip_accents(s).lower()
+    s = _NORMALIZE_DROP.sub(" ", s)
+    s = re.sub(r"[^a-z0-9 ]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def check_existing_x28(
+    dedup: pd.DataFrame, x28_path: Path, out_path: Path
+) -> pd.DataFrame:
+    """Cross-check deduplicated candidates against the existing X28 firm list.
+
+    For each candidate, normalize the canonical name AND each name variant,
+    then look them up in company_mapping.csv. Any hits represent firms that
+    are already in X28 and should NOT be on the list sent to Thomas.
+
+    Behaviour: prints collisions, writes them to out_path, and returns them.
+    Does NOT raise — the caller decides whether to act on the result. Some
+    collisions are legitimate (e.g. holding vs operating company are
+    different legal entities that share a normalized name).
+    """
+    if not x28_path.exists():
+        raise FileNotFoundError(
+            f"X28 reference file not found: {x28_path}\n"
+            f"Cannot run collision check."
+        )
+
+    ref = pd.read_csv(x28_path)
+    if "company_name" not in ref.columns:
+        raise ValueError(
+            f"X28 reference at {x28_path} is missing 'company_name' column. "
+            f"Got: {list(ref.columns)}"
+        )
+
+    ref["_norm"] = ref["company_name"].apply(_norm)
+    # name → list of (company_id, company_name) — preserves duplicate-id firms
+    norm_to_refs: dict = {}
+    for _, r in ref.iterrows():
+        n = r["_norm"]
+        if not n:
+            continue
+        norm_to_refs.setdefault(n, []).append((r.get("company_id"), r["company_name"]))
+
+    def collisions_for_row(row: pd.Series):
+        """Return list of (variant, matched_company_id, matched_company_name)."""
+        names_to_check = [row["firm_name_canonical"]]
+        if isinstance(row.get("firm_name_variants"), str):
+            names_to_check += [v.strip() for v in row["firm_name_variants"].split(";")]
+        hits = []
+        seen = set()
+        for v in names_to_check:
+            nn = _norm(v)
+            if not nn or nn not in norm_to_refs:
+                continue
+            for cid, cname in norm_to_refs[nn]:
+                key = (v.strip(), cname)
+                if key in seen:
+                    continue
+                seen.add(key)
+                hits.append({
+                    "candidate_variant": v.strip(),
+                    "x28_company_id": cid,
+                    "x28_company_name": cname,
+                })
+        return hits
+
+    rows_out = []
+    for _, r in dedup.iterrows():
+        hits = collisions_for_row(r)
+        if not hits:
+            continue
+        for h in hits:
+            rows_out.append({
+                "candidate_canonical": r["firm_name_canonical"],
+                "candidate_variant":   h["candidate_variant"],
+                "x28_company_id":      h["x28_company_id"],
+                "x28_company_name":    h["x28_company_name"],
+                "candidate_x28_status": r.get("x28_status"),
+                "n_rows_collapsed":     r.get("n_rows_collapsed"),
+                "firm_locations":       r.get("firm_locations"),
+            })
+
+    collisions = pd.DataFrame(rows_out)
+
+    print()
+    print("=" * 72)
+    print("=== Cross-check against existing X28 firm list ===")
+    print(f"  Reference:        {x28_path}  ({len(ref)} firms)")
+    print(f"  Candidates:       {len(dedup)} firms")
+    print(f"  Collision rows:   {len(collisions)} "
+          f"(unique candidates: {collisions['candidate_canonical'].nunique() if len(collisions) else 0})")
+
+    if len(collisions) == 0:
+        print()
+        print("  No collisions found. Safe to send to Thomas.")
+        return collisions
+
+    print()
+    print("  WARNING: candidates below may already be in X28. Some are likely")
+    print("  legitimate distinct entities (e.g. holding vs operating company)")
+    print("  — review each before stripping them from the deliverable.")
+    print()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    collisions.to_csv(out_path, index=False)
+    print(f"  Wrote {len(collisions)} collision rows -> {out_path}")
+    print()
+    print(collisions[
+        ["candidate_canonical", "candidate_variant", "x28_company_name", "x28_company_id"]
+    ].to_string(index=False, max_colwidth=60))
+    return collisions
 
 STATUS_PRIORITY = {
     "known_major_parent_missing": 0,
