@@ -345,6 +345,9 @@ def dedupe(
     print("\n=== NaN check on output ===")
     print(agg.isna().sum().to_string())
 
+    if not skip_x28_check:
+        check_existing_x28(agg, x28_ref_path, collisions_path)
+
     return agg
 
 
