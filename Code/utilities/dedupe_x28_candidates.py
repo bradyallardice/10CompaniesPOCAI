@@ -26,7 +26,9 @@ Output schema:
 """
 
 import argparse
+import re
 import sys
+import unicodedata
 from pathlib import Path
 
 import numpy as np
