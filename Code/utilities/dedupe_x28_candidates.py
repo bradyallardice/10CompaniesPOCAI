@@ -54,14 +54,20 @@ PARENT_SUFFIX = " not in X28"
 def extract_parent(row: pd.Series) -> str:
     """Return the canonical cluster key for a candidate row.
 
-    For known_major_parent_missing rows whose llm_rejected_match ends in
-    " not in X28" (e.g. "CHUV not in X28"), the cluster key is the parent
-    name. Otherwise it is the firm_name itself.
+    For known_major_parent_missing rows, the cluster key is the parent name
+    (e.g. "CHUV", "EPFL"). The parent name is taken from llm_rejected_match
+    or reason if they end in " not in X28". Otherwise the cluster key is
+    firm_name itself.
+
+    Schema note: older pipeline put "<parent> not in X28" in
+    llm_rejected_match; newer pipeline (post-May 2026 finalize subcommand)
+    puts it in `reason`. We check both.
     """
-    if row["x28_status"] == "known_major_parent_missing":
-        rej = row["llm_rejected_match"]
-        if isinstance(rej, str) and rej.endswith(PARENT_SUFFIX):
-            return rej[: -len(PARENT_SUFFIX)].strip()
+    if row.get("x28_status") == "known_major_parent_missing":
+        for col in ("llm_rejected_match", "reason"):
+            val = row.get(col)
+            if isinstance(val, str) and val.endswith(PARENT_SUFFIX):
+                return val[: -len(PARENT_SUFFIX)].strip()
     return row["firm_name"]
 
 
