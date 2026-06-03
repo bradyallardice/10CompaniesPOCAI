@@ -101,11 +101,7 @@ def dedupe(in_path: Path, out_path: Path) -> pd.DataFrame:
     df = pd.read_csv(in_path)
     df = df.drop(columns=[c for c in df.columns if c.startswith("Unnamed")])
 
-    required = {
-        "firm_name", "firm_location", "first_seen_year", "n_observations",
-        "years_present", "noga08_sample", "mj_mis_noga", "x28_status",
-        "llm_rejected_match",
-    }
+    required = {"firm_name", "firm_location", "x28_status", "llm_rejected_match"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(
@@ -129,23 +125,40 @@ def dedupe(in_path: Path, out_path: Path) -> pd.DataFrame:
         raise ValueError(f"cluster_key NaN in {len(bad)} rows:\n{bad}")
     print(f"Step 2: {df['cluster_key'].nunique()} distinct cluster keys")
 
-    # Step 3: aggregate
-    df["n_observations"] = pd.to_numeric(df["n_observations"], errors="coerce")
-    df["first_seen_year"] = pd.to_numeric(df["first_seen_year"], errors="coerce")
+    # Step 3: aggregate. Only operate on columns present in input — schema can vary
+    # between pipeline runs (e.g. new finalize output lacks the SHP-derived metadata
+    # fields the old pipeline added).
+    if "n_observations" in df.columns:
+        df["n_observations"] = pd.to_numeric(df["n_observations"], errors="coerce")
+    if "first_seen_year" in df.columns:
+        df["first_seen_year"] = pd.to_numeric(df["first_seen_year"], errors="coerce")
 
-    agg = df.groupby("cluster_key", dropna=False).agg(
-        firm_name_canonical=("cluster_key", "first"),
-        firm_name_variants=("firm_name", join_unique),
-        n_rows_collapsed=("firm_name", "size"),
-        firm_locations=("firm_location", join_unique),
-        first_seen_year=("first_seen_year", "min"),
-        n_observations_total=("n_observations", "sum"),
-        years_present_union=("years_present", join_unique),
-        noga08_sample=("noga08_sample", mode_or_first),
-        mj_mis_noga=("mj_mis_noga", mode_or_first),
-        x28_status=("x28_status", best_status),
-        llm_rejected_match=("llm_rejected_match", mode_or_first),
-    ).reset_index(drop=True)
+    agg_spec = {
+        "firm_name_canonical":  ("cluster_key", "first"),
+        "firm_name_variants":   ("firm_name", join_unique),
+        "n_rows_collapsed":     ("firm_name", "size"),
+        "firm_locations":       ("firm_location", join_unique),
+        "x28_status":           ("x28_status", best_status),
+        "llm_rejected_match":   ("llm_rejected_match", mode_or_first),
+    }
+    optional_aggs = [
+        ("first_seen_year",      "first_seen_year", "min"),
+        ("n_observations_total", "n_observations", "sum"),
+        ("years_present_union",  "years_present", join_unique),
+        ("noga08_sample",        "noga08_sample", mode_or_first),
+        ("mj_mis_noga",          "mj_mis_noga", mode_or_first),
+        ("reason",               "reason", mode_or_first),
+        ("company_id",           "company_id", mode_or_first),
+        ("company_name",         "company_name", mode_or_first),
+        ("match_method",         "match_method", mode_or_first),
+        ("match_score",          "match_score", "max"),
+        ("llm_verdict",          "llm_verdict", mode_or_first),
+    ]
+    for out_col, in_col, fn in optional_aggs:
+        if in_col in df.columns:
+            agg_spec[out_col] = (in_col, fn)
+
+    agg = df.groupby("cluster_key", dropna=False).agg(**agg_spec).reset_index(drop=True)
 
     agg = agg.sort_values(
         ["n_rows_collapsed", "firm_name_canonical"], ascending=[False, True]
