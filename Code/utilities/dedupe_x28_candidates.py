@@ -241,7 +241,13 @@ def best_status(series: pd.Series):
     return sorted(s, key=lambda x: STATUS_PRIORITY.get(x, 99))[0]
 
 
-def dedupe(in_path: Path, out_path: Path) -> pd.DataFrame:
+def dedupe(
+    in_path: Path,
+    out_path: Path,
+    x28_ref_path: Path = DEFAULT_X28_REF,
+    collisions_path: Path = DEFAULT_COLLISIONS,
+    skip_x28_check: bool = False,
+) -> pd.DataFrame:
     if not in_path.exists():
         raise FileNotFoundError(f"Input file not found: {in_path}")
 
