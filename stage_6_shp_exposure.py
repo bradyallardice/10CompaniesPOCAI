@@ -1340,30 +1340,56 @@ def run_pipeline(args):
 
     # --- Level 2 (fo): Firm × Occupation (time-invariant) ---
     if args.exposure_file_firm_occ:
-        logger.info("\n--- Level 2: Firm × Occupation (time-invariant) ---")
+        logger.info("\n--- Level 2: Firm × Occupation (time-invariant) [from Stage-5 file] ---")
         exposure_fo_4d = load_exposure_generic(args.exposure_file_firm_occ, 'fo', mapping_path)
         fo_group_base = ['firm_id']
         exposure_fo_3d = aggregate_exposure_generic(exposure_fo_4d, 3, fo_group_base, employment_weights)
         exposure_fo_2d = aggregate_exposure_generic(exposure_fo_4d, 2, fo_group_base, employment_weights)
         all_levels['fo'] = {'4d': exposure_fo_4d, '3d': exposure_fo_3d, '2d': exposure_fo_2d}
+    else:
+        # No Stage-5 fo file — compute from foy at each ISCO granularity by
+        # collapsing the year dimension. ISCO codes have already been
+        # aggregated (4d→3d→2d) in exposure_foy_{3d,2d}, so we compute fo
+        # directly from those instead of going through a (no-op at this
+        # stage) 4d→3d step on the fo data.
+        logger.info("\n--- Level 2: Firm × Occupation (computed from foy at each granularity) ---")
+        all_levels['fo'] = {
+            '4d': compute_level_from_foy(exposure_foy_4d, 'isco08_4d', keep_firm=True, keep_year=False),
+            '3d': compute_level_from_foy(exposure_foy_3d, 'isco_3d',   keep_firm=True, keep_year=False),
+            '2d': compute_level_from_foy(exposure_foy_2d, 'isco_2d',   keep_firm=True, keep_year=False),
+        }
 
     # --- Level 3 (oy): Occupation × Year ---
     if args.exposure_file_occ_year:
-        logger.info("\n--- Level 3: Occupation × Year ---")
+        logger.info("\n--- Level 3: Occupation × Year [from Stage-5 file] ---")
         exposure_oy_4d = load_exposure_generic(args.exposure_file_occ_year, 'oy', mapping_path)
         oy_group_base = ['year']
         exposure_oy_3d = aggregate_exposure_generic(exposure_oy_4d, 3, oy_group_base, employment_weights)
         exposure_oy_2d = aggregate_exposure_generic(exposure_oy_4d, 2, oy_group_base, employment_weights)
         all_levels['oy'] = {'4d': exposure_oy_4d, '3d': exposure_oy_3d, '2d': exposure_oy_2d}
+    else:
+        logger.info("\n--- Level 3: Occupation × Year (computed from foy at each granularity) ---")
+        all_levels['oy'] = {
+            '4d': compute_level_from_foy(exposure_foy_4d, 'isco08_4d', keep_firm=False, keep_year=True),
+            '3d': compute_level_from_foy(exposure_foy_3d, 'isco_3d',   keep_firm=False, keep_year=True),
+            '2d': compute_level_from_foy(exposure_foy_2d, 'isco_2d',   keep_firm=False, keep_year=True),
+        }
 
     # --- Level 4 (o): Occupation (time-invariant) ---
     if args.exposure_file_occ:
-        logger.info("\n--- Level 4: Occupation (time-invariant) ---")
+        logger.info("\n--- Level 4: Occupation (time-invariant) [from Stage-5 file] ---")
         exposure_o_4d = load_exposure_generic(args.exposure_file_occ, 'o', mapping_path)
         o_group_base = []
         exposure_o_3d = aggregate_exposure_generic(exposure_o_4d, 3, o_group_base, employment_weights)
         exposure_o_2d = aggregate_exposure_generic(exposure_o_4d, 2, o_group_base, employment_weights)
         all_levels['o'] = {'4d': exposure_o_4d, '3d': exposure_o_3d, '2d': exposure_o_2d}
+    else:
+        logger.info("\n--- Level 4: Occupation (time-invariant, computed from foy at each granularity) ---")
+        all_levels['o'] = {
+            '4d': compute_level_from_foy(exposure_foy_4d, 'isco08_4d', keep_firm=False, keep_year=False),
+            '3d': compute_level_from_foy(exposure_foy_3d, 'isco_3d',   keep_firm=False, keep_year=False),
+            '2d': compute_level_from_foy(exposure_foy_2d, 'isco_2d',   keep_firm=False, keep_year=False),
+        }
 
     # --- Level 5 (fy): Firm × Year (derived from Level 1) ---
     logger.info("\n--- Level 5: Firm × Year (derived from Level 1) ---")
