@@ -918,9 +918,28 @@ class TaskFirmExposurePipeline:
         if os.path.exists(filepath):
             logger.info(f"Using Stage 4 file: {filename}")
         else:
-            logger.warning(f"  WARNING: Stage 4 file not found: {filename}")
+            # Fall back to any job_app_mapping_*.parquet in stage_4_dir. The
+            # mapping (app_text → job_uid) doesn't depend on which BGE/CE
+            # spec subset is being processed downstream — it was produced
+            # once by the original stage_4 run and named after that run's
+            # full spec list, so a single-spec stage_5 invocation (e.g.
+            # --bge-percentiles 5) will construct a filename the file
+            # doesn't carry. The content is still the right mapping.
+            import glob
+            candidates = sorted(glob.glob(os.path.join(self.stage_4_dir, "job_app_mapping_*.parquet")))
+            if candidates:
+                filepath = candidates[0]
+                logger.warning(
+                    f"  WARNING: exact filename {filename!r} not found; "
+                    f"falling back to {os.path.basename(filepath)!r}"
+                )
+            else:
+                raise FileNotFoundError(
+                    f"No job_app_mapping_*.parquet found in {self.stage_4_dir}\n"
+                    f"Expected: {filename}"
+                )
 
-        mapping_df = pd.read_parquet(self.stage_4_dir + filename)
+        mapping_df = pd.read_parquet(filepath)
 
         # Strictly require ai_app_id (no fallback hashing per user directive)
         if 'ai_app_id' not in mapping_df.columns:
