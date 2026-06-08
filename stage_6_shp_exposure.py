@@ -564,6 +564,61 @@ def derive_firm_level_exposure(exposure_firm_occ: pd.DataFrame,
     return result
 
 
+def compute_level_from_foy(exposure_foy: pd.DataFrame,
+                            isco_col: str,
+                            keep_firm: bool,
+                            keep_year: bool) -> pd.DataFrame:
+    """
+    Compute a non-foy exposure level (_fo / _oy / _o) from foy data at a
+    fixed ISCO granularity (4d / 3d / 2d).
+
+    Caller is responsible for passing foy at the desired granularity — e.g.
+    exposure_foy_3d (already aggregated 4d→3d via aggregate_exposure_generic).
+    This function just collapses across the unwanted dimension(s).
+
+    Combinations:
+        keep_firm=True,  keep_year=False → _fo  (Firm × Occ, time-invariant)
+        keep_firm=False, keep_year=True  → _oy  (Occ × Year)
+        keep_firm=False, keep_year=False → _o   (Occ, time-invariant)
+        (keep_firm=True, keep_year=True is just foy — caller should skip.)
+    """
+    if isco_col not in exposure_foy.columns:
+        raise ValueError(
+            f"compute_level_from_foy: '{isco_col}' missing from input "
+            f"columns: {list(exposure_foy.columns)}"
+        )
+    core_cols = [c for c in EXPOSURE_CORE_COLUMNS if c in exposure_foy.columns]
+
+    group_cols: List[str] = []
+    if keep_firm:
+        if 'firm_id' not in exposure_foy.columns:
+            raise ValueError("compute_level_from_foy: keep_firm=True but 'firm_id' missing")
+        group_cols.append('firm_id')
+    group_cols.append(isco_col)
+    if keep_year:
+        if 'year' not in exposure_foy.columns:
+            raise ValueError("compute_level_from_foy: keep_year=True but 'year' missing")
+        group_cols.append('year')
+
+    # Drop rows with NaN ISCO before aggregating; otherwise rows with NaN
+    # propagate as a junk group that no SHP row will ever match.
+    valid = exposure_foy.dropna(subset=[isco_col])
+    if len(valid) == 0:
+        return pd.DataFrame(columns=group_cols + core_cols)
+
+    result = valid.groupby(group_cols, as_index=False)[core_cols].mean()
+
+    if keep_firm and not keep_year:
+        label = f"firm×occ (time-invariant, {isco_col})"
+    elif keep_year and not keep_firm:
+        label = f"occ×year ({isco_col})"
+    else:
+        label = f"occ (time-invariant, {isco_col})"
+    logger.info(f"  Computed {label}: {len(valid):,} foy rows → {len(result):,} aggregated rows")
+
+    return result
+
+
 def aggregate_exposure_generic(exposure_4d: pd.DataFrame,
                                 target_digit: int,
                                 group_cols_base: List[str],
