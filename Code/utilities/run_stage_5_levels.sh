@@ -16,8 +16,8 @@ set -euo pipefail
 PROJECT="/Users/bradyallardice/Dropbox/Allardice/KurerAllardice2024/10CompaniesPOCAI"
 cd "$PROJECT"
 
-STAGE4_DIR="Data/Testing/stage_4_expertise/full_sample_keep_soc_15"
-STAGE4_FILE="task_exposure_matches_all_thresholds_bge_bge5_ce0p8_0p6_0p4_0p2_onet20_core.parquet"
+STAGE4_DIR="Data/Testing/stage_4_expertise/full_sample/skip_ce"
+STAGE4_FILE="task_exposure_matches_all_thresholds_bge_bge20_15_10_5_1_ce0p8_0p6_0p4_0p2_onet20_core.parquet"
 
 # Shared args. --bge-percentiles 5 and --ce-thresholds 0.0 pin the spec to
 # what the existing _foy file uses. --model bge matches the parquet name.
